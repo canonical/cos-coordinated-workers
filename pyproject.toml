@@ -35,12 +35,12 @@ classifiers = [
 ]
 [project.optional-dependencies]
 dev = [
-    #   UNIT TESTS
+    # UNIT TESTS
     "pytest",
     "pytest-cov",
     "coverage[toml]",
     "ops[testing]",
-    #   LINTING
+    # LINTING
     "pyright",
     "ruff",
 ]
@@ -54,16 +54,10 @@ include = ["py.typed"]
 # Testing tools configuration
 [tool.coverage.run]
 branch = true
-parallel = true
-omit = ["tests/**", "lib/**"]
 
 [tool.coverage.report]
 show_missing = true
 
-# Formatting tools configuration
-[tool.black]
-line-length = 99
-target-version = ["py38"]
 
 # Linting tools configuration
 [tool.ruff]
