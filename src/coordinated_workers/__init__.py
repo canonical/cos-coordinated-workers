@@ -11,6 +11,8 @@ __all__ = [
     "NginxConfig",
     "NginxPrometheusExporter",
     "Worker",
+    "ClusterProvider",
+    "ClusterRequirer",
 ]
 
 current_package = __package__
@@ -37,3 +39,5 @@ NginxConfig = _LazyModule(".nginx")
 Nginx = _LazyModule(".nginx")
 NginxPrometheusExporter = _LazyModule(".nginx")
 Worker = _LazyModule(".worker")
+ClusterProvider = _LazyModule(".interfaces/cluster")
+ClusterRequirer = _LazyModule(".interfaces/cluster")
