@@ -8,11 +8,11 @@ import pytest
 import tenacity
 from ops import testing
 
-from coordinated_workers.interfaces.cluster import ClusterProviderAppData
 from coordinated_workers.worker import (
     NoReadinessCheckEndpointConfiguredError,
     Worker,
 )
+from interfaces.cluster import ClusterProviderAppData
 
 
 @pytest.fixture(params=[True, False])

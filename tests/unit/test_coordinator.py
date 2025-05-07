@@ -12,12 +12,12 @@ from coordinated_workers.coordinator import (
     Coordinator,
     S3NotFoundError,
 )
-from coordinated_workers.interfaces.cluster import (
+from coordinated_workers.nginx import NginxConfig
+from interfaces.cluster import (
     ClusterRemovedEvent,
     ClusterRequirerAppData,
     ClusterRequirerUnitData,
 )
-from coordinated_workers.nginx import NginxConfig
 from tests.unit.test_worker import MyCharm
 
 
@@ -442,9 +442,9 @@ def test_invalid_app_or_unit_databag(
 
     # IF the relation data is invalid (forced by the patched Exception)
     object_to_patch = (
-        "coordinated_workers.interfaces.cluster.ClusterProviderAppData.load"
+        "interfaces.cluster.ClusterProviderAppData.load"
         if app
-        else "coordinated_workers.interfaces.cluster.ClusterRequirerUnitData.load"
+        else "interfaces.cluster.ClusterRequirerUnitData.load"
     )
 
     with patch(object_to_patch, side_effect=DataValidationError("Mock error")):

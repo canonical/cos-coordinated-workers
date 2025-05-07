@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2024 Canonical Ltd.
+# Copyright 2025 Canonical Ltd.
 # See LICENSE file for licensing details.
 """Generic coordinator for a distributed charm deployment."""
 
@@ -30,18 +30,18 @@ import cosl
 import ops
 import pydantic
 import yaml
-from cosl.helpers import check_libs_installed
 from cosl.interfaces.datasource_exchange import DatasourceExchange
 from ops import StatusBase
 
 from coordinated_workers import worker
-from coordinated_workers.interfaces.cluster import ClusterProvider, RemoteWriteEndpoint
 from coordinated_workers.nginx import (
     Nginx,
     NginxConfig,
     NginxMappingOverrides,
     NginxPrometheusExporter,
 )
+from helpers import check_libs_installed
+from interfaces.cluster import ClusterProvider, RemoteWriteEndpoint
 
 check_libs_installed(
     "charms.data_platform_libs.v0.s3",

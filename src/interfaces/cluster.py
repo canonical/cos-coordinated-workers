@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2024 Canonical
+# Copyright 2025 Canonical
 # See LICENSE file for licensing details.
 
 """Shared utilities for the coordinator -> worker "cluster" interface.

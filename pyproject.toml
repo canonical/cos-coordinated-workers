@@ -17,7 +17,8 @@ dependencies = [
     "ops",
     "pydantic",
     "lightkube>=v0.15.4",
-    "cosl>=0.1.0",
+    # FIXME: use cosl from pypi
+    "cosl@git+https://github.com/canonical/cos-lib@migrate-coord-workers",
     # charms.tls_certificates_interface.v3.tls_certificates
     "cryptography",
     "jsonschema",

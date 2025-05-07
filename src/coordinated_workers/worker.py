@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2024 Canonical Ltd.
+# Copyright 2025 Canonical Ltd.
 # See LICENSE file for licensing details.
 """Generic worker for a distributed charm deployment."""
 
@@ -18,12 +18,12 @@ import ops
 import tenacity
 import yaml
 from cosl import JujuTopology
-from cosl.helpers import check_libs_installed
 from ops import MaintenanceStatus, StatusBase
 from ops.model import ActiveStatus, BlockedStatus, ModelError, WaitingStatus
 from ops.pebble import Check, Layer, PathError, Plan, ProtocolError
 
-from coordinated_workers.interfaces.cluster import ClusterRequirer, TLSData
+from helpers import check_libs_installed
+from interfaces.cluster import ClusterRequirer, TLSData
 
 check_libs_installed(
     "charms.loki_k8s.v1.loki_push_api",

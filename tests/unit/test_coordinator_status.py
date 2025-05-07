@@ -11,8 +11,8 @@ from scenario import BlockedStatus
 from scenario.context import CharmEvents
 
 from coordinated_workers.coordinator import ClusterRolesConfig, Coordinator
-from coordinated_workers.interfaces.cluster import ClusterProviderAppData, ClusterRequirerAppData
 from coordinated_workers.nginx import NginxConfig
+from interfaces.cluster import ClusterProviderAppData, ClusterRequirerAppData
 from tests.unit.test_worker_status import k8s_patch
 
 my_roles = ClusterRolesConfig(
