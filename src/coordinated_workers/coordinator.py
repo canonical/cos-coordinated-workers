@@ -34,14 +34,14 @@ from cosl.interfaces.datasource_exchange import DatasourceExchange
 from ops import StatusBase
 
 from coordinated_workers import worker
+from coordinated_workers.helpers import check_libs_installed
+from coordinated_workers.interfaces.cluster import ClusterProvider, RemoteWriteEndpoint
 from coordinated_workers.nginx import (
     Nginx,
     NginxConfig,
     NginxMappingOverrides,
     NginxPrometheusExporter,
 )
-from helpers import check_libs_installed
-from interfaces.cluster import ClusterProvider, RemoteWriteEndpoint
 
 check_libs_installed(
     "charms.data_platform_libs.v0.s3",

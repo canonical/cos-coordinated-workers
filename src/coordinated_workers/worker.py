@@ -22,8 +22,8 @@ from ops import MaintenanceStatus, StatusBase
 from ops.model import ActiveStatus, BlockedStatus, ModelError, WaitingStatus
 from ops.pebble import Check, Layer, PathError, Plan, ProtocolError
 
-from helpers import check_libs_installed
-from interfaces.cluster import ClusterRequirer, TLSData
+from coordinated_workers.helpers import check_libs_installed
+from coordinated_workers.interfaces.cluster import ClusterRequirer, TLSData
 
 check_libs_installed(
     "charms.loki_k8s.v1.loki_push_api",
