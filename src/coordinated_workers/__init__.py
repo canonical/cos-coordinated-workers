@@ -11,8 +11,6 @@ __all__ = [
     "NginxConfig",
     "NginxPrometheusExporter",
     "Worker",
-    "ClusterProvider",
-    "ClusterRequirer",
 ]
 
 current_package = __package__
