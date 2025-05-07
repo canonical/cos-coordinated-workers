@@ -1,7 +1,7 @@
 # Copyright 2025 Canonical Ltd.
 # See LICENSE file for licensing details.
 
-"""Lazy-loading entrypoint for the coordinated_workers package."""
+"""Utilities to create and manage coordinated-worker charms."""
 
 import importlib
 
@@ -11,8 +11,6 @@ __all__ = [
     "NginxConfig",
     "NginxPrometheusExporter",
     "Worker",
-    "ClusterProvider",
-    "ClusterRequirer",
 ]
 
 current_package = __package__
@@ -39,5 +37,4 @@ NginxConfig = _LazyModule(".nginx")
 Nginx = _LazyModule(".nginx")
 NginxPrometheusExporter = _LazyModule(".nginx")
 Worker = _LazyModule(".worker")
-ClusterProvider = _LazyModule(".interfaces/cluster")
-ClusterRequirer = _LazyModule(".interfaces/cluster")
+
