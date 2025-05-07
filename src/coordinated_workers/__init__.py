@@ -39,5 +39,4 @@ NginxConfig = _LazyModule(".nginx")
 Nginx = _LazyModule(".nginx")
 NginxPrometheusExporter = _LazyModule(".nginx")
 Worker = _LazyModule(".worker")
-ClusterProvider = _LazyModule(".interfaces.cluster")
-ClusterRequirer = _LazyModule(".interfaces.cluster")
+
