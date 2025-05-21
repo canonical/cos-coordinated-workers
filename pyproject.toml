@@ -14,7 +14,7 @@ license = { file = "LICENSE" }
 requires-python = ">=3.8"
 dependencies = [
     "crossplane",
-    "ops",
+    "ops[tracing]",
     "pydantic",
     "lightkube>=v0.15.4",
     # FIXME: pin cosl version after https://github.com/canonical/cos-lib/pull/146 is merged
