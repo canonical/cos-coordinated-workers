@@ -14,7 +14,7 @@ license = { file = "LICENSE" }
 requires-python = ">=3.8"
 dependencies = [
     "crossplane",
-    "ops",
+    "ops[tracing]",
     "pydantic",
     "lightkube>=v0.15.4",
     # FIXME: use cosl from pypi
