@@ -1,0 +1,100 @@
+name: Distributed Solutions Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_call:
+
+jobs:
+  test-distributed-charms:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - repo: canonical/tempo-coordinator-k8s-operator
+          - repo: canonical/tempo-worker-k8s-operator
+
+    steps:
+      - name: Checkout the ${{ matrix.repo }} repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          repository: ${{ matrix.repo }}
+          ref: main
+      - name: Install dependencies
+        run: |
+          sudo snap install astral-uv --classic
+          sudo snap install yq
+          pip install tox~=4.2
+
+      - name: Update 'coordinated-workers' dependency in test charm to this branch
+        run: |
+          if [ ! -f requirements.txt ]; then
+            	uv pip compile -q --no-cache pyproject.toml -o requirements.txt
+              uv pip compile -q --no-cache --all-extras pyproject.toml -o requirements-dev.txt
+          fi
+          sed -i -e "/^coordinated-workers[ ><=]/d" -e "/canonical\/cos-coordinated-workers/d" -e "/#egg=coordinated-workers/d" requirements.txt
+          echo -e "\ngit+$GITHUB_SERVER_URL/$GITHUB_REPOSITORY@${{ github.head_ref || github.ref_name }}#egg=coordinated-workers" >> requirements.txt
+
+      - name: Run the charm's unit tests
+        id: unit
+        run: |
+          if [ -f tox.ini ]; then  # Run Tox
+            tox -e unit
+          elif [ -f Makefile ]; then # Run Make
+            make unit
+          else
+            echo "Error: Taskrunner file not found."
+            exit 1
+          fi
+
+      - name: Run the charm's static analysis checks
+        id: static
+        run: |
+          if [ -f tox.ini ]; then  # Run Tox
+            tox -e static
+          elif [ -f Makefile ]; then # Run Make
+            make static
+          else
+            echo "Error: Taskrunner file not found."
+            exit 1
+          fi
+
+      - name: Setup Charmcraft's pip cache
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/snap/charmcraft/common/cache/charmcraft/
+          key: charmcraft-cache-${{ github.job }}-${{ strategy.job-index }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: charmcraft-cache
+
+      - name: Get IP range
+        id: ip_range
+        run: |
+          echo "ip_range=$(ip -4 -j route get 2.2.2.2 | jq -r '.[] | .prefsrc')/32" >> $GITHUB_OUTPUT
+
+      - name: Setup operator environment (k8s)
+        uses: charmed-kubernetes/actions-operator@main
+        with:
+          juju-channel: 3.6/stable
+          provider: microk8s
+          channel: 1.32-strict/stable
+          microk8s-group: snap_microk8s
+          microk8s-addons: "hostpath-storage dns metallb:${{ steps.ip_range.outputs.ip_range }}"
+          charmcraft-channel: "3.x/candidate"
+
+      - name: Run the charm's integration tests
+        run: |
+          if [ -f tox.ini ]; then  # Run Tox
+            tox -vve integration
+          elif [ -f Makefile ]; then # Run Make
+            make integration
+          else
+            echo "Error: Taskrunner file not found."
+            exit 1
+          fi
+        if: steps.unit.outcome == 'success' && steps.static.outcome == 'success'
