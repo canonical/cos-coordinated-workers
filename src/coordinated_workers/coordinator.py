@@ -44,7 +44,7 @@ from coordinated_workers.nginx import (
 )
 
 check_libs_installed(
-    "charms.data_platform_libs.v0.s3",
+    "charms.data_platform_libs.v0.data_interfaces",
     "charms.grafana_k8s.v0.grafana_source",
     "charms.grafana_k8s.v0.grafana_dashboard",
     "charms.observability_libs.v1.cert_handler",
@@ -57,7 +57,6 @@ check_libs_installed(
 )
 
 from charms.catalogue_k8s.v1.catalogue import CatalogueConsumer, CatalogueItem
-from charms.data_platform_libs.v0.s3 import S3Requirer
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.loki_k8s.v1.loki_push_api import LogForwarder, LokiPushApiConsumer
 from charms.observability_libs.v0.kubernetes_compute_resources_patch import (
@@ -68,6 +67,10 @@ from charms.observability_libs.v1.cert_handler import VAULT_SECRET_LABEL, CertHa
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from charms.tempo_coordinator_k8s.v0.tracing import ReceiverProtocol, TracingEndpointRequirer
 from lightkube.models.core_v1 import ResourceRequirements
+
+from coordinated_workers.s3_lib import (
+    S3Requires,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -292,7 +295,7 @@ class Coordinator(ops.Object):
             sans=[self.hostname, *self.cluster.gather_addresses()],
         )
 
-        self.s3_requirer = S3Requirer(self._charm, self._endpoints["s3"])
+        self.s3_requirer = S3Requires(self._charm, self._endpoints["s3"])
         self.datasource_exchange = DatasourceExchange(
             self._charm,
             provider_endpoint=self._endpoints.get("send-datasource", None),
@@ -783,5 +786,7 @@ class Coordinator(ops.Object):
             "memory": self._charm.model.config.get(memory_limit_key),
         }
         return adjust_resource_requirements(
-            limits, self._resources_requests_getter(), adhere_to_requests=True  # type: ignore
+            limits,
+            self._resources_requests_getter(),
+            adhere_to_requests=True,  # type: ignore
         )
