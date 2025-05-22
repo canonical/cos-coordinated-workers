@@ -12,6 +12,7 @@ import shutil
 import socket
 from dataclasses import dataclass
 from functools import partial
+from pathlib import Path
 from typing import (
     Any,
     Callable,
@@ -31,7 +32,8 @@ import ops
 import pydantic
 import yaml
 from cosl.interfaces.datasource_exchange import DatasourceExchange
-from ops import StatusBase
+from opentelemetry import trace
+from ops import LifecycleEvent, StatusBase
 
 from coordinated_workers import worker
 from coordinated_workers.helpers import check_libs_installed
@@ -76,6 +78,7 @@ NGINX_ORIGINAL_ALERT_RULES_PATH = "./src/prometheus_alert_rules/nginx"
 WORKER_ORIGINAL_ALERT_RULES_PATH = "./src/prometheus_alert_rules/workers"
 # The path of the rules that will be sent to Prometheus
 CONSOLIDATED_ALERT_RULES_PATH = "./src/prometheus_alert_rules/consolidated_rules"
+_tracer = trace.get_tracer("coordinator.tracer")
 
 
 class S3NotFoundError(Exception):
@@ -248,13 +251,26 @@ class Coordinator(ops.Object):
         super().__init__(charm, key="coordinator")
         _validate_container_name(container_name, resources_requests)
 
+        # static attributes
         self._charm = charm
-        self.topology = cosl.JujuTopology.from_charm(self._charm)
         self._external_url = external_url
         self._worker_metrics_port = worker_metrics_port
         self._endpoints = endpoints
-        self.roles_config = roles_config
+        self._roles_config = roles_config
+        self._container_name = container_name
+        self._resources_limit_options = resources_limit_options or {}
+        self._catalogue_item = catalogue_item
 
+        # dynamic attributes (callbacks)
+        self._override_coherency_checker = is_coherent
+        self._override_recommended_checker = is_recommended
+        self._resources_requests_getter = (
+            partial(resources_requests, self) if resources_requests is not None else None
+        )
+        self._remote_write_endpoints_getter = remote_write_endpoints
+        self._workers_config_getter = partial(workers_config, self)
+
+        ## Integrations
         self.cluster = ClusterProvider(
             self._charm,
             frozenset(roles_config.roles),
@@ -263,16 +279,6 @@ class Coordinator(ops.Object):
             worker_ports=worker_ports,
         )
 
-        self._is_coherent = is_coherent
-        self._is_recommended = is_recommended
-        self._resources_requests_getter = (
-            partial(resources_requests, self) if resources_requests is not None else None
-        )
-        self._container_name = container_name
-        self._resources_limit_options = resources_limit_options or {}
-        self.remote_write_endpoints_getter = remote_write_endpoints
-        self._catalogue_item = catalogue_item
-
         self.nginx = Nginx(
             self._charm,
             config_getter=partial(
@@ -280,7 +286,6 @@ class Coordinator(ops.Object):
             ),
             options=nginx_options,
         )
-        self._workers_config_getter = partial(workers_config, self)
         self.nginx_exporter = NginxPrometheusExporter(self._charm, options=nginx_options)
 
         self.cert_handler = CertHandler(
@@ -306,21 +311,14 @@ class Coordinator(ops.Object):
         self._logging = LokiPushApiConsumer(self._charm, relation_name=self._endpoints["logging"])
         self._log_forwarder = LogForwarder(self._charm, relation_name=self._endpoints["logging"])
 
-        # Provide ability for this to be scraped by Prometheus using prometheus_scrape
-        refresh_events = [self._charm.on.update_status, self.cluster.on.changed]
-        if self.cert_handler:
-            refresh_events.append(self.cert_handler.on.cert_changed)
-
-        self._render_alert_rules()
         self._scraping = MetricsEndpointProvider(
             self._charm,
             relation_name=self._endpoints["metrics"],
             alert_rules_path=CONSOLIDATED_ALERT_RULES_PATH,
             jobs=self._scrape_jobs,
             external_url=self._external_url,
-            refresh_event=refresh_events,
+            refresh_event=[self._charm.on.update_status, self.cluster.on.changed, self.cert_handler.on.cert_changed],
         )
-
         self.charm_tracing = TracingEndpointRequirer(
             self._charm,
             relation_name=self._endpoints["charm-tracing"],
@@ -343,12 +341,7 @@ class Coordinator(ops.Object):
             else None
         )
 
-        self.catalogue = (
-            CatalogueConsumer(self._charm, item=self._catalogue_item)
-            if self._endpoints.get("catalogue", None)
-            else None
-        )
-
+        ## Observers
         # We always listen to collect-status
         self.framework.observe(self._charm.on.collect_unit_status, self._on_collect_unit_status)
 
@@ -371,13 +364,42 @@ class Coordinator(ops.Object):
         if self.cluster.has_workers and not self.s3_ready:
             logger.error(
                 f"Incoherent deployment. {charm.unit.name} will be shutting down. "
-                "This likely means you need to add an s3 integration. "
+                "This likely means you need to add an s3 integration, or wait for it to be ready. "
                 "This charm will be unresponsive and refuse to handle any event until "
                 "the situation is resolved by the cloud admin, to avoid data loss."
             )
             return
 
+        for _, event in self._charm.on.events():
+            # ignore LifecycleEvents: we want to execute the reconciler exactly once per juju hook.
+            if isinstance(event, LifecycleEvent):
+                continue
+            self.framework.observe(event, self._on_any_event)
+
+    def _on_any_event(self, _):
+        """Common entry hook."""
         self._reconcile()
+
+    def _reconcile(self):
+        """Run all logic that is independent of what event we're processing."""
+        # There could be a race between the resource patch and pebble operations
+        # i.e., charm code proceeds beyond a can_connect guard, and then lightkube patches the statefulset
+        # and the workload is no longer available.
+        # `resources_patch` might be `None` when no resources requests or limits are requested by the charm.
+        if self.resources_patch and not self.resources_patch.is_ready():
+            logger.debug("Resource patch not ready yet. Skipping cluster update step.")
+            return
+
+        self.nginx.reconcile()
+        self.nginx_exporter.reconcile()
+
+        self._reconcile_nginx_tls_certs()
+        self._reconcile_cluster_relations()
+        self._render_alert_rules()
+
+        if catalogue_relation_name := self._endpoints.get("catalogue"):
+            catalogue = CatalogueConsumer(self._charm, relation_name=catalogue_relation_name)
+            catalogue.update_item(self._catalogue_item)
 
     ######################
     # UTILITY PROPERTIES #
@@ -400,16 +422,16 @@ class Coordinator(ops.Object):
     @property
     def is_coherent(self) -> bool:
         """Check whether this coordinator is coherent."""
-        if manual_coherency_checker := self._is_coherent:
-            return manual_coherency_checker(self.cluster, self.roles_config)
+        if override_coherency_checker := self._override_coherency_checker:
+            return override_coherency_checker(self.cluster, self._roles_config)
 
-        return self.roles_config.is_coherent_with(self.cluster.gather_roles().keys())
+        return self._roles_config.is_coherent_with(self.cluster.gather_roles().keys())
 
     @property
     def missing_roles(self) -> Set[str]:
         """What roles are missing from this cluster, if any."""
         roles = self.cluster.gather_roles()
-        missing_roles: Set[str] = set(self.roles_config.minimal_deployment).difference(
+        missing_roles: Set[str] = set(self._roles_config.minimal_deployment).difference(
             roles.keys()
         )
         return missing_roles
@@ -420,10 +442,10 @@ class Coordinator(ops.Object):
 
         Will return None if no recommended criterion is defined.
         """
-        if manual_recommended_checker := self._is_recommended:
-            return manual_recommended_checker(self.cluster, self.roles_config)
+        if override_recommended_checker := self._override_recommended_checker:
+            return override_recommended_checker(self.cluster, self._roles_config)
 
-        rc = self.roles_config
+        rc = self._roles_config
         if not rc.recommended_deployment:
             # we don't have a definition of recommended: return None
             return None
@@ -634,7 +656,7 @@ class Coordinator(ops.Object):
     ###################
     # UTILITY METHODS #
     ###################
-    def _update_nginx_tls_certificates(self) -> None:
+    def _reconcile_nginx_tls_certs(self) -> None:
         """Update the TLS certificates for nginx on disk according to their availability."""
         if self.tls_available:
             self.nginx.configure_tls(
@@ -644,21 +666,6 @@ class Coordinator(ops.Object):
             )
         else:
             self.nginx.delete_certificates()
-
-    def _reconcile(self):
-        """Run all logic that is independent of what event we're processing."""
-        # There could be a race between the resource patch and pebble operations
-        # i.e., charm code proceeds beyond a can_connect guard, and then lightkube patches the statefulset
-        # and the workload is no longer available.
-        # `resources_patch` might be `None` when no resources requests or limits are requested by the charm.
-        if self.resources_patch and not self.resources_patch.is_ready():
-            logger.debug("Resource patch not ready yet. Skipping cluster update step.")
-            return
-
-        self._update_nginx_tls_certificates()
-        self.update_cluster()
-        if self.catalogue:
-            self.catalogue.update_item(item=self._catalogue_item)  # type: ignore
 
     @property
     def _peers(self) -> Optional[Set[ops.model.Unit]]:
@@ -694,14 +701,8 @@ class Coordinator(ops.Object):
 
         return endpoints
 
-    def update_cluster(self):
+    def _reconcile_cluster_relations(self):
         """Build the workers config and distribute it to the relations."""
-        self.nginx.configure_pebble_layer()
-        self.nginx_exporter.configure_pebble_layer()
-        if not self.is_coherent:
-            logger.error("skipped cluster update: incoherent deployment")
-            return
-
         if not self._charm.unit.is_leader():
             return
 
@@ -722,8 +723,8 @@ class Coordinator(ops.Object):
             charm_tracing_receivers=self._charm_tracing_receivers_urls,
             workload_tracing_receivers=self._workload_tracing_receivers_urls,
             remote_write_endpoints=(
-                self.remote_write_endpoints_getter()
-                if self.remote_write_endpoints_getter
+                self._remote_write_endpoints_getter()
+                if self._remote_write_endpoints_getter
                 else None
             ),
             s3_tls_ca_chain=self.s3_connection_info.ca_cert,
@@ -731,9 +732,14 @@ class Coordinator(ops.Object):
 
     def _render_workers_alert_rules(self):
         """Regenerate the worker alert rules from relation data."""
-        self._remove_rendered_alert_rules()
+        # clear the rendered rules
+        with _tracer.start_as_current_span("clearing rendered rules"):
+            files = glob.glob(f"{CONSOLIDATED_ALERT_RULES_PATH}/rendered_*")
+            for f in files:
+                os.remove(f)
 
         apps: Set[str] = set()
+        to_write = {}
         for worker_topology in self.cluster.gather_topology():
             if worker_topology["application"] in apps:
                 continue
@@ -754,24 +760,20 @@ class Coordinator(ops.Object):
             file_name = (
                 f"{CONSOLIDATED_ALERT_RULES_PATH}/rendered_{worker_topology['application']}.rules"
             )
-            with open(file_name, "w") as writer:
-                writer.write(alert_rules_contents)
+            to_write[file_name] = alert_rules_contents
 
-    def _remove_rendered_alert_rules(self):
-        files = glob.glob(f"{CONSOLIDATED_ALERT_RULES_PATH}/rendered_*")
-        for f in files:
-            os.remove(f)
-
-    def _consolidate_nginx_alert_rules(self):
-        """Copy Nginx alert rules to the consolidated alert folder."""
-        for filename in glob.glob(os.path.join(NGINX_ORIGINAL_ALERT_RULES_PATH, "*.*")):
-            shutil.copy(filename, f"{CONSOLIDATED_ALERT_RULES_PATH}/")
+        with _tracer.start_as_current_span("writing rendered rules"):
+            for file_name, alert_rules_contents in to_write.items():
+                Path(file_name).write_text(alert_rules_contents)
 
     def _render_alert_rules(self):
         """Render the alert rules for Nginx and the connected workers."""
-        os.makedirs(CONSOLIDATED_ALERT_RULES_PATH, exist_ok=True)
-        self._render_workers_alert_rules()
-        self._consolidate_nginx_alert_rules()
+        with _tracer.start_as_current_span("render alert rules"):
+            os.makedirs(CONSOLIDATED_ALERT_RULES_PATH, exist_ok=True)
+            self._render_workers_alert_rules()
+            # Copy Nginx alert rules to the consolidated alert folder
+            for filename in glob.glob(os.path.join(NGINX_ORIGINAL_ALERT_RULES_PATH, "*.*")):
+                shutil.copy(filename, f"{CONSOLIDATED_ALERT_RULES_PATH}/")
 
     def _adjust_resource_requirements(self) -> ResourceRequirements:
         """A method that gets called by `KubernetesComputeResourcesPatch` to adjust the resources requests and limits to patch."""

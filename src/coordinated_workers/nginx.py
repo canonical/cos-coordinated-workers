@@ -126,7 +126,16 @@ Any charm can instantiate `NginxConfig` to generate its own Nginx configuration 
             pass
 
         def _reconcile(self):
-            self.configure_pebble_layer()
+            if self._container.can_connect():
+                new_config: str = self._nginx.get_config(self._upstream_addresses, self._tls_available)
+                should_restart: bool = self._has_config_changed(new_config)
+                self._container.push(self.config_path, new_config, make_dirs=True)
+                self._container.add_layer("nginx", self.layer, combine=True)
+                self._container.autostart()
+
+                if should_restart:
+                    logger.info("new nginx config: restarting the service")
+                    self.reload()
 
         def _nginx_upstreams(self) -> List[NginxUpstream]:
             # UPSTREAMS is a list of backend services that we want to route traffic to
@@ -140,19 +149,7 @@ Any charm can instantiate `NginxConfig` to generate its own Nginx configuration 
             # Note that: you can define multiple server blocks, each running on a different port
             return {NGINX_PORT: self._nginx_locations}
 
-        def configure_pebble_layer(self) -> None:
-            if self._container.can_connect():
-                new_config: str = self._nginx.get_config(self._upstream_addresses, self._tls_available)
-                should_restart: bool = self._has_config_changed(new_config)
-                self._container.push(self.config_path, new_config, make_dirs=True)
-                self._container.add_layer("nginx", self.layer, combine=True)
-                self._container.autostart()
-
-                if should_restart:
-                    logger.info("new nginx config: restarting the service")
-                    self.reload()
 """
-
 import logging
 import subprocess
 from dataclasses import dataclass, field
@@ -160,6 +157,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Literal, Optional, Set, TypedDict, cast
 
 import crossplane  # type: ignore
+from opentelemetry import trace
 from ops import CharmBase, pebble
 
 logger = logging.getLogger(__name__)
@@ -182,6 +180,8 @@ DEFAULT_OPTIONS: _NginxMapping = {
     "nginx_exporter_port": 9113,
 }
 RESOLV_CONF_PATH = "/etc/resolv.conf"
+
+_tracer = trace.get_tracer("nginx.tracer")
 
 
 # Define valid Nginx `location` block modifiers.
@@ -674,6 +674,11 @@ class Nginx:
 
     def configure_tls(self, private_key: str, server_cert: str, ca_cert: str) -> None:
         """Save the certificates file to disk and run update-ca-certificates."""
+        with _tracer.start_as_current_span("write ca cert"):
+            # push CA cert to charm container
+            Path(CA_CERT_PATH).parent.mkdir(parents=True, exist_ok=True)
+            Path(CA_CERT_PATH).write_text(ca_cert)
+
         if self._container.can_connect():
             # Read the current content of the files (if they exist)
             current_server_cert = (
@@ -699,25 +704,21 @@ class Nginx:
             self._container.push(CERT_PATH, server_cert, make_dirs=True)
             self._container.push(CA_CERT_PATH, ca_cert, make_dirs=True)
 
-            # push CA cert to charm container
-            Path(CA_CERT_PATH).parent.mkdir(parents=True, exist_ok=True)
-            Path(CA_CERT_PATH).write_text(ca_cert)
-
-            # FIXME: uncomment as soon as the nginx image contains the ca-certificates package
+            # TODO: uncomment when/if the nginx image contains the ca-certificates package
             # self._container.exec(["update-ca-certificates", "--fresh"])
 
     def delete_certificates(self) -> None:
         """Delete the certificate files from disk and run update-ca-certificates."""
-        if self._container.can_connect():
-            if self._container.exists(CERT_PATH):
-                self._container.remove_path(CERT_PATH, recursive=True)
-            if self._container.exists(KEY_PATH):
-                self._container.remove_path(KEY_PATH, recursive=True)
-            if self._container.exists(CA_CERT_PATH):
-                self._container.remove_path(CA_CERT_PATH, recursive=True)
+        with _tracer.start_as_current_span("delete ca cert"):
             if Path(CA_CERT_PATH).exists():
                 Path(CA_CERT_PATH).unlink(missing_ok=True)
-            # FIXME: uncomment as soon as the nginx image contains the ca-certificates package
+
+        if self._container.can_connect():
+            for path in (CERT_PATH, KEY_PATH, CA_CERT_PATH):
+                if self._container.exists(path):
+                    self._container.remove_path(path, recursive=True)
+
+            # TODO: uncomment when/if the nginx image contains the ca-certificates package
             # self._container.exec(["update-ca-certificates", "--fresh"])
 
     def _has_config_changed(self, new_config: str) -> bool:
@@ -738,23 +739,19 @@ class Nginx:
 
         return current_config != new_config
 
-    def reload(self) -> None:
-        """Reload the nginx config without restarting the service."""
+    def reconcile(self):
+        """Configure pebble layer and restart if necessary."""
         if self._container.can_connect():
-            self._container.exec(["nginx", "-s", "reload"])
-
-    def configure_pebble_layer(self) -> None:
-        """Configure pebble layer."""
-        if self._container.can_connect():
-            new_config: str = self._config_getter(self.are_certificates_on_disk)
-            should_restart: bool = self._has_config_changed(new_config)
+            new_config = self._config_getter(self.are_certificates_on_disk)
+            should_restart = self._has_config_changed(new_config)
             self._container.push(self.config_path, new_config, make_dirs=True)  # type: ignore
             self._container.add_layer("nginx", self.layer, combine=True)
             self._container.autostart()
 
             if should_restart:
                 logger.info("new nginx config: restarting the service")
-                self.reload()
+                # Reload the nginx config without restarting the service
+                self._container.exec(["nginx", "-s", "reload"])
 
     @property
     def layer(self) -> pebble.Layer:
@@ -785,8 +782,8 @@ class NginxPrometheusExporter:
         self._container = self._charm.unit.get_container("nginx-prometheus-exporter")
         self.options.update(options or {})
 
-    def configure_pebble_layer(self) -> None:
-        """Configure pebble layer."""
+    def reconcile(self):
+        """Configure pebble layer and restart if necessary."""
         if self._container.can_connect():
             self._container.add_layer("nginx-prometheus-exporter", self.layer, combine=True)
             self._container.autostart()
