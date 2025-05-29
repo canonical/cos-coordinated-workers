@@ -546,19 +546,20 @@ class Worker(ops.Object):
 
         Assumes that pebble can connect.
         """
+        curr_services = self._container.get_plan().services
         # we might be unable to retrieve self.pebble_layer if something goes wrong generating it
         # for example because we're being torn down and the environment is being weird
         services = tuple(
             self.pebble_layer.services
             if self.pebble_layer
-            else self._container.get_plan().services
+            else curr_services
         )
 
         if not services:
             logger.warning("nothing to stop: no services found in layer or plan")
             return
-
-        self._container.stop(*services)
+        if curr_services:
+            self._container.stop(*services)
 
     def _update_cluster_relation(self) -> None:
         """Publish all the worker information to relation data."""
