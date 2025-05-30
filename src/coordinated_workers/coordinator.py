@@ -289,7 +289,7 @@ class Coordinator(ops.Object):
             # let's assume we don't need the peer relation as all coordinator charms will assume juju secrets
             key="coordinator-server-cert",
             # update certificate with new SANs whenever a worker is added/removed
-            sans=[self.hostname, *self.cluster.gather_addresses()],
+            sans=[self.unit_hostname, self.app_hostname, *self.cluster.gather_addresses()],
         )
 
         self.s3_requirer = S3Requirer(self._charm, self._endpoints["s3"])
@@ -441,15 +441,20 @@ class Coordinator(ops.Object):
         return self.cluster.has_workers and self.is_coherent and self.s3_ready
 
     @property
-    def hostname(self) -> str:
+    def unit_hostname(self) -> str:
         """Unit's hostname."""
         return socket.getfqdn()
+
+    @property
+    def app_hostname(self) -> str:
+        """App's hostname."""
+        return f"{self._charm.app.name}.{self._charm.model.name}.svc.cluster.local"
 
     @property
     def _internal_url(self) -> str:
         """Unit's hostname including the scheme."""
         scheme = "https" if self.tls_available else "http"
-        return f"{scheme}://{self.hostname}"
+        return f"{scheme}://{self.unit_hostname}"
 
     @property
     def tls_available(self) -> bool:
@@ -576,7 +581,7 @@ class Coordinator(ops.Object):
         """The Prometheus scrape job for Nginx."""
         job: Dict[str, Any] = {
             "static_configs": [
-                {"targets": [f"{self.hostname}:{self.nginx.options['nginx_exporter_port']}"]}
+                {"targets": [f"{self.unit_hostname}:{self.nginx.options['nginx_exporter_port']}"]}
             ]
         }
 
@@ -783,5 +788,7 @@ class Coordinator(ops.Object):
             "memory": self._charm.model.config.get(memory_limit_key),
         }
         return adjust_resource_requirements(
-            limits, self._resources_requests_getter(), adhere_to_requests=True  # type: ignore
+            limits,
+            self._resources_requests_getter(),
+            adhere_to_requests=True,  # type: ignore
         )
