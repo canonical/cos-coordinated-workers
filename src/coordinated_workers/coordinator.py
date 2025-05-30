@@ -289,7 +289,7 @@ class Coordinator(ops.Object):
             # let's assume we don't need the peer relation as all coordinator charms will assume juju secrets
             key="coordinator-server-cert",
             # update certificate with new SANs whenever a worker is added/removed
-            sans=[self.unit_hostname, self.app_hostname, *self.cluster.gather_addresses()],
+            sans=[self.hostname, self.app_hostname, *self.cluster.gather_addresses()],
         )
 
         self.s3_requirer = S3Requirer(self._charm, self._endpoints["s3"])
@@ -441,7 +441,7 @@ class Coordinator(ops.Object):
         return self.cluster.has_workers and self.is_coherent and self.s3_ready
 
     @property
-    def unit_hostname(self) -> str:
+    def hostname(self) -> str:
         """Unit's hostname."""
         return socket.getfqdn()
 
@@ -454,7 +454,7 @@ class Coordinator(ops.Object):
     def _internal_url(self) -> str:
         """Unit's hostname including the scheme."""
         scheme = "https" if self.tls_available else "http"
-        return f"{scheme}://{self.unit_hostname}"
+        return f"{scheme}://{self.hostname}"
 
     @property
     def tls_available(self) -> bool:
@@ -581,7 +581,7 @@ class Coordinator(ops.Object):
         """The Prometheus scrape job for Nginx."""
         job: Dict[str, Any] = {
             "static_configs": [
-                {"targets": [f"{self.unit_hostname}:{self.nginx.options['nginx_exporter_port']}"]}
+                {"targets": [f"{self.hostname}:{self.nginx.options['nginx_exporter_port']}"]}
             ]
         }
 
