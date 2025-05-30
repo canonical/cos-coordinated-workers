@@ -546,11 +546,11 @@ class Worker(ops.Object):
 
         Assumes that pebble can connect.
         """
-        services = tuple(self._container.get_plan().services)
-        if not services:
+        container_services = tuple(self._container.get_plan().services)
+        if not container_services:
             logger.warning("nothing to stop: no services found in plan")
             return
-        self._container.stop(*services)
+        self._container.stop(*container_services)
 
     def _update_cluster_relation(self) -> None:
         """Publish all the worker information to relation data."""
