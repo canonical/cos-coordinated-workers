@@ -469,3 +469,39 @@ def test_invalid_app_or_unit_databag(
     else:
         assert len(ctx.emitted_events) == 1
         assert isinstance(ctx.emitted_events[0], RelationChangedEvent)
+
+
+@pytest.mark.parametrize(
+    ("hostname", "expected_app_hostname"),
+    (
+        (
+            "foo-app-0.foo-app-headless.test.svc.cluster.local",
+            "foo-app.test.svc.cluster.local",
+        ),
+        (
+            "foo-app-0.foo-app-headless.test.svc.custom.domain",
+            "foo-app.test.svc.custom.domain",
+        ),
+        (
+            "foo-app-0.foo-app-headless.test.svc.custom.svc.domain",
+            "foo-app.test.svc.custom.svc.domain",
+        ),
+        ("localhost", "localhost"),
+        ("my.custom.domain", "my.custom.domain"),
+        ("192.0.2.1", "192.0.2.1"),
+    ),
+)
+def test_app_hostname(
+    coordinator_charm: ops.CharmBase,
+    hostname: str,
+    expected_app_hostname: str,
+):
+    # GIVEN a hostname
+    ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
+
+    # WHEN any event fires
+    with ctx(ctx.on.update_status(), testing.State(model=testing.Model("test"))) as mgr:
+        with patch("coordinated_workers.coordinator.Coordinator.hostname", hostname):
+            # THEN if hostname is a valid k8s pod fqdn, app_hostname is set to the k8s service fqdn
+            # else app_hostname is set to whatever value hostname has
+            assert mgr.charm.coordinator.app_hostname == expected_app_hostname

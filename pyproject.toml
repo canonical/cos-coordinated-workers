@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "coordinated-workers"
-version = "0.0.2"
+version = "0.0.3"
 authors = [
     { name = "michaeldmitry", email = "33381599+michaeldmitry@users.noreply.github.com" },
 ]
@@ -17,8 +17,7 @@ dependencies = [
     "ops",
     "pydantic",
     "lightkube>=v0.15.4",
-    # FIXME: pin cosl version after https://github.com/canonical/cos-lib/pull/146 is merged
-    "cosl",
+    "cosl>=1",
     # charms.tls_certificates_interface.v3.tls_certificates
     "cryptography",
     "jsonschema",
