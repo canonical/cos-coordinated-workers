@@ -548,7 +548,7 @@ class Worker(ops.Object):
         """
         services = tuple(self._container.get_plan().services)
         if not services:
-            logger.warning("nothing to stop: no services found in layer or plan")
+            logger.warning("nothing to stop: no services found in plan")
             return
         self._container.stop(*services)
 
