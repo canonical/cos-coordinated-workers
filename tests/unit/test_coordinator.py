@@ -496,9 +496,12 @@ def test_service_hostname(
     hostname: str,
     expected_service_hostname: str,
 ):
+    # GIVEN a hostname
     ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
 
     # WHEN any event fires
     with ctx(ctx.on.update_status(), testing.State(model=testing.Model("test"))) as mgr:
         with patch("coordinated_workers.coordinator.Coordinator.hostname", hostname):
+            # THEN if hostname is a valid k8s pod fqdn, service_hostname is set to the k8s service fqdn
+            # else service_hostname is set to whatever value hostname has
             assert mgr.charm.coordinator.service_hostname == expected_service_hostname
