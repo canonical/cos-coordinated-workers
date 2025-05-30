@@ -493,15 +493,12 @@ def test_invalid_app_or_unit_databag(
 )
 def test_service_hostname(
     coordinator_charm: ops.CharmBase,
-    coordinator_state: testing.State,
     hostname: str,
     expected_service_hostname: str,
 ):
-    # coordinator_charm.hostname = MagicMock(return_value=hostname)
+    ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
 
-    with patch("coordinated_workers.coordinator.Coordinator.hostname", hostname):
-        ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
-
-        # WHEN any event fires
-        with ctx(ctx.on.update_status(), testing.State(model=testing.Model("test"))) as mgr:
+    # WHEN any event fires
+    with ctx(ctx.on.update_status(), testing.State(model=testing.Model("test"))) as mgr:
+        with patch("coordinated_workers.coordinator.Coordinator.hostname", hostname):
             assert mgr.charm.coordinator.service_hostname == expected_service_hostname
