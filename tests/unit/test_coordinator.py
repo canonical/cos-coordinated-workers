@@ -504,4 +504,4 @@ def test_service_hostname(
         with patch("coordinated_workers.coordinator.Coordinator.hostname", hostname):
             # THEN if hostname is a valid k8s pod fqdn, service_hostname is set to the k8s service fqdn
             # else service_hostname is set to whatever value hostname has
-            assert mgr.charm.coordinator.service_hostname == expected_service_hostname
+            assert mgr.charm.coordinator.app_hostname == expected_service_hostname

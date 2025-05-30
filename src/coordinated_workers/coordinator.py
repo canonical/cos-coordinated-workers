@@ -289,7 +289,7 @@ class Coordinator(ops.Object):
             # let's assume we don't need the peer relation as all coordinator charms will assume juju secrets
             key="coordinator-server-cert",
             # update certificate with new SANs whenever a worker is added/removed
-            sans=[self.hostname, self.service_hostname, *self.cluster.gather_addresses()],
+            sans=[self.hostname, self.app_hostname, *self.cluster.gather_addresses()],
         )
 
         self.s3_requirer = S3Requirer(self._charm, self._endpoints["s3"])
@@ -446,7 +446,7 @@ class Coordinator(ops.Object):
         return socket.getfqdn()
 
     @property
-    def service_hostname(self) -> str:
+    def app_hostname(self) -> str:
         """The FQDN of the k8s service associated with this application.
 
         This service load balances traffic across all application units.
