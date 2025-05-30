@@ -804,6 +804,6 @@ class Coordinator(ops.Object):
         }
         return adjust_resource_requirements(
             limits,
-            self._resources_requests_getter(),
+            self._resources_requests_getter() if self._resources_requests_getter else None,
             adhere_to_requests=True,  # type: ignore
         )
