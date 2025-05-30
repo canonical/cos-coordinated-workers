@@ -1,6 +1,6 @@
 import dataclasses
 import json
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import ops
 import pytest
@@ -469,3 +469,39 @@ def test_invalid_app_or_unit_databag(
     else:
         assert len(ctx.emitted_events) == 1
         assert isinstance(ctx.emitted_events[0], RelationChangedEvent)
+
+
+@pytest.mark.parametrize(
+    ("hostname", "expected_service_hostname"),
+    (
+        (
+            "foo-app-0.foo-app-headless.test.svc.cluster.local",
+            "foo-app.test.svc.cluster.local",
+        ),
+        (
+            "foo-app-0.foo-app-headless.test.svc.custom.domain",
+            "foo-app.test.svc.custom.domain",
+        ),
+        (
+            "foo-app-0.foo-app-headless.test.svc.custom.svc.domain",
+            "foo-app.test.svc.custom.svc.domain",
+        ),
+        ("localhost", "localhost"),
+        ("my.custom.domain", "my.custom.domain"),
+        ("192.0.2.1", "192.0.2.1"),
+    ),
+)
+def test_service_hostname(
+    coordinator_charm: ops.CharmBase,
+    coordinator_state: testing.State,
+    hostname: str,
+    expected_service_hostname: str,
+):
+    # coordinator_charm.hostname = MagicMock(return_value=hostname)
+
+    with patch("coordinated_workers.coordinator.Coordinator.hostname", hostname):
+        ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
+
+        # WHEN any event fires
+        with ctx(ctx.on.update_status(), testing.State(model=testing.Model("test"))) as mgr:
+            assert mgr.charm.coordinator.service_hostname == expected_service_hostname
