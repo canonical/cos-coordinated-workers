@@ -507,7 +507,7 @@ class Coordinator(ops.Object):
             "access_key_id": s3_data.access_key,
             "secret_access_key": s3_data.secret_key,
             "bucket_name": s3_data.bucket,
-            "insecure": not s3_data.tls_ca_chain and s3_endpoint_scheme != "https",
+            "insecure": not (s3_data.tls_ca_chain or s3_endpoint_scheme == "https"),
             # the tempo config wants a path to a file here. We pass the cert chain separately
             # over the cluster relation; the worker will be responsible for writing the file to disk
             "tls_ca_path": worker.S3_TLS_CA_CHAIN_FILE if s3_data.tls_ca_chain else None,

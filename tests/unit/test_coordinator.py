@@ -318,8 +318,8 @@ def test_s3_integration(
         assert coordinator.s3_connection_info.access_key == access_key
         assert coordinator.s3_connection_info.tls_ca_chain == tls_ca_chain
         assert coordinator._s3_config["endpoint"] == endpoint_stripped
-        assert coordinator._s3_config["insecure"] is (
-            not tls_ca_chain and not urlparse(endpoint).scheme == "https"
+        assert coordinator._s3_config["insecure"] is not (
+            tls_ca_chain or urlparse(endpoint).scheme == "https"
         )
 
 
