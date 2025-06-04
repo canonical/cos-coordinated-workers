@@ -500,13 +500,14 @@ class Coordinator(ops.Object):
             S3NotFoundError: The s3 integration is inactive.
         """
         s3_data = self.s3_connection_info
+        s3_endpoint_scheme = urlparse(s3_data.endpoint).scheme
         s3_config = {
-            "endpoint": re.sub(rf"^{urlparse(s3_data.endpoint).scheme}://", "", s3_data.endpoint),
+            "endpoint": re.sub(rf"^{s3_endpoint_scheme}://", "", s3_data.endpoint),
             "region": s3_data.region,
             "access_key_id": s3_data.access_key,
             "secret_access_key": s3_data.secret_key,
             "bucket_name": s3_data.bucket,
-            "insecure": not s3_data.tls_ca_chain,
+            "insecure": not s3_data.tls_ca_chain and s3_endpoint_scheme != "https",
             # the tempo config wants a path to a file here. We pass the cert chain separately
             # over the cluster relation; the worker will be responsible for writing the file to disk
             "tls_ca_path": worker.S3_TLS_CA_CHAIN_FILE if s3_data.tls_ca_chain else None,
