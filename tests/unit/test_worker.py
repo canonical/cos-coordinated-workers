@@ -92,14 +92,14 @@ def test_roles_from_config(roles_active, roles_inactive, expected):
 
     # AND the charm runs with a few of those set to true, the rest to false
     with ctx(
-            ctx.on.update_status(),
-            testing.State(
-                containers={testing.Container("foo")},
-                config={
-                    **{f"role-{r}": False for r in roles_inactive},
-                    **{f"role-{r}": True for r in roles_active},
-                },
-            ),
+        ctx.on.update_status(),
+        testing.State(
+            containers={testing.Container("foo")},
+            config={
+                **{f"role-{r}": False for r in roles_inactive},
+                **{f"role-{r}": True for r in roles_active},
+            },
+        ),
     ) as mgr:
         # THEN the Worker.roles method correctly returns the list of only those that are set to true
         assert set(mgr.charm.worker.roles) == set(expected)
@@ -337,8 +337,8 @@ def test_get_remote_write_endpoints(remote_databag, expected):
         remote_app_data=remote_databag,
     )
     with ctx(
-            ctx.on.relation_changed(relation),
-            testing.State(containers={container}, relations={relation}),
+        ctx.on.relation_changed(relation),
+        testing.State(containers={container}, relations={relation}),
     ) as mgr:
         charm = mgr.charm
         mgr.run()
@@ -894,8 +894,8 @@ def test_get_charm_tracing_receivers(remote_databag, expected):
 
     # WHEN the relation changes
     with ctx(
-            ctx.on.relation_changed(relation),
-            testing.State(containers={container}, relations={relation}),
+        ctx.on.relation_changed(relation),
+        testing.State(containers={container}, relations={relation}),
     ) as mgr:
         charm = mgr.charm
         # THEN the charm tracing receivers are picked up correctly
@@ -1006,8 +1006,8 @@ def test_get_workload_tracing_receivers(remote_databag, expected):
 
     # WHEN the relation changes
     with ctx(
-            ctx.on.relation_changed(relation),
-            testing.State(containers={container}, relations={relation}),
+        ctx.on.relation_changed(relation),
+        testing.State(containers={container}, relations={relation}),
     ) as mgr:
         charm = mgr.charm
         # THEN the charm tracing receivers are picked up correctly
