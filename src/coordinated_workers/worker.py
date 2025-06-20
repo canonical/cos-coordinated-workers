@@ -15,6 +15,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, TypedDict, Union
 from urllib.error import HTTPError
 
 import ops
+import ops_tracing
 import tenacity
 import yaml
 from cosl import JujuTopology
@@ -480,6 +481,7 @@ class Worker(ops.Object):
             return
 
         self._update_cluster_relation()
+        self._setup_charm_tracing()
 
         if self.is_ready():
             logger.debug("Worker ready. Updating config...")
@@ -823,19 +825,7 @@ class Worker(ops.Object):
         return False
 
     def charm_tracing_config(self) -> Tuple[Optional[str], Optional[str]]:
-        """Get the charm tracing configuration from the coordinator.
-
-        Usage:
-          assuming you are using charm_tracing >= v1.9:
-        >>> from ops import CharmBase
-        >>> from lib.charms.tempo_coordinator_k8s.v0.charm_tracing import trace_charm
-        >>> from lib.charms.tempo_coordinator_k8s.v0.tracing import charm_tracing_config
-        >>> @trace_charm(tracing_endpoint="my_endpoint", cert_path="cert_path")
-        >>> class MyCharm(CharmBase):
-        >>>     def __init__(self, ...):
-        >>>         self.worker = Worker(...)
-        >>>         self.my_endpoint, self.cert_path = self.worker.charm_tracing_config()
-        """
+        """Get the charm tracing configuration from the coordinator."""
         endpoint = self.cluster.get_charm_tracing_receivers().get("otlp_http")
 
         if not endpoint:
@@ -873,6 +863,23 @@ class Worker(ops.Object):
         return adjust_resource_requirements(
             limits, self._resources_requests_getter(), adhere_to_requests=True  # type: ignore
         )
+
+    def _setup_charm_tracing(self):
+        """Configure charm tracing using ops_tracing."""
+        if not self.is_ready():
+            return
+
+        endpoint, ca_path_str = self.charm_tracing_config()
+        if not endpoint:
+            return
+
+        ca_text = None
+        if ca_path_str and (ca_path := Path(ca_path_str)).exists():
+            ca_text = ca_path.read_text()
+
+        # we can't use ops.tracing.Tracing as this charm doesn't integrate with certs/tracing directly,
+        # but the data goes through the coordinator. Instead, we use ops_tracing.set_destination.
+        ops_tracing.set_destination(url=endpoint + "/v1/traces", ca=ca_text)
 
 
 class ManualLogForwarder(ops.Object):

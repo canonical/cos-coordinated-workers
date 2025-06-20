@@ -1,10 +1,12 @@
 import dataclasses
 import json
-from unittest.mock import patch
+from contextlib import nullcontext
+from unittest.mock import PropertyMock, patch
 from urllib.parse import urlparse
 
 import ops
 import pytest
+from charms.observability_libs.v1.cert_handler import CertHandler
 from cosl.interfaces.utils import DataValidationError
 from ops import RelationChangedEvent, testing
 
@@ -21,18 +23,32 @@ from coordinated_workers.interfaces.cluster import (
 from coordinated_workers.nginx import NginxConfig
 from tests.unit.test_worker import MyCharm
 
+MOCK_CERTS_DATA="<TLS_STUFF>"
 
 @pytest.fixture
 def coordinator_state():
     requires_relations = {
         endpoint: testing.Relation(endpoint=endpoint, interface=interface["interface"])
         for endpoint, interface in {
-            "my-certificates": {"interface": "certificates"},
             "my-logging": {"interface": "loki_push_api"},
             "my-charm-tracing": {"interface": "tracing"},
             "my-workload-tracing": {"interface": "tracing"},
         }.items()
     }
+    requires_relations["my-certificates"] = testing.Relation(
+        "my-certificates",
+        interface="certificates",
+        remote_app_data={
+            "certificates": json.dumps(
+                [{
+                    "certificate": MOCK_CERTS_DATA,
+                    "ca": MOCK_CERTS_DATA,
+                    "chain": MOCK_CERTS_DATA,
+                    "certificate_signing_request": MOCK_CERTS_DATA,
+                }]
+            ),
+        },
+    )
     requires_relations["my-s3"] = testing.Relation(
         "my-s3",
         interface="s3",
@@ -180,7 +196,7 @@ def coordinator_charm(request):
 
 
 def test_worker_roles_subset_of_minimal_deployment(
-    coordinator_state: testing.State, coordinator_charm: ops.CharmBase
+        coordinator_state: testing.State, coordinator_charm: ops.CharmBase
 ):
     # Test that the combination of worker roles is a subset of the minimal deployment roles
 
@@ -196,8 +212,8 @@ def test_worker_roles_subset_of_minimal_deployment(
 
     # WHEN we process any event
     with ctx(
-        ctx.on.update_status(),
-        state=dataclasses.replace(coordinator_state, relations=missing_backend_worker_relation),
+            ctx.on.update_status(),
+            state=dataclasses.replace(coordinator_state, relations=missing_backend_worker_relation),
     ) as mgr:
         charm: coordinator_charm = mgr.charm
 
@@ -206,8 +222,8 @@ def test_worker_roles_subset_of_minimal_deployment(
 
 
 def test_worker_ports_published(
-    coordinator_state: testing.State,
-    coordinator_charm: ops.CharmBase,
+        coordinator_state: testing.State,
+        coordinator_charm: ops.CharmBase,
 ):
     ports_per_role = {"read": (10, 22), "write": (1, 2132)}
 
@@ -236,7 +252,7 @@ def test_worker_ports_published(
 
 
 def test_without_s3_integration_raises_error(
-    coordinator_state: testing.State, coordinator_charm: ops.CharmBase
+        coordinator_state: testing.State, coordinator_charm: ops.CharmBase
 ):
     # Test that a charm without an s3 integration raises S3NotFoundError
 
@@ -248,8 +264,8 @@ def test_without_s3_integration_raises_error(
 
     # WHEN we process any event
     with ctx(
-        ctx.on.update_status(),
-        state=dataclasses.replace(coordinator_state, relations=relations_without_s3),
+            ctx.on.update_status(),
+            state=dataclasses.replace(coordinator_state, relations=relations_without_s3),
     ) as mgr:
         # THEN the _s3_config method raises an S3NotFoundError
         with pytest.raises(S3NotFoundError):
@@ -264,21 +280,21 @@ def test_without_s3_integration_raises_error(
 @pytest.mark.parametrize(
     "endpoint, endpoint_stripped",
     (
-        ("example.com", "example.com"),
-        ("http://example.com", "example.com"),
-        ("https://example.com", "example.com"),
+            ("example.com", "example.com"),
+            ("http://example.com", "example.com"),
+            ("https://example.com", "example.com"),
     ),
 )
 def test_s3_integration(
-    coordinator_state: testing.State,
-    coordinator_charm: ops.CharmBase,
-    region,
-    endpoint,
-    endpoint_stripped,
-    secret_key,
-    access_key,
-    bucket,
-    tls_ca_chain,
+        coordinator_state: testing.State,
+        coordinator_charm: ops.CharmBase,
+        region,
+        endpoint,
+        endpoint_stripped,
+        secret_key,
+        access_key,
+        bucket,
+        tls_ca_chain,
 ):
     # Test that a charm with a s3 integration gives the expected _s3_config
 
@@ -302,12 +318,13 @@ def test_s3_integration(
 
     # WHEN we process any event
     with ctx(
-        ctx.on.update_status(),
-        state=dataclasses.replace(
-            coordinator_state,
-            relations=relations_except_s3
-            + [dataclasses.replace(s3_relation, remote_app_data=s3_app_data)],
-        ),
+            ctx.on.update_status(),
+            state=dataclasses.replace(
+                coordinator_state,
+                leader=True,
+                relations=relations_except_s3
+                          + [dataclasses.replace(s3_relation, remote_app_data=s3_app_data)],
+            ),
     ) as mgr:
         # THEN the s3_connection_info method returns the expected data structure
         coordinator: Coordinator = mgr.charm.coordinator
@@ -319,12 +336,12 @@ def test_s3_integration(
         assert coordinator.s3_connection_info.tls_ca_chain == tls_ca_chain
         assert coordinator._s3_config["endpoint"] == endpoint_stripped
         assert coordinator._s3_config["insecure"] is not (
-            tls_ca_chain or urlparse(endpoint).scheme == "https"
+                tls_ca_chain or urlparse(endpoint).scheme == "https"
         )
 
 
 def test_tracing_receivers_urls(
-    coordinator_state: testing.State, coordinator_charm: ops.CharmBase
+        coordinator_state: testing.State, coordinator_charm: ops.CharmBase
 ):
     charm_tracing_relation = testing.Relation(
         endpoint="my-charm-tracing",
@@ -347,10 +364,10 @@ def test_tracing_receivers_urls(
     )
     ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
     with ctx(
-        ctx.on.update_status(),
-        state=dataclasses.replace(
-            coordinator_state, relations=[charm_tracing_relation, workload_tracing_relation]
-        ),
+            ctx.on.update_status(),
+            state=dataclasses.replace(
+                coordinator_state, relations=[charm_tracing_relation, workload_tracing_relation]
+            ),
     ) as mgr:
         coordinator: Coordinator = mgr.charm.coordinator
         assert coordinator._charm_tracing_receivers_urls == {
@@ -362,13 +379,59 @@ def test_tracing_receivers_urls(
         }
 
 
+def find_relation(relations, endpoint):
+    return next(filter(lambda r: r.endpoint == endpoint, relations))
+
+
+@pytest.mark.parametrize("tls", (True, False))
+def test_charm_tracing_configured(
+        coordinator_state: testing.State, coordinator_charm: ops.CharmBase,
+        tls: bool
+):
+    # GIVEN a charm tracing integration (and tls?)
+    relations = set(coordinator_state.relations)
+
+    url = "1.2.3.4:4318"
+    charm_tracing_relation = testing.Relation(
+        endpoint="my-charm-tracing",
+        remote_app_data={
+            "receivers": json.dumps(
+                [{"protocol": {"name": "otlp_http", "type": "http"}, "url": url}]
+            )
+        },
+    )
+    relations.remove(find_relation(relations, "my-charm-tracing"))
+    relations.add(charm_tracing_relation)
+
+    certs_relation = find_relation(relations, "my-certificates")
+    if tls:
+        # it's truly too much work to figure out how to mock a certificate relation.
+        tls_mock = patch.object(CertHandler, "ca_cert", new_callable=PropertyMock, return_value=MOCK_CERTS_DATA)
+    else:
+        tls_mock = nullcontext()
+        relations.remove(certs_relation)
+
+    # WHEN we receive any event
+    with tls_mock:
+        ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
+        # THEN the coordinator has called ops_tracing.set_destination with the expected params
+        with patch("ops_tracing.set_destination") as p:
+            ctx.run(
+                ctx.on.update_status(),
+                state=dataclasses.replace(
+                    coordinator_state, relations=relations
+                )
+            )
+    p.assert_called_with(url=url, ca=MOCK_CERTS_DATA if tls else None)
+
+
 @pytest.mark.parametrize(
     "event",
     (
-        testing.CharmEvents.update_status(),
-        testing.CharmEvents.start(),
-        testing.CharmEvents.install(),
-        testing.CharmEvents.config_changed(),
+            testing.CharmEvents.update_status(),
+            testing.CharmEvents.start(),
+            testing.CharmEvents.install(),
+            testing.CharmEvents.config_changed(),
     ),
 )
 def test_invalid_databag_content(coordinator_charm: ops.CharmBase, event):
@@ -427,7 +490,7 @@ def test_invalid_databag_content(coordinator_charm: ops.CharmBase, event):
 
 @pytest.mark.parametrize("app", (True, False))
 def test_invalid_app_or_unit_databag(
-    coordinator_charm: ops.CharmBase, coordinator_state, app: bool
+        coordinator_charm: ops.CharmBase, coordinator_state, app: bool
 ):
     # Test that when a relation changes and either the app or unit data is invalid
     #   the worker emits a ClusterRemovedEvent
@@ -477,27 +540,27 @@ def test_invalid_app_or_unit_databag(
 @pytest.mark.parametrize(
     ("hostname", "expected_app_hostname"),
     (
-        (
-            "foo-app-0.foo-app-headless.test.svc.cluster.local",
-            "foo-app.test.svc.cluster.local",
-        ),
-        (
-            "foo-app-0.foo-app-headless.test.svc.custom.domain",
-            "foo-app.test.svc.custom.domain",
-        ),
-        (
-            "foo-app-0.foo-app-headless.test.svc.custom.svc.domain",
-            "foo-app.test.svc.custom.svc.domain",
-        ),
-        ("localhost", "localhost"),
-        ("my.custom.domain", "my.custom.domain"),
-        ("192.0.2.1", "192.0.2.1"),
+            (
+                    "foo-app-0.foo-app-headless.test.svc.cluster.local",
+                    "foo-app.test.svc.cluster.local",
+            ),
+            (
+                    "foo-app-0.foo-app-headless.test.svc.custom.domain",
+                    "foo-app.test.svc.custom.domain",
+            ),
+            (
+                    "foo-app-0.foo-app-headless.test.svc.custom.svc.domain",
+                    "foo-app.test.svc.custom.svc.domain",
+            ),
+            ("localhost", "localhost"),
+            ("my.custom.domain", "my.custom.domain"),
+            ("192.0.2.1", "192.0.2.1"),
     ),
 )
 def test_app_hostname(
-    coordinator_charm: ops.CharmBase,
-    hostname: str,
-    expected_app_hostname: str,
+        coordinator_charm: ops.CharmBase,
+        hostname: str,
+        expected_app_hostname: str,
 ):
     # GIVEN a hostname
     ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)

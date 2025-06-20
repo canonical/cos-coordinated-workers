@@ -28,6 +28,7 @@ from urllib.parse import urlparse
 
 import cosl
 import ops
+import ops_tracing
 import pydantic
 import yaml
 from cosl.interfaces.datasource_exchange import DatasourceExchange
@@ -129,12 +130,12 @@ class ClusterRolesConfig:
         is_minimal_valid = set(self.minimal_deployment).issubset(self.roles)
         is_recommended_valid = set(self.recommended_deployment).issubset(self.roles)
         if not all(
-            [
-                are_meta_keys_valid,
-                are_meta_values_valid,
-                is_minimal_valid,
-                is_recommended_valid,
-            ]
+                [
+                    are_meta_keys_valid,
+                    are_meta_values_valid,
+                    is_minimal_valid,
+                    is_recommended_valid,
+                ]
         ):
             raise ClusterRolesConfigError(
                 "Invalid ClusterRolesConfig: The configuration is not coherent."
@@ -146,8 +147,8 @@ class ClusterRolesConfig:
 
 
 def _validate_container_name(
-    container_name: Optional[str],
-    resources_requests: Optional[Callable[["Coordinator"], Dict[str, str]]],
+        container_name: Optional[str],
+        resources_requests: Optional[Callable[["Coordinator"], Dict[str, str]]],
 ):
     """Raise `ValueError` if `resources_requests` is not None and `container_name` is None."""
     if resources_requests is not None and container_name is None:
@@ -166,9 +167,10 @@ _EndpointMapping = TypedDict(
         "metrics": str,
         "charm-tracing": str,
         "workload-tracing": str,
+        "s3": str,
+        # optional integrations
         "send-datasource": Optional[str],
         "receive-datasource": Optional[str],
-        "s3": str,
         "catalogue": Optional[str],
     },
     total=True,
@@ -193,24 +195,24 @@ class Coordinator(ops.Object):
     """
 
     def __init__(
-        self,
-        charm: ops.CharmBase,
-        roles_config: ClusterRolesConfig,
-        external_url: str,  # the ingressed url if we have ingress, else fqdn
-        worker_metrics_port: int,
-        endpoints: _EndpointMapping,
-        nginx_config: NginxConfig,
-        workers_config: Callable[["Coordinator"], str],
-        worker_ports: Optional[Callable[[str], Sequence[int]]] = None,
-        nginx_options: Optional[NginxMappingOverrides] = None,
-        is_coherent: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
-        is_recommended: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
-        resources_limit_options: Optional[_ResourceLimitOptionsMapping] = None,
-        resources_requests: Optional[Callable[["Coordinator"], Dict[str, str]]] = None,
-        container_name: Optional[str] = None,
-        remote_write_endpoints: Optional[Callable[[], List[RemoteWriteEndpoint]]] = None,
-        workload_tracing_protocols: Optional[List[ReceiverProtocol]] = None,
-        catalogue_item: Optional[CatalogueItem] = None,
+            self,
+            charm: ops.CharmBase,
+            roles_config: ClusterRolesConfig,
+            external_url: str,  # the ingressed url if we have ingress, else fqdn
+            worker_metrics_port: int,
+            endpoints: _EndpointMapping,
+            nginx_config: NginxConfig,
+            workers_config: Callable[["Coordinator"], str],
+            worker_ports: Optional[Callable[[str], Sequence[int]]] = None,
+            nginx_options: Optional[NginxMappingOverrides] = None,
+            is_coherent: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
+            is_recommended: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
+            resources_limit_options: Optional[_ResourceLimitOptionsMapping] = None,
+            resources_requests: Optional[Callable[["Coordinator"], Dict[str, str]]] = None,
+            container_name: Optional[str] = None,
+            remote_write_endpoints: Optional[Callable[[], List[RemoteWriteEndpoint]]] = None,
+            workload_tracing_protocols: Optional[List[ReceiverProtocol]] = None,
+            catalogue_item: Optional[CatalogueItem] = None,
     ):
         """Constructor for a Coordinator object.
 
@@ -461,7 +463,7 @@ class Coordinator(ops.Object):
             logger.debug(f"expected K8s-style fqdn, but got {hostname} instead")
             return hostname
 
-        dns_name_parts = hostname_parts[hostname_parts.index("svc") :]
+        dns_name_parts = hostname_parts[hostname_parts.index("svc"):]
         dns_name = ".".join(dns_name_parts)  # 'svc.cluster.local'
         return f"{self._charm.app.name}.{self._charm.model.name}.{dns_name}"  # 'tempo.model.svc.cluster.local'
 
@@ -475,10 +477,10 @@ class Coordinator(ops.Object):
     def tls_available(self) -> bool:
         """Return True if tls is enabled and the necessary certs are found."""
         return (
-            self.cert_handler.enabled
-            and (self.cert_handler.server_cert is not None)
-            and (self.cert_handler.private_key is not None)  # type: ignore
-            and (self.cert_handler.ca_cert is not None)
+                self.cert_handler.enabled
+                and (self.cert_handler.server_cert is not None)
+                and (self.cert_handler.private_key is not None)  # type: ignore
+                and (self.cert_handler.ca_cert is not None)
         )
 
     @property
@@ -677,6 +679,7 @@ class Coordinator(ops.Object):
             return
 
         self._update_nginx_tls_certificates()
+        self._setup_charm_tracing()
         self.update_cluster()
         if self.catalogue:
             self.catalogue.update_item(item=self._catalogue_item)  # type: ignore
@@ -808,3 +811,11 @@ class Coordinator(ops.Object):
             self._resources_requests_getter() if self._resources_requests_getter else None,
             adhere_to_requests=True,  # type: ignore
         )
+
+    def _setup_charm_tracing(self):
+        """Configure ops.tracing to send traces to a tracing backend."""
+        if self.charm_tracing.is_ready():
+            ops_tracing.set_destination(
+                url=self.charm_tracing.get_endpoint("otlp_http"),
+                ca=self.cert_handler.ca_cert
+            )

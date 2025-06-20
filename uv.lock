@@ -160,7 +160,7 @@ wheels = [
 
 [[package]]
 name = "coordinated-workers"
-version = "0.0.3"
+version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "cosl" },
@@ -169,7 +169,7 @@ dependencies = [
     { name = "jsonschema", version = "4.23.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
     { name = "jsonschema", version = "4.24.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
     { name = "lightkube" },
-    { name = "ops" },
+    { name = "ops", extra = ["tracing"] },
     { name = "pydantic", version = "2.10.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
     { name = "pydantic", version = "2.11.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
 ]
@@ -194,8 +194,8 @@ requires-dist = [
     { name = "cryptography" },
     { name = "jsonschema" },
     { name = "lightkube", specifier = ">=0.15.4" },
-    { name = "ops" },
     { name = "ops", extras = ["testing"], marker = "extra == 'dev'" },
+    { name = "ops", extras = ["tracing"] },
     { name = "pydantic" },
     { name = "pyright", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'" },
@@ -685,6 +685,33 @@ wheels = [
 ]
 
 [[package]]
+name = "opentelemetry-sdk"
+version = "1.33.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-semantic-conventions" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/67/12/909b98a7d9b110cce4b28d49b2e311797cffdce180371f35eba13a72dd00/opentelemetry_sdk-1.33.1.tar.gz", hash = "sha256:85b9fcf7c3d23506fbc9692fd210b8b025a1920535feec50bd54ce203d57a531", size = 161885, upload-time = "2025-05-16T18:52:52.832Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/df/8e/ae2d0742041e0bd7fe0d2dcc5e7cce51dcf7d3961a26072d5b43cc8fa2a7/opentelemetry_sdk-1.33.1-py3-none-any.whl", hash = "sha256:19ea73d9a01be29cacaa5d6c8ce0adc0b7f7b4d58cc52f923e4413609f670112", size = 118950, upload-time = "2025-05-16T18:52:37.297Z" },
+]
+
+[[package]]
+name = "opentelemetry-semantic-conventions"
+version = "0.54b1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "deprecated" },
+    { name = "opentelemetry-api" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5b/2c/d7990fc1ffc82889d466e7cd680788ace44a26789809924813b164344393/opentelemetry_semantic_conventions-0.54b1.tar.gz", hash = "sha256:d1cecedae15d19bdaafca1e56b29a66aa286f50b5d08f036a145c7f3e9ef9cee", size = 118642, upload-time = "2025-05-16T18:52:53.962Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0a/80/08b1698c52ff76d96ba440bf15edc2f4bc0a279868778928e947c1004bdd/opentelemetry_semantic_conventions-0.54b1-py3-none-any.whl", hash = "sha256:29dab644a7e435b58d3a3918b58c333c92686236b30f7891d5e51f02933ca60d", size = 194938, upload-time = "2025-05-16T18:52:38.796Z" },
+]
+
+[[package]]
 name = "ops"
 version = "2.22.0"
 source = { registry = "https://pypi.org/simple" }
@@ -704,6 +731,9 @@ wheels = [
 testing = [
     { name = "ops-scenario" },
 ]
+tracing = [
+    { name = "ops-tracing" },
+]
 
 [[package]]
 name = "ops-scenario"
@@ -716,6 +746,21 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/1b/65/13f60a4f0ba54f6731733ece46e98276fef62c48b62f80c1a9501f46f28f/ops_scenario-7.22.0.tar.gz", hash = "sha256:15921e6849773b81df90ad4d78f573e0af5f5b9ddbfc82603c991c29648d8070", size = 142308, upload-time = "2025-05-29T04:18:49.194Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b2/9c/1abc3c03a27eccb2580df035a78e0115c1dc29f6f379c9465990f69d0913/ops_scenario-7.22.0-py3-none-any.whl", hash = "sha256:a42d3acf831fc46f213286268e31d14c2ffc5ea72452c49955de76895f62437c", size = 72506, upload-time = "2025-05-29T04:18:46.657Z" },
+]
+
+[[package]]
+name = "ops-tracing"
+version = "2.22.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "opentelemetry-sdk" },
+    { name = "ops" },
+    { name = "pydantic", version = "2.10.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
+    { name = "pydantic", version = "2.11.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/fc/6b/00dbf4ef4d477817dd129c45497c1fee330e2465735318595eae3d8d6ade/ops_tracing-2.22.0.tar.gz", hash = "sha256:238ede5e9268f81deefce9275d2c846bd2726f1bf17f2f74bdf07432d147f2cd", size = 28191, upload-time = "2025-05-29T04:18:44.884Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2a/5b/b0f11278f19bfd8250a52d837cf38a29d78e1200610becdf70a9cc20ab5a/ops_tracing-2.22.0-py3-none-any.whl", hash = "sha256:f47bf9fd35e47bab2499de7428bc2433534e6331ff6ec1ab533f31a48b1341f4", size = 31245, upload-time = "2025-05-29T04:18:43.168Z" },
 ]
 
 [[package]]

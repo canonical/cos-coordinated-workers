@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "coordinated-workers"
-version = "0.0.4"
+version = "0.1.0"
 authors = [
     { name = "michaeldmitry", email = "33381599+michaeldmitry@users.noreply.github.com" },
 ]
@@ -14,7 +14,7 @@ license = { file = "LICENSE" }
 requires-python = ">=3.8"
 dependencies = [
     "crossplane",
-    "ops",
+    "ops[tracing]",
     "pydantic",
     "lightkube>=v0.15.4",
     "cosl>=1",

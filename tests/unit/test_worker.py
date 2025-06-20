@@ -7,6 +7,7 @@ import ops
 import pytest
 import yaml
 from ops import BlockedStatus, testing
+from scenario import Secret
 from scenario.context import CharmEvents
 from scenario.errors import UncaughtCharmError
 
@@ -59,14 +60,14 @@ def test_no_roles_error():
 @pytest.mark.parametrize(
     "roles_active, roles_inactive, expected",
     (
-        (
-            ["read", "write", "ingester", "all"],
-            ["alertmanager"],
-            ["read", "write", "ingester", "all"],
-        ),
-        (["read", "write"], ["alertmanager"], ["read", "write"]),
-        (["read"], ["alertmanager", "write", "ingester", "all"], ["read"]),
-        ([], ["read", "write", "ingester", "all", "alertmanager"], []),
+            (
+                    ["read", "write", "ingester", "all"],
+                    ["alertmanager"],
+                    ["read", "write", "ingester", "all"],
+            ),
+            (["read", "write"], ["alertmanager"], ["read", "write"]),
+            (["read"], ["alertmanager", "write", "ingester", "all"], ["read"]),
+            ([], ["read", "write", "ingester", "all", "alertmanager"], []),
     ),
 )
 def test_roles_from_config(roles_active, roles_inactive, expected):
@@ -91,14 +92,14 @@ def test_roles_from_config(roles_active, roles_inactive, expected):
 
     # AND the charm runs with a few of those set to true, the rest to false
     with ctx(
-        ctx.on.update_status(),
-        testing.State(
-            containers={testing.Container("foo")},
-            config={
-                **{f"role-{r}": False for r in roles_inactive},
-                **{f"role-{r}": True for r in roles_active},
-            },
-        ),
+            ctx.on.update_status(),
+            testing.State(
+                containers={testing.Container("foo")},
+                config={
+                    **{f"role-{r}": False for r in roles_inactive},
+                    **{f"role-{r}": True for r in roles_active},
+                },
+            ),
     ) as mgr:
         # THEN the Worker.roles method correctly returns the list of only those that are set to true
         assert set(mgr.charm.worker.roles) == set(expected)
@@ -297,23 +298,23 @@ def test_worker_raises_if_service_restart_fails_for_too_long(tmp_path):
 @pytest.mark.parametrize(
     "remote_databag, expected",
     (
-        (
-            {
-                "remote_write_endpoints": json.dumps([{"url": "test-url.com"}]),
-                "worker_config": json.dumps("test"),
-            },
-            [{"url": "test-url.com"}],
-        ),
-        ({"remote_write_endpoints": json.dumps(None), "worker_config": json.dumps("test")}, []),
-        (
-            {
-                "remote_write_endpoints": json.dumps(
-                    [{"url": "test-url.com"}, {"url": "test2-url.com"}]
-                ),
-                "worker_config": json.dumps("test"),
-            },
-            [{"url": "test-url.com"}, {"url": "test2-url.com"}],
-        ),
+            (
+                    {
+                        "remote_write_endpoints": json.dumps([{"url": "test-url.com"}]),
+                        "worker_config": json.dumps("test"),
+                    },
+                    [{"url": "test-url.com"}],
+            ),
+            ({"remote_write_endpoints": json.dumps(None), "worker_config": json.dumps("test")}, []),
+            (
+                    {
+                        "remote_write_endpoints": json.dumps(
+                            [{"url": "test-url.com"}, {"url": "test2-url.com"}]
+                        ),
+                        "worker_config": json.dumps("test"),
+                    },
+                    [{"url": "test-url.com"}, {"url": "test2-url.com"}],
+            ),
     ),
 )
 def test_get_remote_write_endpoints(remote_databag, expected):
@@ -336,8 +337,8 @@ def test_get_remote_write_endpoints(remote_databag, expected):
         remote_app_data=remote_databag,
     )
     with ctx(
-        ctx.on.relation_changed(relation),
-        testing.State(containers={container}, relations={relation}),
+            ctx.on.relation_changed(relation),
+            testing.State(containers={container}, relations={relation}),
     ) as mgr:
         charm = mgr.charm
         mgr.run()
@@ -839,20 +840,34 @@ def test_invalid_url(mock_socket_fqdn):
 @pytest.mark.parametrize(
     "remote_databag, expected",
     (
-        (
-            {
-                "charm_tracing_receivers": json.dumps({"url": "test-url.com"}),
-                "worker_config": json.dumps("test"),
-            },
-            {"url": "test-url.com"},
-        ),
-        (
-            {"charm_tracing_receivers": json.dumps(None), "worker_config": json.dumps("test")},
-            {},
-        ),
+            (
+                    {
+                        "charm_tracing_receivers": json.dumps({"url": "test-url.com"}),
+                        "worker_config": json.dumps("test"),
+                    },
+                    {"url": "test-url.com"},
+            ),
+            (
+                    {"charm_tracing_receivers": json.dumps(None), "worker_config": json.dumps("test")},
+                    {},
+            ),
     ),
 )
 def test_get_charm_tracing_receivers(remote_databag, expected):
+    MyCharm.layer = ops.pebble.Layer(
+        {
+            "services": {
+                "foo": {
+                    "summary": "foos all the things",
+                    "description": "bar",
+                    "startup": "enabled",
+                    "override": "merge",
+                    "command": "ls -la",
+                }
+            }
+        }
+    )
+
     # Test that when a relation changes the correct charm_tracing_receivers
     #   are returned by the ClusterRequirer
 
@@ -879,28 +894,89 @@ def test_get_charm_tracing_receivers(remote_databag, expected):
 
     # WHEN the relation changes
     with ctx(
-        ctx.on.relation_changed(relation),
-        testing.State(containers={container}, relations={relation}),
+            ctx.on.relation_changed(relation),
+            testing.State(containers={container}, relations={relation}),
     ) as mgr:
         charm = mgr.charm
         # THEN the charm tracing receivers are picked up correctly
         assert charm.worker.cluster.get_charm_tracing_receivers() == expected
 
 
+@pytest.mark.parametrize("tls", (False, True))
+def test_charm_tracing_config(tls):
+    MyCharm.layer = ops.pebble.Layer(
+        {
+            "services": {
+                "foo": {
+                    "summary": "foos all the things",
+                    "description": "bar",
+                    "startup": "enabled",
+                    "override": "merge",
+                    "command": "ls -la",
+                }
+            }
+        }
+    )
+    # GIVEN a charm with a cluster relation (with or without TLS data in it)
+    ctx = testing.Context(
+        MyCharm,
+        meta={
+            "name": "foo",
+            "requires": {"cluster": {"interface": "cluster"}},
+            "containers": {"foo": {"type": "oci-image"}},
+        },
+        config={"options": {"role-all": {"type": "boolean", "default": True}}},
+    )
+    container = testing.Container(
+        "foo",
+        execs={
+            testing.Exec(("update-ca-certificates", "--fresh"))
+        },
+        can_connect=True,
+    )
+    mock_certs_data = json.dumps("<TLS_STUFF>")
+
+    secret=Secret({"private-key": "verysecret"})
+    tls_data = {       "ca_cert": mock_certs_data,
+                "server_cert": mock_certs_data,
+                "privkey_secret_id": json.dumps(secret.id),
+        } if tls else {}
+    relation = testing.Relation(
+        "cluster",
+        remote_app_data={
+            "charm_tracing_receivers": json.dumps({"otlp_http": f"http{'s' if tls else ''}://some-url"}),
+            "worker_config": json.dumps("test"),
+            **tls_data
+        },
+    )
+
+    # WHEN any event occurs
+    with patch("ops_tracing.set_destination") as p:
+        ctx.run(
+            ctx.on.update_status(),
+            testing.State(containers={container},
+                          secrets={secret} if tls else {},
+                          relations={relation}),
+        )
+
+    # THEN set_destination gets called with the expected data
+    p.assert_called_with(url=f"http{'s' if tls else ''}://some-url/v1/traces", ca="<TLS_STUFF>" if tls else None)
+
+
 @pytest.mark.parametrize(
     "remote_databag, expected",
     (
-        (
-            {
-                "workload_tracing_receivers": json.dumps({"url": "test-url.com"}),
-                "worker_config": json.dumps("test"),
-            },
-            {"url": "test-url.com"},
-        ),
-        (
-            {"workload_tracing_receivers": json.dumps(None), "worker_config": json.dumps("test")},
-            {},
-        ),
+            (
+                    {
+                        "workload_tracing_receivers": json.dumps({"url": "test-url.com"}),
+                        "worker_config": json.dumps("test"),
+                    },
+                    {"url": "test-url.com"},
+            ),
+            (
+                    {"workload_tracing_receivers": json.dumps(None), "worker_config": json.dumps("test")},
+                    {},
+            ),
     ),
 )
 def test_get_workload_tracing_receivers(remote_databag, expected):
@@ -930,8 +1006,8 @@ def test_get_workload_tracing_receivers(remote_databag, expected):
 
     # WHEN the relation changes
     with ctx(
-        ctx.on.relation_changed(relation),
-        testing.State(containers={container}, relations={relation}),
+            ctx.on.relation_changed(relation),
+            testing.State(containers={container}, relations={relation}),
     ) as mgr:
         charm = mgr.charm
         # THEN the charm tracing receivers are picked up correctly
@@ -941,10 +1017,10 @@ def test_get_workload_tracing_receivers(remote_databag, expected):
 @pytest.mark.parametrize(
     "event",
     (
-        CharmEvents.update_status(),
-        CharmEvents.start(),
-        CharmEvents.install(),
-        CharmEvents.relation_changed,
+            CharmEvents.update_status(),
+            CharmEvents.start(),
+            CharmEvents.install(),
+            CharmEvents.relation_changed,
     ),
 )
 def test_worker_blocks_on_tls_misconfigured(event):
