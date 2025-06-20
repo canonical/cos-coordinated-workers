@@ -212,8 +212,8 @@ def test_worker_roles_subset_of_minimal_deployment(
 
     # WHEN we process any event
     with ctx(
-            ctx.on.update_status(),
-            state=dataclasses.replace(coordinator_state, relations=missing_backend_worker_relation),
+        ctx.on.update_status(),
+        state=dataclasses.replace(coordinator_state, relations=missing_backend_worker_relation),
     ) as mgr:
         charm: coordinator_charm = mgr.charm
 
@@ -264,8 +264,8 @@ def test_without_s3_integration_raises_error(
 
     # WHEN we process any event
     with ctx(
-            ctx.on.update_status(),
-            state=dataclasses.replace(coordinator_state, relations=relations_without_s3),
+        ctx.on.update_status(),
+        state=dataclasses.replace(coordinator_state, relations=relations_without_s3),
     ) as mgr:
         # THEN the _s3_config method raises an S3NotFoundError
         with pytest.raises(S3NotFoundError):
@@ -318,13 +318,13 @@ def test_s3_integration(
 
     # WHEN we process any event
     with ctx(
-            ctx.on.update_status(),
-            state=dataclasses.replace(
-                coordinator_state,
-                leader=True,
-                relations=relations_except_s3
-                          + [dataclasses.replace(s3_relation, remote_app_data=s3_app_data)],
-            ),
+        ctx.on.update_status(),
+        state=dataclasses.replace(
+            coordinator_state,
+            leader=True,
+            relations=relations_except_s3
+                      + [dataclasses.replace(s3_relation, remote_app_data=s3_app_data)],
+        ),
     ) as mgr:
         # THEN the s3_connection_info method returns the expected data structure
         coordinator: Coordinator = mgr.charm.coordinator
@@ -364,10 +364,10 @@ def test_tracing_receivers_urls(
     )
     ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
     with ctx(
-            ctx.on.update_status(),
-            state=dataclasses.replace(
-                coordinator_state, relations=[charm_tracing_relation, workload_tracing_relation]
-            ),
+        ctx.on.update_status(),
+        state=dataclasses.replace(
+            coordinator_state, relations=[charm_tracing_relation, workload_tracing_relation]
+        ),
     ) as mgr:
         coordinator: Coordinator = mgr.charm.coordinator
         assert coordinator._charm_tracing_receivers_urls == {
