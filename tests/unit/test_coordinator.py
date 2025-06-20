@@ -196,7 +196,7 @@ def coordinator_charm(request):
 
 
 def test_worker_roles_subset_of_minimal_deployment(
-        coordinator_state: testing.State, coordinator_charm: ops.CharmBase
+    coordinator_state: testing.State, coordinator_charm: ops.CharmBase
 ):
     # Test that the combination of worker roles is a subset of the minimal deployment roles
 
@@ -222,8 +222,8 @@ def test_worker_roles_subset_of_minimal_deployment(
 
 
 def test_worker_ports_published(
-        coordinator_state: testing.State,
-        coordinator_charm: ops.CharmBase,
+    coordinator_state: testing.State,
+    coordinator_charm: ops.CharmBase,
 ):
     ports_per_role = {"read": (10, 22), "write": (1, 2132)}
 
@@ -252,7 +252,7 @@ def test_worker_ports_published(
 
 
 def test_without_s3_integration_raises_error(
-        coordinator_state: testing.State, coordinator_charm: ops.CharmBase
+    coordinator_state: testing.State, coordinator_charm: ops.CharmBase
 ):
     # Test that a charm without an s3 integration raises S3NotFoundError
 
@@ -286,15 +286,15 @@ def test_without_s3_integration_raises_error(
     ),
 )
 def test_s3_integration(
-        coordinator_state: testing.State,
-        coordinator_charm: ops.CharmBase,
-        region,
-        endpoint,
-        endpoint_stripped,
-        secret_key,
-        access_key,
-        bucket,
-        tls_ca_chain,
+    coordinator_state: testing.State,
+    coordinator_charm: ops.CharmBase,
+    region,
+    endpoint,
+    endpoint_stripped,
+    secret_key,
+    access_key,
+    bucket,
+    tls_ca_chain,
 ):
     # Test that a charm with a s3 integration gives the expected _s3_config
 
@@ -341,7 +341,7 @@ def test_s3_integration(
 
 
 def test_tracing_receivers_urls(
-        coordinator_state: testing.State, coordinator_charm: ops.CharmBase
+    coordinator_state: testing.State, coordinator_charm: ops.CharmBase
 ):
     charm_tracing_relation = testing.Relation(
         endpoint="my-charm-tracing",
@@ -385,8 +385,8 @@ def find_relation(relations, endpoint):
 
 @pytest.mark.parametrize("tls", (True, False))
 def test_charm_tracing_configured(
-        coordinator_state: testing.State, coordinator_charm: ops.CharmBase,
-        tls: bool
+    coordinator_state: testing.State, coordinator_charm: ops.CharmBase,
+    tls: bool
 ):
     # GIVEN a charm tracing integration (and tls?)
     relations = set(coordinator_state.relations)
@@ -490,7 +490,7 @@ def test_invalid_databag_content(coordinator_charm: ops.CharmBase, event):
 
 @pytest.mark.parametrize("app", (True, False))
 def test_invalid_app_or_unit_databag(
-        coordinator_charm: ops.CharmBase, coordinator_state, app: bool
+    coordinator_charm: ops.CharmBase, coordinator_state, app: bool
 ):
     # Test that when a relation changes and either the app or unit data is invalid
     #   the worker emits a ClusterRemovedEvent
@@ -558,9 +558,9 @@ def test_invalid_app_or_unit_databag(
     ),
 )
 def test_app_hostname(
-        coordinator_charm: ops.CharmBase,
-        hostname: str,
-        expected_app_hostname: str,
+    coordinator_charm: ops.CharmBase,
+    hostname: str,
+    expected_app_hostname: str,
 ):
     # GIVEN a hostname
     ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
