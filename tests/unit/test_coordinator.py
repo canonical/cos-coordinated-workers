@@ -425,7 +425,7 @@ def test_charm_tracing_configured(
                 ctx.on.update_status(),
                 state=dataclasses.replace(coordinator_state, relations=relations),
             )
-    p.assert_called_with(url=url, ca=MOCK_CERTS_DATA if tls else None)
+    p.assert_called_with(url=url + "/v1/traces", ca=MOCK_CERTS_DATA if tls else None)
 
 
 @pytest.mark.parametrize(
