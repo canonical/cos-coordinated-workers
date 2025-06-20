@@ -273,7 +273,6 @@ class ClusterProvider(Object):
         """Go through the worker's unit databags to collect all the addresses published by the units, by role."""
         data: Dict[str, Set[str]] = collections.defaultdict(set)
         for relation in self._relations:
-
             if not relation.app:
                 log.debug(f"skipped {relation} as .app is None")
                 continue
@@ -402,13 +401,16 @@ class ClusterRequirer(Object):
         )
 
         self.framework.observe(
-            self._charm.on[endpoint].relation_changed, self._on_cluster_relation_changed  # type: ignore
+            self._charm.on[endpoint].relation_changed,
+            self._on_cluster_relation_changed,  # type: ignore
         )
         self.framework.observe(
-            self._charm.on[endpoint].relation_created, self._on_cluster_relation_created  # type: ignore
+            self._charm.on[endpoint].relation_created,
+            self._on_cluster_relation_created,  # type: ignore
         )
         self.framework.observe(
-            self._charm.on[endpoint].relation_broken, self._on_cluster_relation_broken  # type: ignore
+            self._charm.on[endpoint].relation_broken,
+            self._on_cluster_relation_broken,  # type: ignore
         )
 
     def _on_cluster_relation_broken(self, _event: ops.RelationBrokenEvent):

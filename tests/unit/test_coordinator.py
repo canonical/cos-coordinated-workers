@@ -23,7 +23,8 @@ from coordinated_workers.interfaces.cluster import (
 from coordinated_workers.nginx import NginxConfig
 from tests.unit.test_worker import MyCharm
 
-MOCK_CERTS_DATA="<TLS_STUFF>"
+MOCK_CERTS_DATA = "<TLS_STUFF>"
+
 
 @pytest.fixture
 def coordinator_state():
@@ -40,12 +41,14 @@ def coordinator_state():
         interface="certificates",
         remote_app_data={
             "certificates": json.dumps(
-                [{
-                    "certificate": MOCK_CERTS_DATA,
-                    "ca": MOCK_CERTS_DATA,
-                    "chain": MOCK_CERTS_DATA,
-                    "certificate_signing_request": MOCK_CERTS_DATA,
-                }]
+                [
+                    {
+                        "certificate": MOCK_CERTS_DATA,
+                        "ca": MOCK_CERTS_DATA,
+                        "chain": MOCK_CERTS_DATA,
+                        "certificate_signing_request": MOCK_CERTS_DATA,
+                    }
+                ]
             ),
         },
     )
@@ -280,9 +283,9 @@ def test_without_s3_integration_raises_error(
 @pytest.mark.parametrize(
     "endpoint, endpoint_stripped",
     (
-            ("example.com", "example.com"),
-            ("http://example.com", "example.com"),
-            ("https://example.com", "example.com"),
+        ("example.com", "example.com"),
+        ("http://example.com", "example.com"),
+        ("https://example.com", "example.com"),
     ),
 )
 def test_s3_integration(
@@ -323,7 +326,7 @@ def test_s3_integration(
             coordinator_state,
             leader=True,
             relations=relations_except_s3
-                      + [dataclasses.replace(s3_relation, remote_app_data=s3_app_data)],
+            + [dataclasses.replace(s3_relation, remote_app_data=s3_app_data)],
         ),
     ) as mgr:
         # THEN the s3_connection_info method returns the expected data structure
@@ -336,7 +339,7 @@ def test_s3_integration(
         assert coordinator.s3_connection_info.tls_ca_chain == tls_ca_chain
         assert coordinator._s3_config["endpoint"] == endpoint_stripped
         assert coordinator._s3_config["insecure"] is not (
-                tls_ca_chain or urlparse(endpoint).scheme == "https"
+            tls_ca_chain or urlparse(endpoint).scheme == "https"
         )
 
 
@@ -363,6 +366,7 @@ def test_tracing_receivers_urls(
         },
     )
     ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
+
     with ctx(
         ctx.on.update_status(),
         state=dataclasses.replace(
@@ -385,8 +389,7 @@ def find_relation(relations, endpoint):
 
 @pytest.mark.parametrize("tls", (True, False))
 def test_charm_tracing_configured(
-    coordinator_state: testing.State, coordinator_charm: ops.CharmBase,
-    tls: bool
+    coordinator_state: testing.State, coordinator_charm: ops.CharmBase, tls: bool
 ):
     # GIVEN a charm tracing integration (and tls?)
     relations = set(coordinator_state.relations)
@@ -406,7 +409,9 @@ def test_charm_tracing_configured(
     certs_relation = find_relation(relations, "my-certificates")
     if tls:
         # it's truly too much work to figure out how to mock a certificate relation.
-        tls_mock = patch.object(CertHandler, "ca_cert", new_callable=PropertyMock, return_value=MOCK_CERTS_DATA)
+        tls_mock = patch.object(
+            CertHandler, "ca_cert", new_callable=PropertyMock, return_value=MOCK_CERTS_DATA
+        )
     else:
         tls_mock = nullcontext()
         relations.remove(certs_relation)
@@ -418,9 +423,7 @@ def test_charm_tracing_configured(
         with patch("ops_tracing.set_destination") as p:
             ctx.run(
                 ctx.on.update_status(),
-                state=dataclasses.replace(
-                    coordinator_state, relations=relations
-                )
+                state=dataclasses.replace(coordinator_state, relations=relations),
             )
     p.assert_called_with(url=url, ca=MOCK_CERTS_DATA if tls else None)
 
@@ -428,10 +431,10 @@ def test_charm_tracing_configured(
 @pytest.mark.parametrize(
     "event",
     (
-            testing.CharmEvents.update_status(),
-            testing.CharmEvents.start(),
-            testing.CharmEvents.install(),
-            testing.CharmEvents.config_changed(),
+        testing.CharmEvents.update_status(),
+        testing.CharmEvents.start(),
+        testing.CharmEvents.install(),
+        testing.CharmEvents.config_changed(),
     ),
 )
 def test_invalid_databag_content(coordinator_charm: ops.CharmBase, event):
@@ -540,21 +543,21 @@ def test_invalid_app_or_unit_databag(
 @pytest.mark.parametrize(
     ("hostname", "expected_app_hostname"),
     (
-            (
-                    "foo-app-0.foo-app-headless.test.svc.cluster.local",
-                    "foo-app.test.svc.cluster.local",
-            ),
-            (
-                    "foo-app-0.foo-app-headless.test.svc.custom.domain",
-                    "foo-app.test.svc.custom.domain",
-            ),
-            (
-                    "foo-app-0.foo-app-headless.test.svc.custom.svc.domain",
-                    "foo-app.test.svc.custom.svc.domain",
-            ),
-            ("localhost", "localhost"),
-            ("my.custom.domain", "my.custom.domain"),
-            ("192.0.2.1", "192.0.2.1"),
+        (
+            "foo-app-0.foo-app-headless.test.svc.cluster.local",
+            "foo-app.test.svc.cluster.local",
+        ),
+        (
+            "foo-app-0.foo-app-headless.test.svc.custom.domain",
+            "foo-app.test.svc.custom.domain",
+        ),
+        (
+            "foo-app-0.foo-app-headless.test.svc.custom.svc.domain",
+            "foo-app.test.svc.custom.svc.domain",
+        ),
+        ("localhost", "localhost"),
+        ("my.custom.domain", "my.custom.domain"),
+        ("192.0.2.1", "192.0.2.1"),
     ),
 )
 def test_app_hostname(

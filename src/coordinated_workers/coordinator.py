@@ -463,7 +463,7 @@ class Coordinator(ops.Object):
             logger.debug(f"expected K8s-style fqdn, but got {hostname} instead")
             return hostname
 
-        dns_name_parts = hostname_parts[hostname_parts.index("svc"):]
+        dns_name_parts = hostname_parts[hostname_parts.index("svc") :]
         dns_name = ".".join(dns_name_parts)  # 'svc.cluster.local'
         return f"{self._charm.app.name}.{self._charm.model.name}.{dns_name}"  # 'tempo.model.svc.cluster.local'
 
@@ -816,6 +816,5 @@ class Coordinator(ops.Object):
         """Configure ops.tracing to send traces to a tracing backend."""
         if self.charm_tracing.is_ready():
             ops_tracing.set_destination(
-                url=self.charm_tracing.get_endpoint("otlp_http"),
-                ca=self.cert_handler.ca_cert
+                url=self.charm_tracing.get_endpoint("otlp_http"), ca=self.cert_handler.ca_cert
             )

@@ -60,14 +60,14 @@ def test_no_roles_error():
 @pytest.mark.parametrize(
     "roles_active, roles_inactive, expected",
     (
-            (
-                    ["read", "write", "ingester", "all"],
-                    ["alertmanager"],
-                    ["read", "write", "ingester", "all"],
-            ),
-            (["read", "write"], ["alertmanager"], ["read", "write"]),
-            (["read"], ["alertmanager", "write", "ingester", "all"], ["read"]),
-            ([], ["read", "write", "ingester", "all", "alertmanager"], []),
+        (
+            ["read", "write", "ingester", "all"],
+            ["alertmanager"],
+            ["read", "write", "ingester", "all"],
+        ),
+        (["read", "write"], ["alertmanager"], ["read", "write"]),
+        (["read"], ["alertmanager", "write", "ingester", "all"], ["read"]),
+        ([], ["read", "write", "ingester", "all", "alertmanager"], []),
     ),
 )
 def test_roles_from_config(roles_active, roles_inactive, expected):
@@ -298,23 +298,23 @@ def test_worker_raises_if_service_restart_fails_for_too_long(tmp_path):
 @pytest.mark.parametrize(
     "remote_databag, expected",
     (
-            (
-                    {
-                        "remote_write_endpoints": json.dumps([{"url": "test-url.com"}]),
-                        "worker_config": json.dumps("test"),
-                    },
-                    [{"url": "test-url.com"}],
-            ),
-            ({"remote_write_endpoints": json.dumps(None), "worker_config": json.dumps("test")}, []),
-            (
-                    {
-                        "remote_write_endpoints": json.dumps(
-                            [{"url": "test-url.com"}, {"url": "test2-url.com"}]
-                        ),
-                        "worker_config": json.dumps("test"),
-                    },
-                    [{"url": "test-url.com"}, {"url": "test2-url.com"}],
-            ),
+        (
+            {
+                "remote_write_endpoints": json.dumps([{"url": "test-url.com"}]),
+                "worker_config": json.dumps("test"),
+            },
+            [{"url": "test-url.com"}],
+        ),
+        ({"remote_write_endpoints": json.dumps(None), "worker_config": json.dumps("test")}, []),
+        (
+            {
+                "remote_write_endpoints": json.dumps(
+                    [{"url": "test-url.com"}, {"url": "test2-url.com"}]
+                ),
+                "worker_config": json.dumps("test"),
+            },
+            [{"url": "test-url.com"}, {"url": "test2-url.com"}],
+        ),
     ),
 )
 def test_get_remote_write_endpoints(remote_databag, expected):
@@ -840,17 +840,17 @@ def test_invalid_url(mock_socket_fqdn):
 @pytest.mark.parametrize(
     "remote_databag, expected",
     (
-            (
-                    {
-                        "charm_tracing_receivers": json.dumps({"url": "test-url.com"}),
-                        "worker_config": json.dumps("test"),
-                    },
-                    {"url": "test-url.com"},
-            ),
-            (
-                    {"charm_tracing_receivers": json.dumps(None), "worker_config": json.dumps("test")},
-                    {},
-            ),
+        (
+            {
+                "charm_tracing_receivers": json.dumps({"url": "test-url.com"}),
+                "worker_config": json.dumps("test"),
+            },
+            {"url": "test-url.com"},
+        ),
+        (
+            {"charm_tracing_receivers": json.dumps(None), "worker_config": json.dumps("test")},
+            {},
+        ),
     ),
 )
 def test_get_charm_tracing_receivers(remote_databag, expected):
@@ -929,24 +929,29 @@ def test_charm_tracing_config(tls):
     )
     container = testing.Container(
         "foo",
-        execs={
-            testing.Exec(("update-ca-certificates", "--fresh"))
-        },
+        execs={testing.Exec(("update-ca-certificates", "--fresh"))},
         can_connect=True,
     )
     mock_certs_data = json.dumps("<TLS_STUFF>")
 
-    secret=Secret({"private-key": "verysecret"})
-    tls_data = {       "ca_cert": mock_certs_data,
-                "server_cert": mock_certs_data,
-                "privkey_secret_id": json.dumps(secret.id),
-        } if tls else {}
+    secret = Secret({"private-key": "verysecret"})
+    tls_data = (
+        {
+            "ca_cert": mock_certs_data,
+            "server_cert": mock_certs_data,
+            "privkey_secret_id": json.dumps(secret.id),
+        }
+        if tls
+        else {}
+    )
     relation = testing.Relation(
         "cluster",
         remote_app_data={
-            "charm_tracing_receivers": json.dumps({"otlp_http": f"http{'s' if tls else ''}://some-url"}),
+            "charm_tracing_receivers": json.dumps(
+                {"otlp_http": f"http{'s' if tls else ''}://some-url"}
+            ),
             "worker_config": json.dumps("test"),
-            **tls_data
+            **tls_data,
         },
     )
 
@@ -954,29 +959,31 @@ def test_charm_tracing_config(tls):
     with patch("ops_tracing.set_destination") as p:
         ctx.run(
             ctx.on.update_status(),
-            testing.State(containers={container},
-                          secrets={secret} if tls else {},
-                          relations={relation}),
+            testing.State(
+                containers={container}, secrets={secret} if tls else {}, relations={relation}
+            ),
         )
 
     # THEN set_destination gets called with the expected data
-    p.assert_called_with(url=f"http{'s' if tls else ''}://some-url/v1/traces", ca="<TLS_STUFF>" if tls else None)
+    p.assert_called_with(
+        url=f"http{'s' if tls else ''}://some-url/v1/traces", ca="<TLS_STUFF>" if tls else None
+    )
 
 
 @pytest.mark.parametrize(
     "remote_databag, expected",
     (
-            (
-                    {
-                        "workload_tracing_receivers": json.dumps({"url": "test-url.com"}),
-                        "worker_config": json.dumps("test"),
-                    },
-                    {"url": "test-url.com"},
-            ),
-            (
-                    {"workload_tracing_receivers": json.dumps(None), "worker_config": json.dumps("test")},
-                    {},
-            ),
+        (
+            {
+                "workload_tracing_receivers": json.dumps({"url": "test-url.com"}),
+                "worker_config": json.dumps("test"),
+            },
+            {"url": "test-url.com"},
+        ),
+        (
+            {"workload_tracing_receivers": json.dumps(None), "worker_config": json.dumps("test")},
+            {},
+        ),
     ),
 )
 def test_get_workload_tracing_receivers(remote_databag, expected):
@@ -1017,10 +1024,10 @@ def test_get_workload_tracing_receivers(remote_databag, expected):
 @pytest.mark.parametrize(
     "event",
     (
-            CharmEvents.update_status(),
-            CharmEvents.start(),
-            CharmEvents.install(),
-            CharmEvents.relation_changed,
+        CharmEvents.update_status(),
+        CharmEvents.start(),
+        CharmEvents.install(),
+        CharmEvents.relation_changed,
     ),
 )
 def test_worker_blocks_on_tls_misconfigured(event):
