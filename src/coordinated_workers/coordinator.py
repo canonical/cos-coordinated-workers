@@ -816,5 +816,6 @@ class Coordinator(ops.Object):
         """Configure ops.tracing to send traces to a tracing backend."""
         if self.charm_tracing.is_ready():
             ops_tracing.set_destination(
-                url=self.charm_tracing.get_endpoint("otlp_http"), ca=self.cert_handler.ca_cert
+                url=self.charm_tracing.get_endpoint("otlp_http") + "/v1/traces",
+                ca=self.cert_handler.ca_cert,
             )
