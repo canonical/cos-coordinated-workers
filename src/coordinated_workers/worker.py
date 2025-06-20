@@ -862,8 +862,8 @@ class Worker(ops.Object):
         }
         return adjust_resource_requirements(
             limits,
-            self._resources_requests_getter(),
-            adhere_to_requests=True,  # type: ignore
+            self._resources_requests_getter(),  # type: ignore
+            adhere_to_requests=True,
         )
 
     def _setup_charm_tracing(self):
