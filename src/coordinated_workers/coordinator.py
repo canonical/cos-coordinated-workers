@@ -31,9 +31,6 @@ import ops
 import ops_tracing
 import pydantic
 import yaml
-from cosl.interfaces.datasource_exchange import DatasourceExchange
-from ops import StatusBase
-
 from coordinated_workers import worker
 from coordinated_workers.helpers import check_libs_installed
 from coordinated_workers.interfaces.cluster import ClusterProvider, RemoteWriteEndpoint
@@ -43,6 +40,8 @@ from coordinated_workers.nginx import (
     NginxMappingOverrides,
     NginxPrometheusExporter,
 )
+from cosl.interfaces.datasource_exchange import DatasourceExchange
+from ops import StatusBase
 
 check_libs_installed(
     "charms.data_platform_libs.v0.s3",
@@ -130,12 +129,12 @@ class ClusterRolesConfig:
         is_minimal_valid = set(self.minimal_deployment).issubset(self.roles)
         is_recommended_valid = set(self.recommended_deployment).issubset(self.roles)
         if not all(
-                [
-                    are_meta_keys_valid,
-                    are_meta_values_valid,
-                    is_minimal_valid,
-                    is_recommended_valid,
-                ]
+            [
+                are_meta_keys_valid,
+                are_meta_values_valid,
+                is_minimal_valid,
+                is_recommended_valid,
+            ]
         ):
             raise ClusterRolesConfigError(
                 "Invalid ClusterRolesConfig: The configuration is not coherent."
@@ -147,8 +146,8 @@ class ClusterRolesConfig:
 
 
 def _validate_container_name(
-        container_name: Optional[str],
-        resources_requests: Optional[Callable[["Coordinator"], Dict[str, str]]],
+    container_name: Optional[str],
+    resources_requests: Optional[Callable[["Coordinator"], Dict[str, str]]],
 ):
     """Raise `ValueError` if `resources_requests` is not None and `container_name` is None."""
     if resources_requests is not None and container_name is None:
@@ -195,24 +194,24 @@ class Coordinator(ops.Object):
     """
 
     def __init__(
-            self,
-            charm: ops.CharmBase,
-            roles_config: ClusterRolesConfig,
-            external_url: str,  # the ingressed url if we have ingress, else fqdn
-            worker_metrics_port: int,
-            endpoints: _EndpointMapping,
-            nginx_config: NginxConfig,
-            workers_config: Callable[["Coordinator"], str],
-            worker_ports: Optional[Callable[[str], Sequence[int]]] = None,
-            nginx_options: Optional[NginxMappingOverrides] = None,
-            is_coherent: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
-            is_recommended: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
-            resources_limit_options: Optional[_ResourceLimitOptionsMapping] = None,
-            resources_requests: Optional[Callable[["Coordinator"], Dict[str, str]]] = None,
-            container_name: Optional[str] = None,
-            remote_write_endpoints: Optional[Callable[[], List[RemoteWriteEndpoint]]] = None,
-            workload_tracing_protocols: Optional[List[ReceiverProtocol]] = None,
-            catalogue_item: Optional[CatalogueItem] = None,
+        self,
+        charm: ops.CharmBase,
+        roles_config: ClusterRolesConfig,
+        external_url: str,  # the ingressed url if we have ingress, else fqdn
+        worker_metrics_port: int,
+        endpoints: _EndpointMapping,
+        nginx_config: NginxConfig,
+        workers_config: Callable[["Coordinator"], str],
+        worker_ports: Optional[Callable[[str], Sequence[int]]] = None,
+        nginx_options: Optional[NginxMappingOverrides] = None,
+        is_coherent: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
+        is_recommended: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
+        resources_limit_options: Optional[_ResourceLimitOptionsMapping] = None,
+        resources_requests: Optional[Callable[["Coordinator"], Dict[str, str]]] = None,
+        container_name: Optional[str] = None,
+        remote_write_endpoints: Optional[Callable[[], List[RemoteWriteEndpoint]]] = None,
+        workload_tracing_protocols: Optional[List[ReceiverProtocol]] = None,
+        catalogue_item: Optional[CatalogueItem] = None,
     ):
         """Constructor for a Coordinator object.
 
@@ -477,10 +476,10 @@ class Coordinator(ops.Object):
     def tls_available(self) -> bool:
         """Return True if tls is enabled and the necessary certs are found."""
         return (
-                self.cert_handler.enabled
-                and (self.cert_handler.server_cert is not None)
-                and (self.cert_handler.private_key is not None)  # type: ignore
-                and (self.cert_handler.ca_cert is not None)
+            self.cert_handler.enabled
+            and (self.cert_handler.server_cert is not None)
+            and (self.cert_handler.private_key is not None)  # type: ignore
+            and (self.cert_handler.ca_cert is not None)
         )
 
     @property
