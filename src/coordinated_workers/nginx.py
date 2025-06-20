@@ -525,7 +525,6 @@ class NginxConfig:
         backends: List[str],
         listen_tls: bool,
     ) -> List[Dict[str, Any]]:
-
         nginx_locations: List[Dict[str, Any]] = []
 
         if self._enable_health_check:

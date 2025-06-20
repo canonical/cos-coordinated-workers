@@ -1,10 +1,12 @@
 import dataclasses
 import json
-from unittest.mock import patch
+from contextlib import nullcontext
+from unittest.mock import PropertyMock, patch
 from urllib.parse import urlparse
 
 import ops
 import pytest
+from charms.observability_libs.v1.cert_handler import CertHandler
 from cosl.interfaces.utils import DataValidationError
 from ops import RelationChangedEvent, testing
 
@@ -21,18 +23,35 @@ from coordinated_workers.interfaces.cluster import (
 from coordinated_workers.nginx import NginxConfig
 from tests.unit.test_worker import MyCharm
 
+MOCK_CERTS_DATA = "<TLS_STUFF>"
+
 
 @pytest.fixture
 def coordinator_state():
     requires_relations = {
         endpoint: testing.Relation(endpoint=endpoint, interface=interface["interface"])
         for endpoint, interface in {
-            "my-certificates": {"interface": "certificates"},
             "my-logging": {"interface": "loki_push_api"},
             "my-charm-tracing": {"interface": "tracing"},
             "my-workload-tracing": {"interface": "tracing"},
         }.items()
     }
+    requires_relations["my-certificates"] = testing.Relation(
+        "my-certificates",
+        interface="certificates",
+        remote_app_data={
+            "certificates": json.dumps(
+                [
+                    {
+                        "certificate": MOCK_CERTS_DATA,
+                        "ca": MOCK_CERTS_DATA,
+                        "chain": MOCK_CERTS_DATA,
+                        "certificate_signing_request": MOCK_CERTS_DATA,
+                    }
+                ]
+            ),
+        },
+    )
     requires_relations["my-s3"] = testing.Relation(
         "my-s3",
         interface="s3",
@@ -305,6 +324,7 @@ def test_s3_integration(
         ctx.on.update_status(),
         state=dataclasses.replace(
             coordinator_state,
+            leader=True,
             relations=relations_except_s3
             + [dataclasses.replace(s3_relation, remote_app_data=s3_app_data)],
         ),
@@ -346,6 +366,7 @@ def test_tracing_receivers_urls(
         },
     )
     ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
+
     with ctx(
         ctx.on.update_status(),
         state=dataclasses.replace(
@@ -360,6 +381,51 @@ def test_tracing_receivers_urls(
             "otlp_http": "5.6.7.8:4318",
             "otlp_grpc": "5.6.7.8:4317",
         }
+
+
+def find_relation(relations, endpoint):
+    return next(filter(lambda r: r.endpoint == endpoint, relations))
+
+
+@pytest.mark.parametrize("tls", (True, False))
+def test_charm_tracing_configured(
+    coordinator_state: testing.State, coordinator_charm: ops.CharmBase, tls: bool
+):
+    # GIVEN a charm tracing integration (and tls?)
+    relations = set(coordinator_state.relations)
+
+    url = "1.2.3.4:4318"
+    charm_tracing_relation = testing.Relation(
+        endpoint="my-charm-tracing",
+        remote_app_data={
+            "receivers": json.dumps(
+                [{"protocol": {"name": "otlp_http", "type": "http"}, "url": url}]
+            )
+        },
+    )
+    relations.remove(find_relation(relations, "my-charm-tracing"))
+    relations.add(charm_tracing_relation)
+
+    certs_relation = find_relation(relations, "my-certificates")
+    if tls:
+        # it's truly too much work to figure out how to mock a certificate relation.
+        tls_mock = patch.object(
+            CertHandler, "ca_cert", new_callable=PropertyMock, return_value=MOCK_CERTS_DATA
+        )
+    else:
+        tls_mock = nullcontext()
+        relations.remove(certs_relation)
+
+    # WHEN we receive any event
+    with tls_mock:
+        ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
+        # THEN the coordinator has called ops_tracing.set_destination with the expected params
+        with patch("ops_tracing.set_destination") as p:
+            ctx.run(
+                ctx.on.update_status(),
+                state=dataclasses.replace(coordinator_state, relations=relations),
+            )
+    p.assert_called_with(url=url, ca=MOCK_CERTS_DATA if tls else None)
 
 
 @pytest.mark.parametrize(

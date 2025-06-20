@@ -28,6 +28,7 @@ from urllib.parse import urlparse
 
 import cosl
 import ops
+import ops_tracing
 import pydantic
 import yaml
 from cosl.interfaces.datasource_exchange import DatasourceExchange
@@ -166,9 +167,10 @@ _EndpointMapping = TypedDict(
         "metrics": str,
         "charm-tracing": str,
         "workload-tracing": str,
+        "s3": str,
+        # optional integrations
         "send-datasource": Optional[str],
         "receive-datasource": Optional[str],
-        "s3": str,
         "catalogue": Optional[str],
     },
     total=True,
@@ -677,6 +679,7 @@ class Coordinator(ops.Object):
             return
 
         self._update_nginx_tls_certificates()
+        self._setup_charm_tracing()
         self.update_cluster()
         if self.catalogue:
             self.catalogue.update_item(item=self._catalogue_item)  # type: ignore
@@ -808,3 +811,10 @@ class Coordinator(ops.Object):
             self._resources_requests_getter() if self._resources_requests_getter else None,
             adhere_to_requests=True,  # type: ignore
         )
+
+    def _setup_charm_tracing(self):
+        """Configure ops.tracing to send traces to a tracing backend."""
+        if self.charm_tracing.is_ready():
+            ops_tracing.set_destination(
+                url=self.charm_tracing.get_endpoint("otlp_http"), ca=self.cert_handler.ca_cert
+            )

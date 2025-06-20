@@ -135,9 +135,7 @@ def endpoint_ready(tls):
 
 @contextmanager
 def config_on_disk():
-    with patch(
-        "coordinated_workers.worker.Worker._running_worker_config", new=lambda _: True
-    ):
+    with patch("coordinated_workers.worker.Worker._running_worker_config", new=lambda _: True):
         yield
 
 
@@ -159,9 +157,7 @@ def test_status_check_no_pebble(ctx, base_state, caplog):
 def test_status_check_no_config(ctx, base_state, caplog):
     # GIVEN there is no config file on disk
     # WHEN we run any event
-    with patch(
-        "coordinated_workers.worker.Worker._running_worker_config", new=lambda _: None
-    ):
+    with patch("coordinated_workers.worker.Worker._running_worker_config", new=lambda _: None):
         state_out = ctx.run(ctx.on.update_status(), base_state)
 
     # THEN the charm sets blocked
