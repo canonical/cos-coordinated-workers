@@ -476,6 +476,12 @@ class Coordinator(ops.Object):
         return f"{scheme}://{self.hostname}"
 
     @property
+    def _ca_cert(self) -> Optional[str]:
+        if tls_config := self._tls_config:
+            _, _, ca = tls_config
+            return ca
+
+    @property
     def _tls_config(self) -> Optional[Tuple[str, str, str]]:
         cr = self._get_certificate_request_attributes()
         certificates, key = self.cert_handler.get_assigned_certificate(certificate_request=cr)
@@ -735,7 +741,7 @@ class Coordinator(ops.Object):
         if not self._charm.unit.is_leader():
             return
 
-        _, server_cert, ca_cert = self._tls_config or (None, None,None)
+        _, server_cert, ca_cert = self._tls_config or (None, None, None)
         # we share the certs in plaintext as they're not sensitive information
         # On every function call, we always publish everything to the databag; however, if there
         # are no changes, Juju will notice there's no delta and do nothing
@@ -745,7 +751,9 @@ class Coordinator(ops.Object):
             # all arguments below are optional:
             ca_cert=ca_cert,
             server_cert=server_cert,
-            privkey_secret_id=self.cluster.grant_privkey(self.cert_handler._get_private_key_secret_label()), #type: ignore
+            privkey_secret_id=self.cluster.grant_privkey(
+                self.cert_handler._get_private_key_secret_label()  # type: ignore
+            ),
             charm_tracing_receivers=self._charm_tracing_receivers_urls,
             workload_tracing_receivers=self._workload_tracing_receivers_urls,
             remote_write_endpoints=(
@@ -823,8 +831,9 @@ class Coordinator(ops.Object):
                 return
             ops_tracing.set_destination(
                 url=endpoint + "/v1/traces",
-                ca=self.cert_handler.ca_cert,
+                ca=self._ca_cert,
             )
+
     def _get_certificate_request_attributes(self) -> CertificateRequestAttributes:
         return CertificateRequestAttributes(
             # common_name is required and has a limit of 64 chars.
@@ -832,5 +841,7 @@ class Coordinator(ops.Object):
             # such as app_name
             common_name=self._charm.app.name,
             # update certificate with new SANs whenever a worker is added/removed
-            sans_dns=frozenset((self.hostname, self.app_hostname, *self.cluster.gather_addresses())),
+            sans_dns=frozenset(
+                (self.hostname, self.app_hostname, *self.cluster.gather_addresses())
+            ),
         )
