@@ -6,7 +6,6 @@ from urllib.parse import urlparse
 
 import ops
 import pytest
-from charms.observability_libs.v1.cert_handler import CertHandler
 from cosl.interfaces.utils import DataValidationError
 from ops import RelationChangedEvent, testing
 
@@ -410,7 +409,7 @@ def test_charm_tracing_configured(
     if tls:
         # it's truly too much work to figure out how to mock a certificate relation.
         tls_mock = patch.object(
-            CertHandler, "ca_cert", new_callable=PropertyMock, return_value=MOCK_CERTS_DATA
+            Coordinator, "_ca_cert", new_callable=PropertyMock, return_value=MOCK_CERTS_DATA
         )
     else:
         tls_mock = nullcontext()

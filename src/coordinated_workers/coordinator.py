@@ -150,6 +150,15 @@ class ClusterRolesConfig:
         return set(self.minimal_deployment).issubset(set(cluster_roles))
 
 
+@dataclass
+class TLSConfig:
+    """TLS config model."""
+
+    server_cert: str
+    ca_cert: str
+    private_key: str
+
+
 def _validate_container_name(
     container_name: Optional[str],
     resources_requests: Optional[Callable[["Coordinator"], Dict[str, str]]],
@@ -477,17 +486,15 @@ class Coordinator(ops.Object):
 
     @property
     def _ca_cert(self) -> Optional[str]:
-        if tls_config := self._tls_config:
-            _, _, ca = tls_config
-            return ca
+        return self._tls_config.ca_cert if self._tls_config else None
 
     @property
-    def _tls_config(self) -> Optional[Tuple[str, str, str]]:
+    def _tls_config(self) -> Optional[TLSConfig]:
         cr = self._get_certificate_request_attributes()
         certificates, key = self.cert_handler.get_assigned_certificate(certificate_request=cr)
         if not (key and certificates):
             return None
-        return key.raw, certificates.certificate.raw, certificates.ca.raw
+        return TLSConfig(certificates.certificate.raw, certificates.ca.raw, key.raw)
 
     @property
     def tls_available(self) -> bool:
@@ -671,11 +678,10 @@ class Coordinator(ops.Object):
     def _update_nginx_tls_certificates(self) -> None:
         """Update the TLS certificates for nginx on disk according to their availability."""
         if tls_config := self._tls_config:
-            private_key, server_cert, ca_cert = tls_config
             self.nginx.configure_tls(
-                server_cert=server_cert,
-                ca_cert=ca_cert,
-                private_key=private_key,
+                server_cert=tls_config.server_cert,
+                ca_cert=tls_config.ca_cert,
+                private_key=tls_config.private_key,
             )
         else:
             self.nginx.delete_certificates()
@@ -741,7 +747,7 @@ class Coordinator(ops.Object):
         if not self._charm.unit.is_leader():
             return
 
-        _, server_cert, ca_cert = self._tls_config or (None, None, None)
+        tls_config = self._tls_config
         # we share the certs in plaintext as they're not sensitive information
         # On every function call, we always publish everything to the databag; however, if there
         # are no changes, Juju will notice there's no delta and do nothing
@@ -749,8 +755,8 @@ class Coordinator(ops.Object):
             worker_config=self._workers_config_getter(),
             loki_endpoints=self.loki_endpoints_by_unit,
             # all arguments below are optional:
-            ca_cert=ca_cert,
-            server_cert=server_cert,
+            ca_cert=tls_config.ca_cert if tls_config else None,
+            server_cert=tls_config.server_cert if tls_config else None,
             privkey_secret_id=self.cluster.grant_privkey(
                 self.cert_handler._get_private_key_secret_label()  # type: ignore
             ),
