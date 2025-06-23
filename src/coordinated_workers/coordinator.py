@@ -22,7 +22,6 @@ from typing import (
     Optional,
     Sequence,
     Set,
-    Tuple,
     TypedDict,
 )
 from urllib.parse import urlparse
