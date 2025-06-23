@@ -409,7 +409,7 @@ def test_charm_tracing_configured(
     if tls:
         # it's truly too much work to figure out how to mock a certificate relation.
         tls_mock = patch.object(
-            Coordinator, "_ca_cert", new_callable=PropertyMock, return_value=MOCK_CERTS_DATA
+            Coordinator, "ca_cert", new_callable=PropertyMock, return_value=MOCK_CERTS_DATA
         )
     else:
         tls_mock = nullcontext()

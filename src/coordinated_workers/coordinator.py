@@ -484,11 +484,13 @@ class Coordinator(ops.Object):
         return f"{scheme}://{self.hostname}"
 
     @property
-    def _ca_cert(self) -> Optional[str]:
-        return self._tls_config.ca_cert if self._tls_config else None
+    def ca_cert(self) -> Optional[str]:
+        """Returns the raw CA certificate, if available."""
+        return self.tls_config.ca_cert if self.tls_config else None
 
     @property
-    def _tls_config(self) -> Optional[TLSConfig]:
+    def tls_config(self) -> Optional[TLSConfig]:
+        """Returns the TLS configuration, including certificates and private key, if available."""
         cr = self._get_certificate_request_attributes()
         certificates, key = self._certificates.get_assigned_certificate(certificate_request=cr)
         if not (key and certificates):
@@ -498,7 +500,7 @@ class Coordinator(ops.Object):
     @property
     def tls_available(self) -> bool:
         """Return True if tls is enabled and the necessary certs are found."""
-        return bool(self._tls_config)
+        return bool(self.tls_config)
 
     @property
     def s3_connection_info(self) -> S3ConnectionInfo:
@@ -676,7 +678,7 @@ class Coordinator(ops.Object):
     ###################
     def _update_nginx_tls_certificates(self) -> None:
         """Update the TLS certificates for nginx on disk according to their availability."""
-        if tls_config := self._tls_config:
+        if tls_config := self.tls_config:
             self.nginx.configure_tls(
                 server_cert=tls_config.server_cert,
                 ca_cert=tls_config.ca_cert,
@@ -746,7 +748,7 @@ class Coordinator(ops.Object):
         if not self._charm.unit.is_leader():
             return
 
-        tls_config = self._tls_config
+        tls_config = self.tls_config
         # we share the certs in plaintext as they're not sensitive information
         # On every function call, we always publish everything to the databag; however, if there
         # are no changes, Juju will notice there's no delta and do nothing
@@ -836,7 +838,7 @@ class Coordinator(ops.Object):
                 return
             ops_tracing.set_destination(
                 url=endpoint + "/v1/traces",
-                ca=self._ca_cert,
+                ca=self.ca_cert,
             )
 
     def _get_certificate_request_attributes(self) -> CertificateRequestAttributes:
