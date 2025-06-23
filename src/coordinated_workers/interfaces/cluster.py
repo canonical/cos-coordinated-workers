@@ -211,6 +211,8 @@ class ClusterProvider(Object):
         try:
             secret = self.model.get_secret(label=label)
         except SecretNotFoundError:
+            # it might be the case that we're trying to access the secret on relation created/joined
+            # while it actually gets created on relation changed
             log.debug("secret with label %s not found", label)
             return None
 

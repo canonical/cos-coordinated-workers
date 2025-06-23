@@ -297,7 +297,7 @@ class Coordinator(ops.Object):
         self._workers_config_getter = partial(workers_config, self)
         self.nginx_exporter = NginxPrometheusExporter(self._charm, options=nginx_options)
 
-        self.cert_handler = TLSCertificatesRequiresV4(
+        self._certificates = TLSCertificatesRequiresV4(
             self._charm,
             relationship_name=self._endpoints["certificates"],
             certificate_requests=[self._get_certificate_request_attributes()],
@@ -320,8 +320,8 @@ class Coordinator(ops.Object):
 
         # Provide ability for this to be scraped by Prometheus using prometheus_scrape
         refresh_events = [self._charm.on.update_status, self.cluster.on.changed]
-        if self.cert_handler:
-            refresh_events.append(self.cert_handler.on.certificate_available)
+        if self._certificates:
+            refresh_events.append(self._certificates.on.certificate_available)
 
         self._render_alert_rules()
         self._scraping = MetricsEndpointProvider(
@@ -490,7 +490,7 @@ class Coordinator(ops.Object):
     @property
     def _tls_config(self) -> Optional[TLSConfig]:
         cr = self._get_certificate_request_attributes()
-        certificates, key = self.cert_handler.get_assigned_certificate(certificate_request=cr)
+        certificates, key = self._certificates.get_assigned_certificate(certificate_request=cr)
         if not (key and certificates):
             return None
         return TLSConfig(certificates.certificate.raw, certificates.ca.raw, key.raw)
@@ -757,7 +757,7 @@ class Coordinator(ops.Object):
             ca_cert=tls_config.ca_cert if tls_config else None,
             server_cert=tls_config.server_cert if tls_config else None,
             privkey_secret_id=self.cluster.grant_privkey(
-                self.cert_handler._get_private_key_secret_label()  # type: ignore
+                self._certificates._get_private_key_secret_label()  # type: ignore
             ),
             charm_tracing_receivers=self._charm_tracing_receivers_urls,
             workload_tracing_receivers=self._workload_tracing_receivers_urls,
