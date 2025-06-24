@@ -151,7 +151,9 @@ class ClusterRolesConfig:
 
 @dataclass
 class TLSConfig:
-    """TLS config model."""
+    """TLS configuration received by the coordinator over the `certificates` relation.
+    This is an internal object that we use as facade so that the individual Coordinator charms don't have to know the API of the charm libs that implements the relation interface.
+    """
 
     server_cert: str
     ca_cert: str
@@ -319,7 +321,7 @@ class Coordinator(ops.Object):
         self._log_forwarder = LogForwarder(self._charm, relation_name=self._endpoints["logging"])
 
         # Provide ability for this to be scraped by Prometheus using prometheus_scrape
-        refresh_events = [self._charm.on.update_status, self.cluster.on.changed]
+        refresh_events = [self._charm.on.update_status, self.cluster.on.changed, self._certificates.on.certificate_available]
         if self._certificates:
             refresh_events.append(self._certificates.on.certificate_available)
 
@@ -490,7 +492,7 @@ class Coordinator(ops.Object):
 
     @property
     def tls_config(self) -> Optional[TLSConfig]:
-        """Returns the TLS configuration, including certificates and private key, if available."""
+        """Returns the TLS configuration, including certificates and private key, if available; None otherwise."""
         cr = self._get_certificate_request_attributes()
         certificates, key = self._certificates.get_assigned_certificate(certificate_request=cr)
         if not (key and certificates):
