@@ -152,6 +152,7 @@ class ClusterRolesConfig:
 @dataclass
 class TLSConfig:
     """TLS configuration received by the coordinator over the `certificates` relation.
+
     This is an internal object that we use as facade so that the individual Coordinator charms don't have to know the API of the charm libs that implements the relation interface.
     """
 
@@ -302,7 +303,7 @@ class Coordinator(ops.Object):
         self._certificates = TLSCertificatesRequiresV4(
             self._charm,
             relationship_name=self._endpoints["certificates"],
-            certificate_requests=[self._get_certificate_request_attributes()],
+            certificate_requests=[self._certificate_request_attributes],
             mode=Mode.APP,
         )
 
@@ -321,9 +322,11 @@ class Coordinator(ops.Object):
         self._log_forwarder = LogForwarder(self._charm, relation_name=self._endpoints["logging"])
 
         # Provide ability for this to be scraped by Prometheus using prometheus_scrape
-        refresh_events = [self._charm.on.update_status, self.cluster.on.changed, self._certificates.on.certificate_available]
-        if self._certificates:
-            refresh_events.append(self._certificates.on.certificate_available)
+        refresh_events = [
+            self._charm.on.update_status,
+            self.cluster.on.changed,
+            self._certificates.on.certificate_available,
+        ]
 
         self._render_alert_rules()
         self._scraping = MetricsEndpointProvider(
@@ -486,15 +489,11 @@ class Coordinator(ops.Object):
         return f"{scheme}://{self.hostname}"
 
     @property
-    def ca_cert(self) -> Optional[str]:
-        """Returns the raw CA certificate, if available."""
-        return self.tls_config.ca_cert if self.tls_config else None
-
-    @property
     def tls_config(self) -> Optional[TLSConfig]:
         """Returns the TLS configuration, including certificates and private key, if available; None otherwise."""
-        cr = self._get_certificate_request_attributes()
-        certificates, key = self._certificates.get_assigned_certificate(certificate_request=cr)
+        certificates, key = self._certificates.get_assigned_certificate(
+            certificate_request=self._certificate_request_attributes
+        )
         if not (key and certificates):
             return None
         return TLSConfig(certificates.certificate.raw, certificates.ca.raw, key.raw)
@@ -631,6 +630,19 @@ class Coordinator(ops.Object):
         """The scrape jobs to send to Prometheus."""
         return self._workers_scrape_jobs + self._nginx_scrape_jobs
 
+    @property
+    def _certificate_request_attributes(self) -> CertificateRequestAttributes:
+        return CertificateRequestAttributes(
+            # common_name is required and has a limit of 64 chars.
+            # it is superseded by sans anyway, so we can use a constrained name,
+            # such as app_name
+            common_name=self._charm.app.name,
+            # update certificate with new SANs whenever a worker is added/removed
+            sans_dns=frozenset(
+                (self.hostname, self.app_hostname, *self.cluster.gather_addresses())
+            ),
+        )
+
     ##################
     # EVENT HANDLERS #
     ##################
@@ -760,6 +772,8 @@ class Coordinator(ops.Object):
             # all arguments below are optional:
             ca_cert=tls_config.ca_cert if tls_config else None,
             server_cert=tls_config.server_cert if tls_config else None,
+            # FIXME: We're relying on a private method from the TLS library
+            # https://github.com/canonical/cos-coordinated-workers/issues/16
             privkey_secret_id=self.cluster.grant_privkey(
                 self._certificates._get_private_key_secret_label()  # type: ignore
             ),
@@ -840,17 +854,5 @@ class Coordinator(ops.Object):
                 return
             ops_tracing.set_destination(
                 url=endpoint + "/v1/traces",
-                ca=self.ca_cert,
+                ca=self.tls_config.ca_cert if self.tls_config else None,
             )
-
-    def _get_certificate_request_attributes(self) -> CertificateRequestAttributes:
-        return CertificateRequestAttributes(
-            # common_name is required and has a limit of 64 chars.
-            # it is superseded by sans anyway, so we can use a constrained name,
-            # such as app_name
-            common_name=self._charm.app.name,
-            # update certificate with new SANs whenever a worker is added/removed
-            sans_dns=frozenset(
-                (self.hostname, self.app_hostname, *self.cluster.gather_addresses())
-            ),
-        )
