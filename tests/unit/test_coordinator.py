@@ -1,12 +1,11 @@
 import dataclasses
 import json
-from contextlib import nullcontext
+from contextlib import ExitStack, nullcontext
 from unittest.mock import PropertyMock, patch
 from urllib.parse import urlparse
 
 import ops
 import pytest
-from charms.observability_libs.v1.cert_handler import CertHandler
 from cosl.interfaces.utils import DataValidationError
 from ops import RelationChangedEvent, testing
 
@@ -14,6 +13,7 @@ from coordinated_workers.coordinator import (
     ClusterRolesConfig,
     Coordinator,
     S3NotFoundError,
+    TLSConfig,
 )
 from coordinated_workers.interfaces.cluster import (
     ClusterRemovedEvent,
@@ -24,6 +24,7 @@ from coordinated_workers.nginx import NginxConfig
 from tests.unit.test_worker import MyCharm
 
 MOCK_CERTS_DATA = "<TLS_STUFF>"
+MOCK_TLS_CONFIG = TLSConfig(MOCK_CERTS_DATA, MOCK_CERTS_DATA, MOCK_CERTS_DATA)
 
 
 @pytest.fixture
@@ -389,7 +390,7 @@ def find_relation(relations, endpoint):
 
 @pytest.mark.parametrize("tls", (True, False))
 def test_charm_tracing_configured(
-    coordinator_state: testing.State, coordinator_charm: ops.CharmBase, tls: bool
+    coordinator_state: testing.State, coordinator_charm: ops.CharmBase, tls: bool, tmp_path
 ):
     # GIVEN a charm tracing integration (and tls?)
     relations = set(coordinator_state.relations)
@@ -408,16 +409,30 @@ def test_charm_tracing_configured(
 
     certs_relation = find_relation(relations, "my-certificates")
     if tls:
-        # it's truly too much work to figure out how to mock a certificate relation.
-        tls_mock = patch.object(
-            CertHandler, "ca_cert", new_callable=PropertyMock, return_value=MOCK_CERTS_DATA
-        )
+
+        def tls_mock():
+            stack = ExitStack()
+            stack.enter_context(
+                patch.object(
+                    Coordinator,
+                    "tls_config",
+                    new_callable=PropertyMock,
+                    return_value=MOCK_TLS_CONFIG,
+                )
+            )
+            stack.enter_context(
+                patch("coordinated_workers.nginx.CA_CERT_PATH", new=tmp_path / "rootcacert")
+            )
+            return stack
     else:
-        tls_mock = nullcontext()
+
+        def tls_mock():
+            return nullcontext()
+
         relations.remove(certs_relation)
 
     # WHEN we receive any event
-    with tls_mock:
+    with tls_mock():
         ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
         # THEN the coordinator has called ops_tracing.set_destination with the expected params
         with patch("ops_tracing.set_destination") as p:

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "coordinated-workers"
-version = "0.1.0"
+version = "1.0.0"
 authors = [
     { name = "michaeldmitry", email = "33381599+michaeldmitry@users.noreply.github.com" },
 ]
@@ -18,9 +18,8 @@ dependencies = [
     "pydantic",
     "lightkube>=v0.15.4",
     "cosl>=1",
-    # charms.tls_certificates_interface.v3.tls_certificates
+    # charms.tls_certificates_interface.v4.tls_certificates
     "cryptography",
-    "jsonschema",
 
 ]
 classifiers = [

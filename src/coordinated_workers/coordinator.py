@@ -48,12 +48,11 @@ check_libs_installed(
     "charms.data_platform_libs.v0.s3",
     "charms.grafana_k8s.v0.grafana_source",
     "charms.grafana_k8s.v0.grafana_dashboard",
-    "charms.observability_libs.v1.cert_handler",
     "charms.prometheus_k8s.v0.prometheus_scrape",
     "charms.loki_k8s.v1.loki_push_api",
     "charms.tempo_coordinator_k8s.v0.tracing",
     "charms.observability_libs.v0.kubernetes_compute_resources_patch",
-    "charms.tls_certificates_interface.v3.tls_certificates",
+    "charms.tls_certificates_interface.v4.tls_certificates",
     "charms.catalogue_k8s.v1.catalogue",
 )
 
@@ -65,9 +64,13 @@ from charms.observability_libs.v0.kubernetes_compute_resources_patch import (
     KubernetesComputeResourcesPatch,
     adjust_resource_requirements,
 )
-from charms.observability_libs.v1.cert_handler import VAULT_SECRET_LABEL, CertHandler
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from charms.tempo_coordinator_k8s.v0.tracing import ReceiverProtocol, TracingEndpointRequirer
+from charms.tls_certificates_interface.v4.tls_certificates import (
+    CertificateRequestAttributes,
+    Mode,
+    TLSCertificatesRequiresV4,
+)
 from lightkube.models.core_v1 import ResourceRequirements
 
 logger = logging.getLogger(__name__)
@@ -144,6 +147,18 @@ class ClusterRolesConfig:
     def is_coherent_with(self, cluster_roles: Iterable[str]) -> bool:
         """Returns True if the provided roles satisfy the minimal deployment spec; False otherwise."""
         return set(self.minimal_deployment).issubset(set(cluster_roles))
+
+
+@dataclass
+class TLSConfig:
+    """TLS configuration received by the coordinator over the `certificates` relation.
+
+    This is an internal object that we use as facade so that the individual Coordinator charms don't have to know the API of the charm libs that implements the relation interface.
+    """
+
+    server_cert: str
+    ca_cert: str
+    private_key: str
 
 
 def _validate_container_name(
@@ -285,13 +300,11 @@ class Coordinator(ops.Object):
         self._workers_config_getter = partial(workers_config, self)
         self.nginx_exporter = NginxPrometheusExporter(self._charm, options=nginx_options)
 
-        self.cert_handler = CertHandler(
+        self._certificates = TLSCertificatesRequiresV4(
             self._charm,
-            certificates_relation_name=self._endpoints["certificates"],
-            # let's assume we don't need the peer relation as all coordinator charms will assume juju secrets
-            key="coordinator-server-cert",
-            # update certificate with new SANs whenever a worker is added/removed
-            sans=[self.hostname, self.app_hostname, *self.cluster.gather_addresses()],
+            relationship_name=self._endpoints["certificates"],
+            certificate_requests=[self._certificate_request_attributes],
+            mode=Mode.APP,
         )
 
         self.s3_requirer = S3Requirer(self._charm, self._endpoints["s3"])
@@ -309,9 +322,11 @@ class Coordinator(ops.Object):
         self._log_forwarder = LogForwarder(self._charm, relation_name=self._endpoints["logging"])
 
         # Provide ability for this to be scraped by Prometheus using prometheus_scrape
-        refresh_events = [self._charm.on.update_status, self.cluster.on.changed]
-        if self.cert_handler:
-            refresh_events.append(self.cert_handler.on.cert_changed)
+        refresh_events = [
+            self._charm.on.update_status,
+            self.cluster.on.changed,
+            self._certificates.on.certificate_available,
+        ]
 
         self._render_alert_rules()
         self._scraping = MetricsEndpointProvider(
@@ -474,14 +489,19 @@ class Coordinator(ops.Object):
         return f"{scheme}://{self.hostname}"
 
     @property
+    def tls_config(self) -> Optional[TLSConfig]:
+        """Returns the TLS configuration, including certificates and private key, if available; None otherwise."""
+        certificates, key = self._certificates.get_assigned_certificate(
+            certificate_request=self._certificate_request_attributes
+        )
+        if not (key and certificates):
+            return None
+        return TLSConfig(certificates.certificate.raw, certificates.ca.raw, key.raw)
+
+    @property
     def tls_available(self) -> bool:
         """Return True if tls is enabled and the necessary certs are found."""
-        return (
-            self.cert_handler.enabled
-            and (self.cert_handler.server_cert is not None)
-            and (self.cert_handler.private_key is not None)  # type: ignore
-            and (self.cert_handler.ca_cert is not None)
-        )
+        return bool(self.tls_config)
 
     @property
     def s3_connection_info(self) -> S3ConnectionInfo:
@@ -610,6 +630,19 @@ class Coordinator(ops.Object):
         """The scrape jobs to send to Prometheus."""
         return self._workers_scrape_jobs + self._nginx_scrape_jobs
 
+    @property
+    def _certificate_request_attributes(self) -> CertificateRequestAttributes:
+        return CertificateRequestAttributes(
+            # common_name is required and has a limit of 64 chars.
+            # it is superseded by sans anyway, so we can use a constrained name,
+            # such as app_name
+            common_name=self._charm.app.name,
+            # update certificate with new SANs whenever a worker is added/removed
+            sans_dns=frozenset(
+                (self.hostname, self.app_hostname, *self.cluster.gather_addresses())
+            ),
+        )
+
     ##################
     # EVENT HANDLERS #
     ##################
@@ -659,11 +692,11 @@ class Coordinator(ops.Object):
     ###################
     def _update_nginx_tls_certificates(self) -> None:
         """Update the TLS certificates for nginx on disk according to their availability."""
-        if self.tls_available:
+        if tls_config := self.tls_config:
             self.nginx.configure_tls(
-                server_cert=self.cert_handler.server_cert,  # type: ignore
-                ca_cert=self.cert_handler.ca_cert,  # type: ignore
-                private_key=self.cert_handler.private_key,  # type: ignore
+                server_cert=tls_config.server_cert,
+                ca_cert=tls_config.ca_cert,
+                private_key=tls_config.private_key,
             )
         else:
             self.nginx.delete_certificates()
@@ -729,6 +762,7 @@ class Coordinator(ops.Object):
         if not self._charm.unit.is_leader():
             return
 
+        tls_config = self.tls_config
         # we share the certs in plaintext as they're not sensitive information
         # On every function call, we always publish everything to the databag; however, if there
         # are no changes, Juju will notice there's no delta and do nothing
@@ -736,12 +770,12 @@ class Coordinator(ops.Object):
             worker_config=self._workers_config_getter(),
             loki_endpoints=self.loki_endpoints_by_unit,
             # all arguments below are optional:
-            ca_cert=self.cert_handler.ca_cert,
-            server_cert=self.cert_handler.server_cert,
-            # FIXME tls_available check is due to fetching secret from vault. We should be generating a new secret.
-            # see https://github.com/canonical/cos-lib/issues/49 for full context
-            privkey_secret_id=(
-                self.cluster.grant_privkey(VAULT_SECRET_LABEL) if self.tls_available else None
+            ca_cert=tls_config.ca_cert if tls_config else None,
+            server_cert=tls_config.server_cert if tls_config else None,
+            # FIXME: We're relying on a private method from the TLS library
+            # https://github.com/canonical/cos-coordinated-workers/issues/16
+            privkey_secret_id=self.cluster.grant_privkey(
+                self._certificates._get_private_key_secret_label()  # type: ignore
             ),
             charm_tracing_receivers=self._charm_tracing_receivers_urls,
             workload_tracing_receivers=self._workload_tracing_receivers_urls,
@@ -820,5 +854,5 @@ class Coordinator(ops.Object):
                 return
             ops_tracing.set_destination(
                 url=endpoint + "/v1/traces",
-                ca=self.cert_handler.ca_cert,
+                ca=self.tls_config.ca_cert if self.tls_config else None,
             )

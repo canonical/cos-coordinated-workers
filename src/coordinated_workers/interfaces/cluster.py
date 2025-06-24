@@ -34,7 +34,7 @@ import cosl.interfaces.utils
 import ops
 import pydantic
 import yaml
-from ops import EventSource, Object, ObjectEvents, RelationCreatedEvent
+from ops import EventSource, Object, ObjectEvents, RelationCreatedEvent, SecretNotFoundError
 from typing_extensions import TypedDict
 
 log = logging.getLogger("_cluster")
@@ -206,9 +206,16 @@ class ClusterProvider(Object):
     def _on_cluster_changed(self, _: ops.EventBase) -> None:
         self.on.changed.emit()
 
-    def grant_privkey(self, label: str) -> str:
-        """Grant the secret containing the privkey to all relations, and return the secret ID."""
-        secret = self.model.get_secret(label=label)
+    def grant_privkey(self, label: str) -> Optional[str]:
+        """Grant the secret containing the privkey, if it exists, to all relations, and return the secret ID."""
+        try:
+            secret = self.model.get_secret(label=label)
+        except SecretNotFoundError:
+            # it might be the case that we're trying to access the secret on relation created/joined
+            # while it actually gets created on relation changed
+            log.debug("secret with label %s not found", label)
+            return None
+
         for relation in self._relations:
             secret.grant(relation)
         # can't return secret.id because secret was obtained by label, and so
