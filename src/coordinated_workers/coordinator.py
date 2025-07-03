@@ -305,6 +305,8 @@ class Coordinator(ops.Object):
             relationship_name=self._endpoints["certificates"],
             certificate_requests=[self._certificate_request_attributes],
             mode=Mode.APP,
+            # whenever a new member joins the cluster, refresh the csr to include its fqdn in the SANs
+            refresh_events=[self.cluster.on.changed],
         )
 
         self.s3_requirer = S3Requirer(self._charm, self._endpoints["s3"])
