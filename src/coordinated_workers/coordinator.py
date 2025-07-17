@@ -759,6 +759,7 @@ class Coordinator(ops.Object):
         self._certificates.sync()
         self._update_nginx_tls_certificates()
         self._setup_charm_tracing()
+        self._reconcile_relations()
 
     def _reconcile_relations(self):
         self._worker_logging.reload_alerts()
@@ -857,7 +858,7 @@ class Coordinator(ops.Object):
             topology = cosl.JujuTopology.from_dict(topology_dict)
             for orig_path, consolidated_path, type in alert_rules_sources:
                 alert_rules = cosl.AlertRules(query_type=type, topology=topology)  # type: ignore
-                alert_rules.add_path(orig_path, recursive=True)
+                alert_rules.add_path(orig_path)
                 alert_rules_contents = yaml.dump(alert_rules.as_dict())
 
                 file_name = f"{consolidated_path}/rendered_{worker_topology['application']}.rules"
