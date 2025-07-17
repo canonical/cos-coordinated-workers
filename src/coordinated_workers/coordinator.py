@@ -872,6 +872,7 @@ class Coordinator(ops.Object):
             for f in files:
                 os.remove(f)
 
+
     def _render_nginx_alert_rules(self):
         """Copy Nginx alert rules to the consolidated alert folder."""
         alerts_paths = (
