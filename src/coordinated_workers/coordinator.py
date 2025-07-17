@@ -76,12 +76,16 @@ from lightkube.models.core_v1 import ResourceRequirements
 
 logger = logging.getLogger(__name__)
 
-# The paths of the base rules to be rendered in CONSOLIDATED_ALERT_RULES_PATH
-NGINX_ORIGINAL_ALERT_RULES_PATH = "./src/prometheus_alert_rules/nginx"
-WORKER_ORIGINAL_ALERT_RULES_PATH = "./src/prometheus_alert_rules/workers"
+# The paths of the base rules to be rendered in CONSOLIDATED_METRICS_ALERT_RULES_PATH
+NGINX_ORIGINAL_METRICS_ALERT_RULES_PATH = "./src/prometheus_alert_rules/nginx"
+WORKER_ORIGINAL_METRICS_ALERT_RULES_PATH = "./src/prometheus_alert_rules/workers"
 # The path of the rules that will be sent to Prometheus
-CONSOLIDATED_ALERT_RULES_PATH = "./src/prometheus_alert_rules/consolidated_rules"
 _tracer = trace.get_tracer("coordinator.tracer")
+CONSOLIDATED_METRICS_ALERT_RULES_PATH = "./src/prometheus_alert_rules/consolidated_rules"
+
+# The paths of the base rules to be rendered in CONSOLIDATED_LOGS_ALERT_RULES_PATH
+ORIGINAL_LOGS_ALERT_RULES_PATH = "./src/loki_alert_rules"
+CONSOLIDATED_LOGS_ALERT_RULES_PATH = "./src/loki_alert_rules/consolidated_rules"
 
 
 class S3NotFoundError(Exception):
@@ -326,13 +330,25 @@ class Coordinator(ops.Object):
             self._charm, relation_name=self._endpoints["grafana-dashboards"]
         )
 
-        self._logging = LokiPushApiConsumer(self._charm, relation_name=self._endpoints["logging"])
-        self._log_forwarder = LogForwarder(self._charm, relation_name=self._endpoints["logging"])
+        self._render_alert_rules()
+        # FIXME: Using two different logging wrappers on the same relation endpoint
+        # causes unnecessary updates to the relation databag with alert rules that are
+        # already populated by the other wrapper.
+        self._worker_logging = LokiPushApiConsumer(
+            self._charm,
+            relation_name=self._endpoints["logging"],
+            alert_rules_path=CONSOLIDATED_LOGS_ALERT_RULES_PATH,
+        )
+        self._coordinator_logging = LogForwarder(
+            self._charm,
+            relation_name=self._endpoints["logging"],
+            alert_rules_path=CONSOLIDATED_LOGS_ALERT_RULES_PATH,
+        )
 
         self._scraping = MetricsEndpointProvider(
             self._charm,
             relation_name=self._endpoints["metrics"],
-            alert_rules_path=CONSOLIDATED_ALERT_RULES_PATH,
+            alert_rules_path=CONSOLIDATED_METRICS_ALERT_RULES_PATH,
             jobs=self._scrape_jobs,
             external_url=self._external_url,
         )
@@ -729,6 +745,24 @@ class Coordinator(ops.Object):
         else:
             self.nginx.delete_certificates()
 
+
+    def _reconcile(self):
+        """Run all logic that is independent of what event we're processing."""
+        # There could be a race between the resource patch and pebble operations
+        # i.e., charm code proceeds beyond a can_connect guard, and then lightkube patches the statefulset
+        # and the workload is no longer available.
+        # `resources_patch` might be `None` when no resources requests or limits are requested by the charm.
+        if self.resources_patch and not self.resources_patch.is_ready():
+            logger.debug("Resource patch not ready yet. Skipping cluster update step.")
+            return
+
+        self._update_nginx_tls_certificates()
+        self._certificates.sync()
+        self._setup_charm_tracing()
+        self.update_cluster()
+        if self.catalogue:
+            self.catalogue.update_item(item=self._catalogue_item)  # type: ignore
+
     @property
     def _peers(self) -> Optional[Set[ops.model.Unit]]:
         relation = self.model.get_relation("peers")
@@ -795,12 +829,14 @@ class Coordinator(ops.Object):
 
     def _render_workers_alert_rules(self):
         """Regenerate the worker alert rules from relation data."""
-        # clear the rendered rules
-        with _tracer.start_as_current_span("clearing rendered rules"):
-            files = glob.glob(f"{CONSOLIDATED_ALERT_RULES_PATH}/rendered_*")
-            for f in files:
-                os.remove(f)
-
+        alert_rules_sources = (
+            (
+                WORKER_ORIGINAL_METRICS_ALERT_RULES_PATH,
+                CONSOLIDATED_METRICS_ALERT_RULES_PATH,
+                "promql",
+            ),
+            (ORIGINAL_LOGS_ALERT_RULES_PATH, CONSOLIDATED_LOGS_ALERT_RULES_PATH, "logql"),
+        )
         apps: Set[str] = set()
         to_write: Dict[str, str] = {}
         for worker_topology in self.cluster.gather_topology():
@@ -816,27 +852,45 @@ class Coordinator(ops.Object):
                 "charm_name": worker_topology["charm_name"],
             }
             topology = cosl.JujuTopology.from_dict(topology_dict)
-            alert_rules = cosl.AlertRules(query_type="promql", topology=topology)
-            alert_rules.add_path(WORKER_ORIGINAL_ALERT_RULES_PATH, recursive=True)
-            alert_rules_contents = yaml.dump(alert_rules.as_dict())
+            for orig_path, consolidated_path, type in alert_rules_sources:
+                alert_rules = cosl.AlertRules(query_type=type, topology=topology)  # type: ignore
+                alert_rules.add_path(orig_path, recursive=True)
+                alert_rules_contents = yaml.dump(alert_rules.as_dict())
 
-            file_name = (
-                f"{CONSOLIDATED_ALERT_RULES_PATH}/rendered_{worker_topology['application']}.rules"
-            )
-            to_write[file_name] = alert_rules_contents
-
+                file_name = f"{consolidated_path}/rendered_{worker_topology['application']}.rules"
+                to_write[file_name] = alert_rules_contents
         with _tracer.start_as_current_span("writing rendered rules"):
             for file_name, alert_rules_contents in to_write.items():
                 Path(file_name).write_text(alert_rules_contents)
 
+    def _remove_rendered_alert_rules(self, consolidated_path: str):
+        with _tracer.start_as_current_span("clearing rendered rules"):
+            files = glob.glob(f"{consolidated_path}/rendered_*")
+            for f in files:
+                os.remove(f)
+
+    def _render_nginx_alert_rules(self):
+        """Copy Nginx alert rules to the consolidated alert folder."""
+        alerts_paths = (
+            (NGINX_ORIGINAL_METRICS_ALERT_RULES_PATH, CONSOLIDATED_METRICS_ALERT_RULES_PATH),
+            (ORIGINAL_LOGS_ALERT_RULES_PATH, CONSOLIDATED_LOGS_ALERT_RULES_PATH),
+        )
+
+        for orig_path, consolidated_path in alerts_paths:
+            for filename in glob.glob(os.path.join(orig_path, "*.*")):
+                shutil.copy(filename, f"{consolidated_path}/")
+
     def _render_alert_rules(self):
         """Render the alert rules for Nginx and the connected workers."""
         with _tracer.start_as_current_span("render alert rules"):
-            os.makedirs(CONSOLIDATED_ALERT_RULES_PATH, exist_ok=True)
+            for consolidated_path in (
+                CONSOLIDATED_METRICS_ALERT_RULES_PATH,
+                CONSOLIDATED_LOGS_ALERT_RULES_PATH,
+            ):
+                os.makedirs(consolidated_path, exist_ok=True)
+                self._remove_rendered_alert_rules(consolidated_path)
+            self._render_nginx_alert_rules()
             self._render_workers_alert_rules()
-            # Copy Nginx alert rules to the consolidated alert folder
-            for filename in glob.glob(os.path.join(NGINX_ORIGINAL_ALERT_RULES_PATH, "*.*")):
-                shutil.copy(filename, f"{CONSOLIDATED_ALERT_RULES_PATH}/")
 
     def _adjust_resource_requirements(self) -> ResourceRequirements:
         """A method that gets called by `KubernetesComputeResourcesPatch` to adjust the resources requests and limits to patch."""
