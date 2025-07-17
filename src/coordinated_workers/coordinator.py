@@ -330,7 +330,6 @@ class Coordinator(ops.Object):
             self._charm, relation_name=self._endpoints["grafana-dashboards"]
         )
 
-        self._render_alert_rules()
         # FIXME: Using two different logging wrappers on the same relation endpoint
         # causes unnecessary updates to the relation databag with alert rules that are
         # already populated by the other wrapper.
@@ -756,9 +755,13 @@ class Coordinator(ops.Object):
             logger.debug("Resource patch not ready yet. Skipping cluster update step.")
             return
 
-        self._update_nginx_tls_certificates()
+        self._render_alert_rules()
         self._certificates.sync()
+        self._update_nginx_tls_certificates()
         self._setup_charm_tracing()
+
+    def _reconcile_relations(self):
+        self._worker_logging.reload_alerts()
         self.update_cluster()
         if self.catalogue:
             self.catalogue.update_item(item=self._catalogue_item)  # type: ignore
