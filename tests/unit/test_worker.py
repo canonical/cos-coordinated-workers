@@ -7,6 +7,7 @@ import ops
 import pytest
 import yaml
 from ops import BlockedStatus, testing
+from scenario import Secret
 from scenario.context import CharmEvents
 from scenario.errors import UncaughtCharmError
 
@@ -853,6 +854,20 @@ def test_invalid_url(mock_socket_fqdn):
     ),
 )
 def test_get_charm_tracing_receivers(remote_databag, expected):
+    MyCharm.layer = ops.pebble.Layer(
+        {
+            "services": {
+                "foo": {
+                    "summary": "foos all the things",
+                    "description": "bar",
+                    "startup": "enabled",
+                    "override": "merge",
+                    "command": "ls -la",
+                }
+            }
+        }
+    )
+
     # Test that when a relation changes the correct charm_tracing_receivers
     #   are returned by the ClusterRequirer
 
@@ -885,6 +900,74 @@ def test_get_charm_tracing_receivers(remote_databag, expected):
         charm = mgr.charm
         # THEN the charm tracing receivers are picked up correctly
         assert charm.worker.cluster.get_charm_tracing_receivers() == expected
+
+
+@pytest.mark.parametrize("tls", (False, True))
+def test_charm_tracing_config(tls):
+    MyCharm.layer = ops.pebble.Layer(
+        {
+            "services": {
+                "foo": {
+                    "summary": "foos all the things",
+                    "description": "bar",
+                    "startup": "enabled",
+                    "override": "merge",
+                    "command": "ls -la",
+                }
+            }
+        }
+    )
+    # GIVEN a charm with a cluster relation (with or without TLS data in it)
+    ctx = testing.Context(
+        MyCharm,
+        meta={
+            "name": "foo",
+            "requires": {"cluster": {"interface": "cluster"}},
+            "containers": {"foo": {"type": "oci-image"}},
+        },
+        config={"options": {"role-all": {"type": "boolean", "default": True}}},
+    )
+    container = testing.Container(
+        "foo",
+        execs={testing.Exec(("update-ca-certificates", "--fresh"))},
+        can_connect=True,
+    )
+    mock_certs_data = json.dumps("<TLS_STUFF>")
+
+    secret = Secret({"private-key": "verysecret"})
+    tls_data = (
+        {
+            "ca_cert": mock_certs_data,
+            "server_cert": mock_certs_data,
+            "privkey_secret_id": json.dumps(secret.id),
+        }
+        if tls
+        else {}
+    )
+    relation = testing.Relation(
+        "cluster",
+        remote_app_data={
+            "charm_tracing_receivers": json.dumps(
+                {"otlp_http": f"http{'s' if tls else ''}://some-url"}
+            ),
+            "worker_config": json.dumps("test"),
+            **tls_data,
+        },
+    )
+
+    # WHEN any event occurs
+    with patch("ops_tracing.set_destination") as p:
+        ctx.run(
+            ctx.on.update_status(),
+            testing.State(
+                containers={container}, secrets={secret} if tls else {}, relations={relation}
+            ),
+        )
+
+    # THEN set_destination gets called with the expected data
+    p.assert_called_with(
+        url=f"http{'s' if tls else ''}://some-url/v1/traces", ca="<TLS_STUFF>" if tls else None
+    )
 
 
 @pytest.mark.parametrize(

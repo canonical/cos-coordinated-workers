@@ -150,6 +150,7 @@ Any charm can instantiate `NginxConfig` to generate its own Nginx configuration 
             return {NGINX_PORT: self._nginx_locations}
 
 """
+
 import logging
 import subprocess
 from dataclasses import dataclass, field
@@ -525,7 +526,6 @@ class NginxConfig:
         backends: List[str],
         listen_tls: bool,
     ) -> List[Dict[str, Any]]:
-
         nginx_locations: List[Dict[str, Any]] = []
 
         if self._enable_health_check:
@@ -807,7 +807,7 @@ class NginxPrometheusExporter:
                 "summary": "nginx prometheus exporter layer",
                 "description": "pebble config layer for Nginx Prometheus exporter",
                 "services": {
-                    "nginx": {
+                    "nginx-prometheus-exporter": {
                         "override": "replace",
                         "summary": "nginx prometheus exporter",
                         "command": f"nginx-prometheus-exporter --no-nginx.ssl-verify --web.listen-address=:{self.options['nginx_exporter_port']}  --nginx.scrape-uri={scheme}://127.0.0.1:{self.options['nginx_port']}/status",

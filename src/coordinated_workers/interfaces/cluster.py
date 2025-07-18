@@ -34,7 +34,7 @@ import cosl.interfaces.utils
 import ops
 import pydantic
 import yaml
-from ops import EventSource, Object, ObjectEvents, RelationCreatedEvent
+from ops import EventSource, Object, ObjectEvents, RelationCreatedEvent, SecretNotFoundError
 from typing_extensions import TypedDict
 
 log = logging.getLogger("_cluster")
@@ -206,9 +206,16 @@ class ClusterProvider(Object):
     def _on_cluster_changed(self, _: ops.EventBase) -> None:
         self.on.changed.emit()
 
-    def grant_privkey(self, label: str) -> str:
-        """Grant the secret containing the privkey to all relations, and return the secret ID."""
-        secret = self.model.get_secret(label=label)
+    def grant_privkey(self, label: str) -> Optional[str]:
+        """Grant the secret containing the privkey, if it exists, to all relations, and return the secret ID."""
+        try:
+            secret = self.model.get_secret(label=label)
+        except SecretNotFoundError:
+            # it might be the case that we're trying to access the secret on relation created/joined
+            # while it actually gets created on relation changed
+            log.debug("secret with label %s not found", label)
+            return None
+
         for relation in self._relations:
             secret.grant(relation)
         # can't return secret.id because secret was obtained by label, and so
@@ -273,7 +280,6 @@ class ClusterProvider(Object):
         """Go through the worker's unit databags to collect all the addresses published by the units, by role."""
         data: Dict[str, Set[str]] = collections.defaultdict(set)
         for relation in self._relations:
-
             if not relation.app:
                 log.debug(f"skipped {relation} as .app is None")
                 continue
@@ -402,13 +408,16 @@ class ClusterRequirer(Object):
         )
 
         self.framework.observe(
-            self._charm.on[endpoint].relation_changed, self._on_cluster_relation_changed  # type: ignore
+            self._charm.on[endpoint].relation_changed,
+            self._on_cluster_relation_changed,  # type: ignore
         )
         self.framework.observe(
-            self._charm.on[endpoint].relation_created, self._on_cluster_relation_created  # type: ignore
+            self._charm.on[endpoint].relation_created,
+            self._on_cluster_relation_created,  # type: ignore
         )
         self.framework.observe(
-            self._charm.on[endpoint].relation_broken, self._on_cluster_relation_broken  # type: ignore
+            self._charm.on[endpoint].relation_broken,
+            self._on_cluster_relation_broken,  # type: ignore
         )
 
     def _on_cluster_relation_broken(self, _event: ops.RelationBrokenEvent):

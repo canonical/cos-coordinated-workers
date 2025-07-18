@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "coordinated-workers"
-version = "0.0.1"
+version = "2.0.2"
 authors = [
     { name = "michaeldmitry", email = "33381599+michaeldmitry@users.noreply.github.com" },
 ]
@@ -14,14 +14,12 @@ license = { file = "LICENSE" }
 requires-python = ">=3.8"
 dependencies = [
     "crossplane",
-    "ops[tracing]",
+    "ops[tracing]<3",
     "pydantic",
     "lightkube>=v0.15.4",
-    # FIXME: pin cosl version after https://github.com/canonical/cos-lib/pull/146 is merged
-    "cosl",
-    # charms.tls_certificates_interface.v3.tls_certificates
+    "cosl>=1",
+    # charms.tls_certificates_interface.v4.tls_certificates
     "cryptography",
-    "jsonschema",
 
 ]
 classifiers = [

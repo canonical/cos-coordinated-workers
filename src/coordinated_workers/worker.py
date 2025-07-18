@@ -15,6 +15,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, TypedDict, Union
 from urllib.error import HTTPError
 
 import ops
+import ops_tracing
 import tenacity
 import yaml
 from cosl import JujuTopology
@@ -212,12 +213,12 @@ class Worker(ops.Object):
 
     def _on_pebble_check_failed(self, event: ops.PebbleCheckFailedEvent):
         if event.info.name == "ready":
-            logger.warning("Pebble `ready` check started to fail: " "worker node is down.")
+            logger.warning("Pebble `ready` check started to fail: worker node is down.")
             # collect-status will detect that we're not ready and set waiting status.
 
     def _on_pebble_check_recovered(self, event: ops.PebbleCheckFailedEvent):
         if event.info.name == "ready":
-            logger.info("Pebble `ready` check is now passing: " "worker node is up.")
+            logger.info("Pebble `ready` check is now passing: worker node is up.")
             # collect-status will detect that we're ready and set active status.
 
     @property
@@ -480,6 +481,7 @@ class Worker(ops.Object):
             return
 
         self._update_cluster_relation()
+        self._setup_charm_tracing()
 
         if self.is_ready():
             logger.debug("Worker ready. Updating config...")
@@ -546,19 +548,11 @@ class Worker(ops.Object):
 
         Assumes that pebble can connect.
         """
-        # we might be unable to retrieve self.pebble_layer if something goes wrong generating it
-        # for example because we're being torn down and the environment is being weird
-        services = tuple(
-            self.pebble_layer.services
-            if self.pebble_layer
-            else self._container.get_plan().services
-        )
-
-        if not services:
-            logger.warning("nothing to stop: no services found in layer or plan")
+        container_services = tuple(self._container.get_plan().services)
+        if not container_services:
+            logger.warning("nothing to stop: no services found in plan")
             return
-
-        self._container.stop(*services)
+        self._container.stop(*container_services)
 
     def _update_cluster_relation(self) -> None:
         """Publish all the worker information to relation data."""
@@ -831,19 +825,7 @@ class Worker(ops.Object):
         return False
 
     def charm_tracing_config(self) -> Tuple[Optional[str], Optional[str]]:
-        """Get the charm tracing configuration from the coordinator.
-
-        Usage:
-          assuming you are using charm_tracing >= v1.9:
-        >>> from ops import CharmBase
-        >>> from lib.charms.tempo_coordinator_k8s.v0.charm_tracing import trace_charm
-        >>> from lib.charms.tempo_coordinator_k8s.v0.tracing import charm_tracing_config
-        >>> @trace_charm(tracing_endpoint="my_endpoint", cert_path="cert_path")
-        >>> class MyCharm(CharmBase):
-        >>>     def __init__(self, ...):
-        >>>         self.worker = Worker(...)
-        >>>         self.my_endpoint, self.cert_path = self.worker.charm_tracing_config()
-        """
+        """Get the charm tracing configuration from the coordinator."""
         endpoint = self.cluster.get_charm_tracing_receivers().get("otlp_http")
 
         if not endpoint:
@@ -879,8 +861,27 @@ class Worker(ops.Object):
             "memory": self._charm.model.config.get(memory_limit_key),
         }
         return adjust_resource_requirements(
-            limits, self._resources_requests_getter(), adhere_to_requests=True  # type: ignore
+            limits,
+            self._resources_requests_getter(),  # type: ignore
+            adhere_to_requests=True,
         )
+
+    def _setup_charm_tracing(self):
+        """Configure charm tracing using ops_tracing."""
+        if not self.is_ready():
+            return
+
+        endpoint, ca_path_str = self.charm_tracing_config()
+        if not endpoint:
+            return
+
+        ca_text = None
+        if ca_path_str and (ca_path := Path(ca_path_str)).exists():
+            ca_text = ca_path.read_text()
+
+        # we can't use ops.tracing.Tracing as this charm doesn't integrate with certs/tracing directly,
+        # but the data goes through the coordinator. Instead, we use ops_tracing.set_destination.
+        ops_tracing.set_destination(url=endpoint + "/v1/traces", ca=ca_text)
 
 
 class ManualLogForwarder(ops.Object):
