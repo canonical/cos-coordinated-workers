@@ -3,8 +3,8 @@
 # See LICENSE file for licensing details.
 """Generic coordinator for a distributed charm deployment."""
 
-import glob
 import json
+from pathlib import Path
 import logging
 import os
 import re
@@ -77,15 +77,15 @@ from lightkube.models.core_v1 import ResourceRequirements
 logger = logging.getLogger(__name__)
 
 # The paths of the base rules to be rendered in CONSOLIDATED_METRICS_ALERT_RULES_PATH
-NGINX_ORIGINAL_METRICS_ALERT_RULES_PATH = "./src/prometheus_alert_rules/nginx"
-WORKER_ORIGINAL_METRICS_ALERT_RULES_PATH = "./src/prometheus_alert_rules/workers"
+NGINX_ORIGINAL_METRICS_ALERT_RULES_PATH = Path("src/prometheus_alert_rules/nginx")
+WORKER_ORIGINAL_METRICS_ALERT_RULES_PATH = Path("src/prometheus_alert_rules/workers")
 # The path of the rules that will be sent to Prometheus
 _tracer = trace.get_tracer("coordinator.tracer")
-CONSOLIDATED_METRICS_ALERT_RULES_PATH = "./src/prometheus_alert_rules/consolidated_rules"
+CONSOLIDATED_METRICS_ALERT_RULES_PATH = Path("src/prometheus_alert_rules/consolidated_rules")
 
 # The paths of the base rules to be rendered in CONSOLIDATED_LOGS_ALERT_RULES_PATH
-ORIGINAL_LOGS_ALERT_RULES_PATH = "./src/loki_alert_rules"
-CONSOLIDATED_LOGS_ALERT_RULES_PATH = "./src/loki_alert_rules/consolidated_rules"
+ORIGINAL_LOGS_ALERT_RULES_PATH = Path("src/loki_alert_rules")
+CONSOLIDATED_LOGS_ALERT_RULES_PATH = Path("src/loki_alert_rules/consolidated_rules")
 
 
 class S3NotFoundError(Exception):
@@ -336,18 +336,18 @@ class Coordinator(ops.Object):
         self._worker_logging = LokiPushApiConsumer(
             self._charm,
             relation_name=self._endpoints["logging"],
-            alert_rules_path=CONSOLIDATED_LOGS_ALERT_RULES_PATH,
+            alert_rules_path=str(CONSOLIDATED_LOGS_ALERT_RULES_PATH),
         )
         self._coordinator_logging = LogForwarder(
             self._charm,
             relation_name=self._endpoints["logging"],
-            alert_rules_path=CONSOLIDATED_LOGS_ALERT_RULES_PATH,
+            alert_rules_path=str(CONSOLIDATED_LOGS_ALERT_RULES_PATH),
         )
 
         self._scraping = MetricsEndpointProvider(
             self._charm,
             relation_name=self._endpoints["metrics"],
-            alert_rules_path=CONSOLIDATED_METRICS_ALERT_RULES_PATH,
+            alert_rules_path=str(CONSOLIDATED_METRICS_ALERT_RULES_PATH),
             jobs=self._scrape_jobs,
             external_url=self._external_url,
         )
@@ -859,22 +859,20 @@ class Coordinator(ops.Object):
             for orig_path, consolidated_path, type in alert_rules_sources:
                 alert_rules = cosl.AlertRules(query_type=type, topology=topology)  # type: ignore
                 alert_rules.add_path(orig_path)
-                alert_rules_contents = yaml.dump(alert_rules.as_dict())
-
-                file_name = f"{consolidated_path}/rendered_{worker_topology['application']}.rules"
-                to_write[file_name] = alert_rules_contents
+                file = consolidated_path / f"rendered_{worker_topology['application']}.rules"
+                to_write[file] = yaml.dump(alert_rules.as_dict())
         with _tracer.start_as_current_span("writing rendered rules"):
             for file_name, alert_rules_contents in to_write.items():
                 Path(file_name).write_text(alert_rules_contents)
 
-    def _remove_rendered_alert_rules(self, consolidated_path: str):
+    def _remove_rendered_alert_rules(self, consolidated_path: Path):
         with _tracer.start_as_current_span("clearing rendered rules"):
-            files = glob.glob(f"{consolidated_path}/rendered_*")
-            for f in files:
-                os.remove(f)
+            for file in consolidated_path.glob("rendered_*"):
+                os.remove(file)
 
 
-    def _render_nginx_alert_rules(self):
+
+    def _consolidate_nginx_alert_rules(self):
         """Copy Nginx alert rules to the consolidated alert folder."""
         alerts_paths = (
             (NGINX_ORIGINAL_METRICS_ALERT_RULES_PATH, CONSOLIDATED_METRICS_ALERT_RULES_PATH),
@@ -882,7 +880,7 @@ class Coordinator(ops.Object):
         )
 
         for orig_path, consolidated_path in alerts_paths:
-            for filename in glob.glob(os.path.join(orig_path, "*.*")):
+            for filename in orig_path.glob("*"):
                 shutil.copy(filename, f"{consolidated_path}/")
 
     def _render_alert_rules(self):
@@ -896,6 +894,7 @@ class Coordinator(ops.Object):
                 self._remove_rendered_alert_rules(consolidated_path)
             self._render_nginx_alert_rules()
             self._render_workers_alert_rules()
+
 
     def _adjust_resource_requirements(self) -> ResourceRequirements:
         """A method that gets called by `KubernetesComputeResourcesPatch` to adjust the resources requests and limits to patch."""
