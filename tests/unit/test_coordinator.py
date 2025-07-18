@@ -1,6 +1,7 @@
 import dataclasses
 import json
-from contextlib import ExitStack, nullcontext
+from contextlib import ExitStack, contextmanager, nullcontext
+from pathlib import Path
 from unittest.mock import PropertyMock, patch
 from urllib.parse import urlparse
 
@@ -677,3 +678,113 @@ def test_catalogue_integration(coordinator_state: testing.State):
     # THEN the coordinator has published his catalogue item
     catalogue_relation_out = state_out.get_relation(catalogue_relation.id)
     assert catalogue_relation_out.local_app_data
+@contextmanager
+def patch_source_alert_rules():
+    resources_base_path = Path(__file__).parent / "resources"
+    with ExitStack() as stack:
+        stack.enter_context(
+            patch(
+                "coordinated_workers.coordinator.NGINX_ORIGINAL_METRICS_ALERT_RULES_PATH",
+                new=resources_base_path / "metrics_alert_rules" / "nginx",
+            )
+        )
+
+        stack.enter_context(
+            patch(
+                "coordinated_workers.coordinator.WORKER_ORIGINAL_METRICS_ALERT_RULES_PATH",
+                new=resources_base_path / "metrics_alert_rules" / "workers",
+            )
+        )
+
+        stack.enter_context(
+            patch(
+                "coordinated_workers.coordinator.ORIGINAL_LOGS_ALERT_RULES_PATH",
+                new=resources_base_path / "logs_alert_rules",
+            )
+        )
+
+        yield
+
+
+@pytest.mark.parametrize("alerts_type", ("metrics", "logs"))
+@pytest.mark.parametrize("workers_no", (1, 2))
+def test_rendered_alert_rules(
+    coordinator_charm: ops.CharmBase, coordinator_state, workers_no, alerts_type
+):
+    relation_endpoint = "my-metrics" if alerts_type == "metrics" else "my-logging"
+    # ASSUMPTIONS from the sample files in ../resources
+    # 4 includes the 2 centralised alert rules added by cos-lib
+    coordinator_rules_no = 4 if alerts_type == "metrics" else 2
+    worker_rules_no = 1 if alerts_type == "metrics" else 2
+
+    # GIVEN a coordinator charm
+    ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
+    # AND an S3 relation
+    s3_relation = testing.Relation(
+        "my-s3",
+        interface="s3",
+        remote_app_data={
+            "endpoint": "s3",
+            "bucket": "foo-bucket",
+            "access-key": "my-access-key",
+            "secret-key": "my-secret-key",
+        },
+    )
+    # AND a COHERENT cluster of workers
+    workers_relation = []
+    for worker_no in range(workers_no):
+        workers_relation.append(
+            testing.Relation(
+                "my-cluster",
+                remote_app_name=f"worker{worker_no}",
+                remote_app_data=ClusterRequirerAppData(role="all").dump(),
+                remote_units_data={
+                    0: ClusterRequirerUnitData(
+                        juju_topology={
+                            "application": f"all-{worker_no}",
+                            "unit": f"all-{worker_no}/0",
+                            "charm_name": "test-all",
+                        },
+                        address="something",
+                    ).dump()
+                },
+            )
+        )
+    # AND a <relation_endpoint> relation
+    # can be either my-metrics or my-logging
+    telemetry_relation = testing.Relation(relation_endpoint)
+
+    # AND this is a leader unit
+    state = dataclasses.replace(
+        coordinator_state,
+        relations={s3_relation, telemetry_relation, *workers_relation},
+        leader=True,
+    )
+
+    # AND it has sample alert rules
+    with patch_source_alert_rules():
+        # WHEN a <relation_endpoint>_changed event fires
+        state_out = ctx.run(ctx.on.relation_changed(telemetry_relation), state)
+
+    target_relation = state_out.get_relations(relation_endpoint)[0]
+    alert_rules_str = target_relation.local_app_data["alert_rules"]
+
+    # THEN each worker has a rendered alert with its topology
+    for worker_no in range(workers_no):
+        worker_databag_topology = f'"juju_application": "all-{worker_no}"'
+        # AND the worker topology appears as many times as there are alert rules for that worker
+        assert alert_rules_str.count(worker_databag_topology) == worker_rules_no
+
+    # AND the coordinator has a rendered alert with its topology
+    coordinator_databag_topology = '"juju_application": "foo-app"'
+    # AND the coordinator topology appears as many times as there are alert rules for that coordinator
+    assert alert_rules_str.count(coordinator_databag_topology) == coordinator_rules_no
+
+    # AND total alert rules = total rendered worker alerts + total rendered coordinated alerts
+    alert_rules = json.loads(alert_rules_str)
+    total_worker_rules_no = worker_rules_no * workers_no
+    assert (
+        sum(len(group["rules"]) for group in alert_rules["groups"])
+        == total_worker_rules_no + coordinator_rules_no
+    )
+
