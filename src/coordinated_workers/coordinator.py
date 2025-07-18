@@ -386,13 +386,13 @@ class Coordinator(ops.Object):
             )
             return
 
-        for _, event in self._charm.on.events():
+        for event in self._charm.on.events().values():
             # ignore LifecycleEvents: we want to execute the reconciler exactly once per juju hook.
             if isinstance(event, LifecycleEvent):
                 continue
             self.framework.observe(event, self._on_any_event)
 
-    def _on_any_event(self, _):
+    def _on_any_event(self, _: ops.EventBase):
         """Common entry hook."""
         self._reconcile()
 
@@ -417,11 +417,12 @@ class Coordinator(ops.Object):
         self._reconcile_nginx_tls_certs()
         self._reconcile_cluster_relations()
         self._render_alert_rules()
-        self._scraping.set_scrape_job_spec()
+        self._scraping.set_scrape_job_spec()  # type: ignore
 
         if catalogue_relation_name := self._endpoints.get("catalogue"):
             catalogue = CatalogueConsumer(self._charm, relation_name=catalogue_relation_name)
-            catalogue.update_item(self._catalogue_item)
+            if item := self._catalogue_item:
+                catalogue.update_item(item)
 
     ######################
     # UTILITY PROPERTIES #
@@ -801,7 +802,7 @@ class Coordinator(ops.Object):
                 os.remove(f)
 
         apps: Set[str] = set()
-        to_write = {}
+        to_write: Dict[str, str] = {}
         for worker_topology in self.cluster.gather_topology():
             if worker_topology["application"] in apps:
                 continue
