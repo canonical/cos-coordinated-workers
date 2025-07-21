@@ -76,11 +76,11 @@ from coordinated_workers.models import TLSConfig
 
 logger = logging.getLogger(__name__)
 
+# The path of the rules that will be sent to Prometheus
+_tracer = trace.get_tracer("coordinator.tracer")
 # The paths of the base rules to be rendered in RENDERED_METRICS_ALERT_RULES_PATH
 NGINX_ORIGINAL_METRICS_ALERT_RULES_PATH = Path("src/prometheus_alert_rules/nginx")
 WORKER_ORIGINAL_METRICS_ALERT_RULES_PATH = Path("src/prometheus_alert_rules/workers")
-# The path of the rules that will be sent to Prometheus
-_tracer = trace.get_tracer("coordinator.tracer")
 RENDERED_METRICS_ALERT_RULES_PATH = Path("src/prometheus_alert_rules/rendered_rules")
 
 # The paths of the base rules to be rendered in RENDERED_LOGS_ALERT_RULES_PATH
