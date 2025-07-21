@@ -787,4 +787,3 @@ def test_rendered_alert_rules(
         sum(len(group["rules"]) for group in alert_rules["groups"])
         == total_worker_rules_no + coordinator_rules_no
     )
-

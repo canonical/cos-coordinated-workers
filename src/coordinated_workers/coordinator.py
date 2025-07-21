@@ -72,6 +72,8 @@ from charms.tls_certificates_interface.v4.tls_certificates import (
 )
 from lightkube.models.core_v1 import ResourceRequirements
 
+from coordinated_workers.models import TLSConfig
+
 logger = logging.getLogger(__name__)
 
 # The paths of the base rules to be rendered in RENDERED_METRICS_ALERT_RULES_PATH
@@ -151,18 +153,6 @@ class ClusterRolesConfig:
     def is_coherent_with(self, cluster_roles: Iterable[str]) -> bool:
         """Returns True if the provided roles satisfy the minimal deployment spec; False otherwise."""
         return set(self.minimal_deployment).issubset(set(cluster_roles))
-
-
-@dataclass
-class TLSConfig:
-    """TLS configuration received by the coordinator over the `certificates` relation.
-
-    This is an internal object that we use as facade so that the individual Coordinator charms don't have to know the API of the charm libs that implements the relation interface.
-    """
-
-    server_cert: str
-    ca_cert: str
-    private_key: str
 
 
 def _validate_container_name(
@@ -307,6 +297,7 @@ class Coordinator(ops.Object):
             config_getter=partial(
                 nginx_config.get_config, self.cluster.gather_addresses_by_role()
             ),
+            tls_config_getter=lambda: self.tls_config,
             options=nginx_options,
         )
         self.nginx_exporter = NginxPrometheusExporter(self._charm, options=nginx_options)
@@ -430,10 +421,10 @@ class Coordinator(ops.Object):
 
         # reconcile relations
         self._certificates.sync()
-        self._reconcile_nginx_tls_certs()
         self._reconcile_cluster_relations()
         self._render_alert_rules()
         self._scraping.set_scrape_job_spec()  # type: ignore
+        self._worker_logging.reload_alerts()
 
         if (catalogue := self._catalogue) and (item := self._catalogue_item):
             catalogue.update_item(item)
@@ -732,41 +723,6 @@ class Coordinator(ops.Object):
     ###################
     # UTILITY METHODS #
     ###################
-    def _reconcile_nginx_tls_certs(self) -> None:
-        """Update the TLS certificates for nginx on disk according to their availability."""
-        if tls_config := self.tls_config:
-            self.nginx.configure_tls(
-                server_cert=tls_config.server_cert,
-                ca_cert=tls_config.ca_cert,
-                private_key=tls_config.private_key,
-            )
-        else:
-            self.nginx.delete_certificates()
-
-
-    def _reconcile(self):
-        """Run all logic that is independent of what event we're processing."""
-        # There could be a race between the resource patch and pebble operations
-        # i.e., charm code proceeds beyond a can_connect guard, and then lightkube patches the statefulset
-        # and the workload is no longer available.
-        # `resources_patch` might be `None` when no resources requests or limits are requested by the charm.
-        if self.resources_patch and not self.resources_patch.is_ready():
-            logger.debug("Resource patch not ready yet. Skipping cluster update step.")
-            return
-
-        self._render_alert_rules()
-        self._certificates.sync()
-        self._update_nginx_tls_certificates()
-        self._setup_charm_tracing()
-        self._reconcile_relations()
-
-    def _reconcile_relations(self):
-        self._scraping.set_scrape_job_spec()  # type: ignore
-        self._worker_logging.reload_alerts()
-        self.update_cluster()
-        if self.catalogue:
-            self.catalogue.update_item(item=self._catalogue_item)  # type: ignore
-
     @property
     def _peers(self) -> Optional[Set[ops.model.Unit]]:
         relation = self.model.get_relation("peers")
@@ -859,7 +815,7 @@ class Coordinator(ops.Object):
             for orig_path, rendered_path, type in alert_rules_sources:
                 alert_rules = cosl.AlertRules(query_type=type, topology=topology)  # type: ignore
                 alert_rules.add_path(orig_path)
-                file = rendered_path / f"rendered_{worker_topology['application']}.rules"
+                file = f"{rendered_path}/rendered_{worker_topology['application']}.rules"
                 to_write[file] = yaml.dump(alert_rules.as_dict())
         with _tracer.start_as_current_span("writing rendered rules"):
             for file_name, alert_rules_contents in to_write.items():
@@ -869,8 +825,6 @@ class Coordinator(ops.Object):
         with _tracer.start_as_current_span("clearing rendered rules"):
             for file in path.glob("rendered_*"):
                 file.unlink()
-
-
 
     def _render_nginx_alert_rules(self):
         """Copy Nginx alert rules to the merged alert folder."""
@@ -894,7 +848,6 @@ class Coordinator(ops.Object):
                 self._remove_rendered_alert_rules(path)
             self._render_workers_alert_rules()
             self._render_nginx_alert_rules()
-
 
     def _adjust_resource_requirements(self) -> ResourceRequirements:
         """A method that gets called by `KubernetesComputeResourcesPatch` to adjust the resources requests and limits to patch."""

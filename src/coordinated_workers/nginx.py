@@ -161,6 +161,8 @@ import crossplane  # type: ignore
 from opentelemetry import trace
 from ops import CharmBase, pebble
 
+from coordinated_workers.models import TLSConfig
+
 logger = logging.getLogger(__name__)
 
 # TODO: should we add these to _NginxMapping and make them configurable / accessible?
@@ -654,10 +656,12 @@ class Nginx:
         self,
         charm: CharmBase,
         config_getter: Callable[[bool], str],
+        tls_config_getter: Callable[[], Optional[TLSConfig]],
         options: Optional[NginxMappingOverrides] = None,
     ):
         self._charm = charm
         self._config_getter = config_getter
+        self._tls_config_getter = tls_config_getter
         self._container = self._charm.unit.get_container("nginx")
         self.options.update(options or {})
 
@@ -671,7 +675,7 @@ class Nginx:
             and self._container.exists(CA_CERT_PATH)
         )
 
-    def configure_tls(self, private_key: str, server_cert: str, ca_cert: str) -> None:
+    def _configure_tls(self, private_key: str, server_cert: str, ca_cert: str) -> None:
         """Save the certificates file to disk and run update-ca-certificates."""
         with _tracer.start_as_current_span("write ca cert"):
             # push CA cert to charm container
@@ -706,7 +710,7 @@ class Nginx:
             # TODO: uncomment when/if the nginx image contains the ca-certificates package
             # self._container.exec(["update-ca-certificates", "--fresh"])
 
-    def delete_certificates(self) -> None:
+    def _delete_certificates(self) -> None:
         """Delete the certificate files from disk and run update-ca-certificates."""
         with _tracer.start_as_current_span("delete ca cert"):
             if Path(CA_CERT_PATH).exists():
@@ -741,16 +745,30 @@ class Nginx:
     def reconcile(self):
         """Configure pebble layer and restart if necessary."""
         if self._container.can_connect():
-            new_config = self._config_getter(self.are_certificates_on_disk)
-            should_restart = self._has_config_changed(new_config)
-            self._container.push(self.config_path, new_config, make_dirs=True)  # type: ignore
-            self._container.add_layer("nginx", self.layer, combine=True)
-            self._container.autostart()
+            self._reconcile_tls_config()
+            self._reconcile_nginx_config()
 
-            if should_restart:
-                logger.info("new nginx config: restarting the service")
-                # Reload the nginx config without restarting the service
-                self._container.exec(["nginx", "-s", "reload"])
+    def _reconcile_tls_config(self):
+        if tls_config := self._tls_config_getter():
+            self._configure_tls(
+                server_cert=tls_config.server_cert,
+                ca_cert=tls_config.ca_cert,
+                private_key=tls_config.private_key,
+            )
+        else:
+            self._delete_certificates()
+
+    def _reconcile_nginx_config(self):
+        new_config = self._config_getter(self.are_certificates_on_disk)
+        should_restart = self._has_config_changed(new_config)
+        self._container.push(self.config_path, new_config, make_dirs=True)  # type: ignore
+        self._container.add_layer("nginx", self.layer, combine=True)
+        self._container.autostart()
+
+        if should_restart:
+            logger.info("new nginx config: restarting the service")
+            # Reload the nginx config without restarting the service
+            self._container.exec(["nginx", "-s", "reload"])
 
     @property
     def layer(self) -> pebble.Layer:
