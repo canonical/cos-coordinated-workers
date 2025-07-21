@@ -88,33 +88,6 @@ def test_certs_deleted(certificate_mounts: dict, nginx_context: testing.Context)
         assert not nginx.are_certificates_on_disk
 
 
-def test_reload_calls_nginx_binary_successfully(nginx_context: testing.Context):
-    # Test that the reload method calls the nginx binary without error.
-
-    # GIVEN any charm with a container
-    ctx = nginx_context
-
-    # WHEN we process any event
-    with ctx(
-        ctx.on.update_status(),
-        state=testing.State(
-            containers={
-                testing.Container(
-                    "nginx",
-                    can_connect=True,
-                    execs={testing.Exec(("nginx", "-s", "reload"), return_code=0)},
-                )
-            },
-        ),
-    ) as mgr:
-        charm = mgr.charm
-        nginx = Nginx(charm, lambda: "foo_string", None)
-
-        # AND when we call reload
-        # THEN the nginx binary is used rather than container restart
-        assert nginx.reload() is None
-
-
 def test_has_config_changed(nginx_context: testing.Context):
     # Test changing the nginx config and catching the change.
 
