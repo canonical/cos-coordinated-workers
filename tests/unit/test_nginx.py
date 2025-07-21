@@ -82,7 +82,7 @@ def test_certs_deleted(certificate_mounts: dict, nginx_context: testing.Context)
         nginx = Nginx(charm, lambda: "foo_string", None)
 
         # AND when we call delete_certificates
-        nginx.delete_certificates()
+        nginx._delete_certificates()
 
         # THEN the certs get deleted from disk
         assert not nginx.are_certificates_on_disk
