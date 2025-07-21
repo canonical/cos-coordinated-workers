@@ -46,4 +46,18 @@ def patch_all(tmp_path: Path):
             )
         )
 
+        stack.enter_context(
+            patch(
+                "coordinated_workers.coordinator.CONSOLIDATED_METRICS_ALERT_RULES_PATH",
+                new=tmp_path / "consolidated_metrics_rules",
+            )
+        )
+
+        stack.enter_context(
+            patch(
+                "coordinated_workers.coordinator.CONSOLIDATED_LOGS_ALERT_RULES_PATH",
+                new=tmp_path / "consolidated_logs_rules",
+            )
+        )
+
         yield
