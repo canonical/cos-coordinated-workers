@@ -9,6 +9,7 @@ import pytest
 from cosl.interfaces.utils import DataValidationError
 from ops import RelationChangedEvent, testing
 
+from charms.catalogue_k8s.v1.catalogue import CatalogueItem
 from coordinated_workers.coordinator import (
     ClusterRolesConfig,
     Coordinator,
@@ -589,3 +590,90 @@ def test_app_hostname(
             # THEN if hostname is a valid k8s pod fqdn, app_hostname is set to the k8s service fqdn
             # else app_hostname is set to whatever value hostname has
             assert mgr.charm.coordinator.app_hostname == expected_app_hostname
+
+
+def test_catalogue_integration(coordinator_state: testing.State):
+    class MyCatalogCoord(ops.CharmBase):
+        META = {
+            "name": "foo-app",
+            "requires": {
+                "my-certificates": {"interface": "certificates"},
+                "my-cluster": {"interface": "cluster"},
+                "my-logging": {"interface": "loki_push_api"},
+                "my-charm-tracing": {"interface": "tracing", "limit": 1},
+                "my-workload-tracing": {"interface": "tracing", "limit": 1},
+                "my-s3": {"interface": "s3"},
+                "my-ds-exchange-require": {"interface": "grafana_datasource_exchange"},
+                "my-catalogue": {"interface": "catalogue"},
+            },
+            "provides": {
+                "my-dashboards": {"interface": "grafana_dashboard"},
+                "my-metrics": {"interface": "prometheus_scrape"},
+                "my-ds-exchange-provide": {"interface": "grafana_datasource_exchange"},
+            },
+            "containers": {
+                "nginx": {"type": "oci-image"},
+                "nginx-prometheus-exporter": {"type": "oci-image"},
+            },
+        }
+
+        _worker_ports = None
+
+        def __init__(self, framework: ops.Framework):
+            super().__init__(framework)
+            # Note: Here it is a good idea not to use context mgr because it is "ops aware"
+            self.coordinator = Coordinator(
+                charm=self,
+                # Roles were take from loki-coordinator-k8s-operator
+                roles_config=ClusterRolesConfig(
+                    roles={"all", "read", "write", "backend"},
+                    meta_roles={"all": {"all", "read", "write", "backend"}},
+                    minimal_deployment={
+                        "read",
+                        "write",
+                        "backend",
+                    },
+                    recommended_deployment={
+                        "read": 3,
+                        "write": 3,
+                        "backend": 3,
+                    },
+                ),
+                external_url="https://foo.example.com",
+                worker_metrics_port=123,
+                endpoints={
+                    "certificates": "my-certificates",
+                    "cluster": "my-cluster",
+                    "grafana-dashboards": "my-dashboards",
+                    "logging": "my-logging",
+                    "metrics": "my-metrics",
+                    "charm-tracing": "my-charm-tracing",
+                    "workload-tracing": "my-workload-tracing",
+                    "s3": "my-s3",
+                    "send-datasource": "my-ds-exchange-provide",
+                    "receive-datasource": "my-ds-exchange-require",
+                    "catalogue": "my-catalogue",
+                },
+                nginx_config=NginxConfig("localhost", {}, {}),
+                workers_config=lambda coordinator: f"workers configuration for {coordinator._charm.meta.name}",
+                worker_ports=self._worker_ports,
+                catalogue_item=CatalogueItem("foo", "bar", "baz", "qux"),
+                # nginx_options: Optional[NginxMappingOverrides] = None,
+                # is_coherent: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
+                # is_recommended: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
+            )
+
+    # GIVEN a catalogue integration
+    ctx = testing.Context(MyCatalogCoord, meta=MyCatalogCoord.META)
+    catalogue_relation = testing.Relation(endpoint="my-catalogue")
+    relations_with_catalog = set(coordinator_state.relations).union({catalogue_relation})
+
+    # WHEN any event fires
+    state_out = ctx.run(
+        ctx.on.update_status(),
+        dataclasses.replace(coordinator_state, leader=True, relations=relations_with_catalog),
+    )
+
+    # THEN the coordinator has published his catalogue item
+    catalogue_relation_out = state_out.get_relation(catalogue_relation.id)
+    assert catalogue_relation_out.local_app_data
