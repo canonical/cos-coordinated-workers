@@ -48,15 +48,15 @@ def patch_all(tmp_path: Path):
 
         stack.enter_context(
             patch(
-                "coordinated_workers.coordinator.RENDERED_METRICS_ALERT_RULES_PATH",
-                new=tmp_path / "rendered_metrics_rules",
+                "coordinated_workers.coordinator.CONSOLIDATED_METRICS_ALERT_RULES_PATH",
+                new=tmp_path / "consolidated_metrics_rules",
             )
         )
 
         stack.enter_context(
             patch(
-                "coordinated_workers.coordinator.RENDERED_LOGS_ALERT_RULES_PATH",
-                new=tmp_path / "rendered_logs_rules",
+                "coordinated_workers.coordinator.CONSOLIDATED_LOGS_ALERT_RULES_PATH",
+                new=tmp_path / "consolidated_logs_rules",
             )
         )
 
