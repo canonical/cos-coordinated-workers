@@ -6,10 +6,10 @@ from urllib.parse import urlparse
 
 import ops
 import pytest
+from charms.catalogue_k8s.v1.catalogue import CatalogueItem
 from cosl.interfaces.utils import DataValidationError
 from ops import RelationChangedEvent, testing
 
-from charms.catalogue_k8s.v1.catalogue import CatalogueItem
 from coordinated_workers.coordinator import (
     ClusterRolesConfig,
     Coordinator,
