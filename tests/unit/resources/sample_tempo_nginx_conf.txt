@@ -7,25 +7,32 @@ events {
 }
 http {
     upstream zipkin {
-        server worker-address:9411;
+        zone zipkin_zone 64k;
+        server worker-address:9411 resolve;
     }
     upstream otlp-grpc {
-        server worker-address:4317;
+        zone otlp-grpc_zone 64k;
+        server worker-address:4317 resolve;
     }
     upstream otlp-http {
-        server worker-address:4318;
+        zone otlp-http_zone 64k;
+        server worker-address:4318 resolve;
     }
     upstream jaeger-thrift-http {
-        server worker-address:14268;
+        zone jaeger-thrift-http_zone 64k;
+        server worker-address:14268 resolve;
     }
     upstream jaeger-grpc {
-        server worker-address:14250;
+        zone jaeger-grpc_zone 64k;
+        server worker-address:14250 resolve;
     }
     upstream tempo-http {
-        server worker-address:3200;
+        zone tempo-http_zone 64k;
+        server worker-address:3200 resolve;
     }
     upstream tempo-grpc {
-        server worker-address:9096;
+        zone tempo-grpc_zone 64k;
+        server worker-address:9096 resolve;
     }
     client_body_temp_path /tmp/client_temp;
     proxy_temp_path /tmp/proxy_temp_path;

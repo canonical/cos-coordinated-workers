@@ -7,25 +7,32 @@ events {
 }
 http {
     upstream distributor {
-        server worker-address:8080;
+        zone distributor_zone 64k;
+        server worker-address:8080 resolve;
     }
     upstream compactor {
-        server worker-address:8080;
+        zone compactor_zone 64k;
+        server worker-address:8080 resolve;
     }
     upstream querier {
-        server worker-address:8080;
+        zone querier_zone 64k;
+        server worker-address:8080 resolve;
     }
     upstream query-frontend {
-        server worker-address:8080;
+        zone query-frontend_zone 64k;
+        server worker-address:8080 resolve;
     }
     upstream ingester {
-        server worker-address:8080;
+        zone ingester_zone 64k;
+        server worker-address:8080 resolve;
     }
     upstream ruler {
-        server worker-address:8080;
+        zone ruler_zone 64k;
+        server worker-address:8080 resolve;
     }
     upstream store-gateway {
-        server worker-address:8080;
+        zone store-gateway_zone 64k;
+        server worker-address:8080 resolve;
     }
     client_body_temp_path /tmp/client_temp;
     proxy_temp_path /tmp/proxy_temp_path;
@@ -55,7 +62,7 @@ http {
         ssl_certificate /etc/nginx/certs/server.cert;
         ssl_certificate_key /etc/nginx/certs/server.key;
         ssl_protocols TLSv1 TLSv1.1 TLSv1.2 TLSv1.3;
-        ssl_ciphers HIGH:!aNULL:!MD5;z
+        ssl_ciphers HIGH:!aNULL:!MD5;
         location = / {
             return 200 "'OK'";
             auth_basic off;

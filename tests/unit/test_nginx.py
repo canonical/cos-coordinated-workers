@@ -153,7 +153,7 @@ def test_dns_ip_addr_fail():
             NginxConfig._get_dns_ip_address()
 
 
-@pytest.mark.parametrize("workload", ("tempo",))
+@pytest.mark.parametrize("workload", ("tempo", "mimir", "loki"))
 @pytest.mark.parametrize("tls", (False, True))
 def test_generate_nginx_config(tls, workload):
     upstream_configs, server_ports_to_locations = _get_nginx_config_params(workload)
@@ -195,6 +195,7 @@ upstream_configs = {
     "mimir": [
         NginxUpstream("distributor", 8080, "distributor"),
         NginxUpstream("compactor", 8080, "compactor"),
+        NginxUpstream("querier", 8080, "querier"),
         NginxUpstream("query-frontend", 8080, "query-frontend"),
         NginxUpstream("ingester", 8080, "ingester"),
         NginxUpstream("ruler", 8080, "ruler"),
