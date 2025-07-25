@@ -70,7 +70,6 @@ from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from charms.tempo_coordinator_k8s.v0.tracing import ReceiverProtocol, TracingEndpointRequirer
 from charms.tls_certificates_interface.v4.tls_certificates import (
     CertificateRequestAttributes,
-    Mode,
     TLSCertificatesRequiresV4,
 )
 from lightkube.models.core_v1 import ResourceRequirements
@@ -314,9 +313,6 @@ class Coordinator(ops.Object):
             self._charm,
             relationship_name=self._endpoints["certificates"],
             certificate_requests=[self._certificate_request_attributes],
-            mode=Mode.APP,
-            # whenever a new member joins the cluster, refresh the csr to include its fqdn in the SANs
-            refresh_events=[self.cluster.on.changed],
         )
 
         self.s3_requirer = S3Requirer(self._charm, self._endpoints["s3"])
@@ -419,6 +415,7 @@ class Coordinator(ops.Object):
         self.nginx_exporter.reconcile()
 
         # reconcile relations
+        self._certificates.sync()
         self._reconcile_nginx_tls_certs()
         self._reconcile_cluster_relations()
         self._render_alert_rules()

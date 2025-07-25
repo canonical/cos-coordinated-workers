@@ -431,28 +431,27 @@ class NginxConfig:
 
             # don't add an upstream block if there are no addresses
             if addresses:
+                upstream_config_name = upstream_config.name
                 nginx_upstreams.append(
                     {
                         "directive": "upstream",
-                        "args": [upstream_config.name],
+                        "args": [upstream_config_name],
                         "block": [
-                            # TODO: uncomment the below directive when nginx version >= 1.27.3
-                            # monitor changes of IP addresses and automatically modify the upstream config without the need of restarting nginx.
-                            # this nginx plus feature has been part of opensource nginx in 1.27.3
-                            # ref: https://nginx.org/en/docs/http/ngx_http_upstream_module.html#upstream
-                            # {
-                            #     "directive": "zone",
-                            #     "args": [f"{upstream_config.name}_zone", "64k"],
-                            # },
+                            # enable dynamic DNS resolution for upstream servers.
+                            # since K8s pods IPs are dynamic, we need this config to allow
+                            # nginx to re-resolve the DNS name without requiring a config reload.
+                            # cfr. https://www.f5.com/company/blog/nginx/dns-service-discovery-nginx-plus#:~:text=second%20method
                             {
-                                "directive": "server",
-                                "args": [
-                                    f"{addr}:{upstream_config.port}",
-                                    # TODO: uncomment the below arg when nginx version >= 1.27.3
-                                    #  "resolve"
-                                ],
-                            }
-                            for addr in addresses
+                                "directive": "zone",
+                                "args": [f"{upstream_config_name}_zone", "64k"],
+                            },
+                            *[
+                                {
+                                    "directive": "server",
+                                    "args": [f"{addr}:{upstream_config.port}", "resolve"],
+                                }
+                                for addr in addresses
+                            ],
                         ],
                     }
                 )

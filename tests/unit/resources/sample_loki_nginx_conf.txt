@@ -7,19 +7,24 @@ events {
 }
 http {
     upstream read {
-        server worker-address:3100;
+        zone read_zone 64k;
+        server worker-address:3100 resolve;
     }
     upstream write {
-        server worker-address:3100;
+        zone write_zone 64k;
+        server worker-address:3100 resolve;
     }
     upstream all {
-        server worker-address:3100;
+        zone all_zone 64k;
+        server worker-address:3100 resolve;
     }
     upstream backend {
-        server worker-address:3100;
+        zone backend_zone 64k;
+        server worker-address:3100 resolve;
     }
     upstream worker {
-        server worker-address:3100;
+        zone worker_zone 64k;
+        server worker-address:3100 resolve;
     }
     client_body_temp_path /tmp/client_temp;
     proxy_temp_path /tmp/proxy_temp_path;
