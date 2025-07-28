@@ -1,0 +1,13 @@
+
+groups:
+- name: generic_alerts
+  rules:
+  - alert: FrontendQueriesStuck
+    annotations:
+      message: |
+        There are {{ $value }} queued up queries in {{ $labels.juju_unit }}/{{ $labels.juju_model }} {{ $labels.job }}.
+    expr: |
+      sum by (cluster, namespace, job) (min_over_time(query_frontend_queue_length[1m])) > 0
+    labels:
+      severity: critical
+    for: 5m
