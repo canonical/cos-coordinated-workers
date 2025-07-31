@@ -87,12 +87,14 @@ CONSOLIDATED_METRICS_ALERT_RULES_PATH = Path("src/prometheus_alert_rules/consoli
 ORIGINAL_LOGS_ALERT_RULES_PATH = Path("src/loki_alert_rules")
 CONSOLIDATED_LOGS_ALERT_RULES_PATH = Path("src/loki_alert_rules/consolidated_rules")
 
-def _deprecation_warning(field_name:str, version:str):
+
+def _deprecation_warning(field_name: str, version: str):
     logger.warning(
         f"DEPRECATION NOTICE: the `{field_name}` "
         "field is deprecated and should no longer be used. "
         f"It will be removed in v{version}."
     )
+
 
 class S3NotFoundError(Exception):
     """Raised when the s3 integration is not present or not ready."""

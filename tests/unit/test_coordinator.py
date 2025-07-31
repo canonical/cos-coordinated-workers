@@ -667,6 +667,8 @@ def test_catalogue_integration(coordinator_state: testing.State):
     # THEN the coordinator has published his catalogue item
     catalogue_relation_out = state_out.get_relation(catalogue_relation.id)
     assert catalogue_relation_out.local_app_data
+
+
 @contextmanager
 def patch_source_alert_rules():
     resources_base_path = Path(__file__).parent / "resources"
