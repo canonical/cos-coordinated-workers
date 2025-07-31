@@ -14,7 +14,7 @@ license = { file = "LICENSE" }
 requires-python = ">=3.8"
 dependencies = [
     "crossplane",
-    "ops[tracing]<3",
+    "ops[tracing]<4",
     "pydantic",
     "lightkube>=v0.15.4",
     "cosl>=1",
