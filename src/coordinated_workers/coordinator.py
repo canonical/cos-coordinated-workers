@@ -585,7 +585,7 @@ class Coordinator(ops.Object):
         # get unit addresses for all the other units from a databag
         addresses = []
         if peers and relation:
-            addresses = [relation.data[unit].get("local-ip") for unit in peers]
+            addresses = [relation.data.get(unit, {}).get("local-ip") for unit in peers]
             addresses = list(filter(None, addresses))
 
         # add own address
@@ -747,9 +747,10 @@ class Coordinator(ops.Object):
 
         for relation in relations:
             for unit in relation.units:
-                if "endpoint" not in relation.data[unit]:
+                unit_databag = relation.data.get(unit, {})
+                if "endpoint" not in unit_databag:
                     continue
-                endpoint = relation.data[unit]["endpoint"]
+                endpoint = unit_databag["endpoint"]
                 deserialized_endpoint = json.loads(endpoint)
                 url = deserialized_endpoint["url"]
                 endpoints[unit.name] = url
