@@ -87,6 +87,12 @@ CONSOLIDATED_METRICS_ALERT_RULES_PATH = Path("src/prometheus_alert_rules/consoli
 ORIGINAL_LOGS_ALERT_RULES_PATH = Path("src/loki_alert_rules")
 CONSOLIDATED_LOGS_ALERT_RULES_PATH = Path("src/loki_alert_rules/consolidated_rules")
 
+def _deprecation_warning(field_name:str, version:str):
+    logger.warning(
+        f"DEPRECATION NOTICE: the `{field_name}` "
+        "field is deprecated and should no longer be used. "
+        f"It will be removed in v{version}."
+    )
 
 class S3NotFoundError(Exception):
     """Raised when the s3 integration is not present or not ready."""
@@ -127,8 +133,8 @@ class ClusterRolesConfig:
     """Meta roles are composed of non-meta roles (default: all)."""
     minimal_deployment: Iterable[str]
     """The minimal set of roles that need to be allocated for the deployment to be considered consistent."""
-    recommended_deployment: Dict[str, int]
-    """The set of roles that need to be allocated for the deployment to be considered robust according to the official recommendations/guidelines.."""
+    recommended_deployment: Optional[Dict[str, int]] = None
+    """This field is deprecated and will be removed in version 3.0"""
 
     def __post_init__(self):
         """Ensure the various role specifications are consistent with one another."""
@@ -137,13 +143,13 @@ class ClusterRolesConfig:
             set(meta_value).issubset(self.roles) for meta_value in self.meta_roles.values()
         )
         is_minimal_valid = set(self.minimal_deployment).issubset(self.roles)
-        is_recommended_valid = set(self.recommended_deployment).issubset(self.roles)
+        if self.recommended_deployment:
+            _deprecation_warning("ClusterRolesConfig.recommended_deployment", "3.0")
         if not all(
             [
                 are_meta_keys_valid,
                 are_meta_values_valid,
                 is_minimal_valid,
-                is_recommended_valid,
             ]
         ):
             raise ClusterRolesConfigError(
@@ -237,7 +243,7 @@ class Coordinator(ops.Object):
             endpoints: Endpoint names for coordinator relations, as defined in metadata.yaml.
             nginx_options: Non-default config options for Nginx.
             is_coherent: Custom coherency checker for a minimal deployment.
-            is_recommended: Custom coherency checker for a recommended deployment.
+            is_recommended: DEPRECATED. Will be removed in v3.0.
             resources_limit_options: A dictionary containing resources limit option names. The dictionary should include
                 "cpu_limit" and "memory_limit" keys with values as option names, as defined in the config.yaml.
                 If no dictionary is provided, the default option names "cpu_limit" and "memory_limit" would be used.
@@ -276,7 +282,9 @@ class Coordinator(ops.Object):
 
         # dynamic attributes (callbacks)
         self._override_coherency_checker = is_coherent
-        self._override_recommended_checker = is_recommended
+        if is_recommended:
+            _deprecation_warning("Coordinator.is_recommended", "3.0")
+
         self._resources_requests_getter = (
             partial(resources_requests, self) if resources_requests is not None else None
         )
@@ -470,20 +478,8 @@ class Coordinator(ops.Object):
 
         Will return None if no recommended criterion is defined.
         """
-        if override_recommended_checker := self._override_recommended_checker:
-            return override_recommended_checker(self.cluster, self._roles_config)
-
-        rc = self._roles_config
-        if not rc.recommended_deployment:
-            # we don't have a definition of recommended: return None
-            return None
-
-        cluster = self.cluster
-        roles = cluster.gather_roles()
-        for role, min_n in rc.recommended_deployment.items():
-            if roles.get(role, 0) < min_n:
-                return False
-        return True
+        _deprecation_warning("Coordinator.is_recommended", "3.0")
+        return None
 
     @property
     def can_handle_events(self) -> bool:
@@ -696,9 +692,6 @@ class Coordinator(ops.Object):
             statuses.append(ops.BlockedStatus("[consistency] Missing any worker relation."))
         elif not self.is_coherent:
             statuses.append(ops.BlockedStatus("[consistency] Cluster inconsistent."))
-        elif not self.is_recommended:
-            # if is_recommended is None: it means we don't meet the recommended deployment criterion.
-            statuses.append(ops.ActiveStatus("Degraded."))
 
         if not self.s3_requirer.relations:
             statuses.append(ops.BlockedStatus("[s3] Missing S3 integration."))

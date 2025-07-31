@@ -169,11 +169,6 @@ def coordinator_charm(request):
                         "write",
                         "backend",
                     },
-                    recommended_deployment={
-                        "read": 3,
-                        "write": 3,
-                        "backend": 3,
-                    },
                 ),
                 external_url="https://foo.example.com",
                 worker_metrics_port=123,
@@ -195,7 +190,6 @@ def coordinator_charm(request):
                 worker_ports=self._worker_ports,
                 # nginx_options: Optional[NginxMappingOverrides] = None,
                 # is_coherent: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
-                # is_recommended: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
             )
 
     return MyCoordinator
@@ -633,11 +627,6 @@ def test_catalogue_integration(coordinator_state: testing.State):
                         "read",
                         "write",
                         "backend",
-                    },
-                    recommended_deployment={
-                        "read": 3,
-                        "write": 3,
-                        "backend": 3,
                     },
                 ),
                 external_url="https://foo.example.com",
