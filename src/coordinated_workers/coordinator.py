@@ -46,7 +46,6 @@ from coordinated_workers.nginx import (
 
 check_libs_installed(
     "charms.data_platform_libs.v0.s3",
-    "charms.grafana_k8s.v0.grafana_source",
     "charms.grafana_k8s.v0.grafana_dashboard",
     "charms.prometheus_k8s.v0.prometheus_scrape",
     "charms.loki_k8s.v1.loki_push_api",
