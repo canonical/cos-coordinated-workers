@@ -205,7 +205,7 @@ def test_status_check_k8s_patch_success_after_retries(
         MagicMock(return_value=ops.ActiveStatus("")),
     ):
         state_out = ctx.run(ctx.on.update_status(), state_intermediate)
-    assert state_out.unit_status == ops.ActiveStatus("Degraded.")
+    assert state_out.unit_status == ops.ActiveStatus("")
 
 
 @patch(
