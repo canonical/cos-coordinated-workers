@@ -847,7 +847,7 @@ class Coordinator(ops.Object):
                 CONSOLIDATED_METRICS_ALERT_RULES_PATH,
                 CONSOLIDATED_LOGS_ALERT_RULES_PATH,
             ):
-                path.mkdir(exist_ok=True)
+                path.mkdir(exist_ok=True, parents=True)
                 self._remove_consolidated_alert_rules(path)
             self._consolidate_workers_alert_rules()
             self._consolidate_nginx_alert_rules()
