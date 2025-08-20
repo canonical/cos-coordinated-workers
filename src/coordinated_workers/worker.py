@@ -459,7 +459,7 @@ class Worker(ops.Object):
     @staticmethod
     def _add_proxy_info(new_layer: Layer):
         """Add juju proxy envvars to all services a pebble layer."""
-        for svc_name, svc_spec in new_layer.services.items():
+        for svc_spec in new_layer.services.values():
             svc_spec.environment.update(
                 {
                     "https_proxy": os.environ.get("JUJU_CHARM_HTTPS_PROXY", ""),
