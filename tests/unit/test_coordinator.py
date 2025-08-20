@@ -581,10 +581,12 @@ def test_app_hostname(
 
     # WHEN any event fires
     with ctx(ctx.on.update_status(), testing.State(model=testing.Model("test"))) as mgr:
-        with patch("coordinated_workers.coordinator.Coordinator.hostname", hostname):
-            # THEN if hostname is a valid k8s pod fqdn, app_hostname is set to the k8s service fqdn
-            # else app_hostname is set to whatever value hostname has
-            assert mgr.charm.coordinator.app_hostname == expected_app_hostname
+        # THEN if hostname is a valid k8s pod fqdn, app_hostname is set to the k8s service fqdn
+        # else app_hostname is set to whatever value hostname has
+        assert (
+            mgr.charm.coordinator.app_hostname(hostname, mgr.charm.app.name, mgr.charm.model.name)
+            == expected_app_hostname
+        )
 
 
 def test_catalogue_integration(coordinator_state: testing.State):

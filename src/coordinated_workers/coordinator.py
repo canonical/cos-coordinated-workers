@@ -46,7 +46,6 @@ from coordinated_workers.nginx import (
 
 check_libs_installed(
     "charms.data_platform_libs.v0.s3",
-    "charms.grafana_k8s.v0.grafana_source",
     "charms.grafana_k8s.v0.grafana_dashboard",
     "charms.prometheus_k8s.v0.prometheus_scrape",
     "charms.loki_k8s.v1.loki_push_api",
@@ -493,15 +492,14 @@ class Coordinator(ops.Object):
         """Unit's hostname."""
         return socket.getfqdn()
 
-    @property
-    def app_hostname(self) -> str:
+    @staticmethod
+    def app_hostname(hostname: str, app_name: str, model_name: str) -> str:
         """The FQDN of the k8s service associated with this application.
 
         This service load balances traffic across all application units.
         Falls back to this unit's DNS name if the hostname does not resolve to a Kubernetes-style fqdn.
         """
-        # example: 'tempo-0.tempo-headless.default.svc.cluster.local'
-        hostname = self.hostname
+        # hostname is expected to look like: 'tempo-0.tempo-headless.default.svc.cluster.local'
         hostname_parts = hostname.split(".")
         # 'svc' is always there in a K8s service fqdn
         # ref: https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/#services
@@ -511,7 +509,7 @@ class Coordinator(ops.Object):
 
         dns_name_parts = hostname_parts[hostname_parts.index("svc") :]
         dns_name = ".".join(dns_name_parts)  # 'svc.cluster.local'
-        return f"{self._charm.app.name}.{self._charm.model.name}.{dns_name}"  # 'tempo.model.svc.cluster.local'
+        return f"{app_name}.{model_name}.{dns_name}"  # 'tempo.model.svc.cluster.local'
 
     @property
     def _internal_url(self) -> str:
@@ -584,7 +582,7 @@ class Coordinator(ops.Object):
         # get unit addresses for all the other units from a databag
         addresses = []
         if peers and relation:
-            addresses = [relation.data[unit].get("local-ip") for unit in peers]
+            addresses = [relation.data.get(unit, {}).get("local-ip") for unit in peers]
             addresses = list(filter(None, addresses))
 
         # add own address
@@ -670,7 +668,11 @@ class Coordinator(ops.Object):
             common_name=self._charm.app.name,
             # update certificate with new SANs whenever a worker is added/removed
             sans_dns=frozenset(
-                (self.hostname, self.app_hostname, *self.cluster.gather_addresses())
+                (
+                    self.hostname,
+                    self.app_hostname(self.hostname, self._charm.app.name, self._charm.model.name),
+                    *self.cluster.gather_addresses(),
+                )
             ),
         )
 
@@ -743,9 +745,10 @@ class Coordinator(ops.Object):
 
         for relation in relations:
             for unit in relation.units:
-                if "endpoint" not in relation.data[unit]:
+                unit_databag = relation.data.get(unit, {})
+                if "endpoint" not in unit_databag:
                     continue
-                endpoint = relation.data[unit]["endpoint"]
+                endpoint = unit_databag["endpoint"]
                 deserialized_endpoint = json.loads(endpoint)
                 url = deserialized_endpoint["url"]
                 endpoints[unit.name] = url

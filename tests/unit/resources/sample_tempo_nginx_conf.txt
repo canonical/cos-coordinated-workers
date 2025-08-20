@@ -66,8 +66,9 @@ http {
         }
     }
     server {
-        listen 4317 http2;
-        listen [::]:4317 http2;
+        listen 4317;
+        listen [::]:4317;
+        http2 on;
         proxy_set_header X-Scope-OrgID $ensured_x_scope_orgid;
         server_name localhost;
         location / {
@@ -99,8 +100,9 @@ http {
         }
     }
     server {
-        listen 14250 http2;
-        listen [::]:14250 http2;
+        listen 14250;
+        listen [::]:14250;
+        http2 on;
         proxy_set_header X-Scope-OrgID $ensured_x_scope_orgid;
         server_name localhost;
         location / {
@@ -121,8 +123,9 @@ http {
         }
     }
     server {
-        listen 9096 http2;
-        listen [::]:9096 http2;
+        listen 9096;
+        listen [::]:9096;
+        http2 on;
         proxy_set_header X-Scope-OrgID $ensured_x_scope_orgid;
         server_name localhost;
         location / {
