@@ -620,9 +620,7 @@ class NginxConfig:
 
     def _listen(self, port: int, ssl: bool, http2: bool) -> List[Dict[str, Any]]:
         directives: List[Dict[str, Any]] = []
-        directives.append(
-            {"directive": "listen", "args": self._listen_args(port, False, ssl)}
-        )
+        directives.append({"directive": "listen", "args": self._listen_args(port, False, ssl)})
         if self._ipv6_enabled:
             directives.append(
                 {
@@ -631,9 +629,7 @@ class NginxConfig:
                 }
             )
         if http2:
-            directives.append(
-                {"directive": "http2", "args": ["on"]}
-            )
+            directives.append({"directive": "http2", "args": ["on"]})
         return directives
 
     def _listen_args(self, port: int, ipv6: bool, ssl: bool) -> List[str]:
