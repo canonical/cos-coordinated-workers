@@ -1,4 +1,5 @@
 import json
+import os
 from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -103,6 +104,77 @@ def test_roles_from_config(roles_active, roles_inactive, expected):
     ) as mgr:
         # THEN the Worker.roles method correctly returns the list of only those that are set to true
         assert set(mgr.charm.worker.roles) == set(expected)
+
+
+@patch.object(Worker, "is_ready", new=lambda _: True)
+def test_proxy_env_injection_in_layer(tmp_path):
+    # GIVEN a worker with some services
+    MyCharm.layer = ops.pebble.Layer(
+        {
+            "services": {
+                "foo": {
+                    "summary": "foos all the things",
+                    "description": "bar",
+                    "startup": "enabled",
+                    "override": "merge",
+                    "command": "ls -la",
+                    "environment": {"foo": "bar"},
+                },
+                "bar": {
+                    "summary": "bazzes all of the bars",
+                    "description": "bar",
+                    "startup": "enabled",
+                    "command": "echo hi",
+                },
+            }
+        }
+    )
+    ctx = testing.Context(
+        MyCharm,
+        meta={
+            "name": "foo",
+            "requires": {"cluster": {"interface": "cluster"}},
+            "containers": {"foo": {"type": "oci-image"}},
+        },
+        config={"options": {"role-all": {"type": "boolean", "default": True}}},
+    )
+    # WHEN the charm receives any event and the proxy envvars are set in the current environment
+    proxy_vars = {
+        "JUJU_CHARM_HTTPS_PROXY": "https_proxy",
+        "JUJU_CHARM_HTTP_PROXY": "http_proxy",
+        "JUJU_CHARM_NO_PROXY": "no_proxy",
+    }
+    os.environ.update(proxy_vars)
+
+    cfg = tmp_path / "cfg.yaml"
+    cfg.write_text("some: yaml")
+    container = testing.Container(
+        "foo",
+        can_connect=True,
+        mounts={"local": testing.Mount(location=CONFIG_FILE, source=cfg)},
+        execs={
+            testing.Exec(("update-ca-certificates", "--fresh")),
+            testing.Exec(("/bin/foo", "-version"), stdout="foo"),
+        },
+    )
+    state_out = ctx.run(ctx.on.pebble_ready(container), testing.State(containers={container}))
+
+    # cleanup env
+    for var in proxy_vars:
+        del os.environ[var]
+
+    # THEN the charm has set a layer with all proxy envvars passed down to its environment
+    container_out = state_out.get_container("foo")
+    foo_serv = container_out.plan.services["foo"]
+    translated_proxy_vars = {
+        "https_proxy": "https_proxy",
+        "http_proxy": "http_proxy",
+        "no_proxy": "no_proxy",
+    }
+    assert foo_serv.environment == {"foo": "bar", **translated_proxy_vars}
+
+    bar_serv = container_out.plan.services["bar"]
+    assert bar_serv.environment == translated_proxy_vars
 
 
 @patch.object(Worker, "is_ready", new=lambda _: True)

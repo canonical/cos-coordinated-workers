@@ -4,6 +4,7 @@
 """Generic worker for a distributed charm deployment."""
 
 import logging
+import os
 import re
 import socket
 import subprocess
@@ -439,6 +440,7 @@ class Worker(ops.Object):
             return False
 
         self._add_readiness_check(layer)
+        self._add_proxy_info(layer)
 
         def diff(layer: Layer, plan: Plan):
             layer_dct = layer.to_dict()
@@ -453,6 +455,18 @@ class Worker(ops.Object):
             self._container.add_layer(self._name, layer, combine=True)
             return True
         return False
+
+    @staticmethod
+    def _add_proxy_info(new_layer: Layer):
+        """Add juju proxy envvars to all services a pebble layer."""
+        for svc_spec in new_layer.services.values():
+            svc_spec.environment.update(
+                {
+                    "https_proxy": os.environ.get("JUJU_CHARM_HTTPS_PROXY", ""),
+                    "http_proxy": os.environ.get("JUJU_CHARM_HTTP_PROXY", ""),
+                    "no_proxy": os.environ.get("JUJU_CHARM_NO_PROXY", ""),
+                }
+            )
 
     def _add_readiness_check(self, new_layer: Layer):
         """Add readiness check to a pebble layer."""
