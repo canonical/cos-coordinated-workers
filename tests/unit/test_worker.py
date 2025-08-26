@@ -107,7 +107,8 @@ def test_roles_from_config(roles_active, roles_inactive, expected):
 
 
 @patch.object(Worker, "is_ready", new=lambda _: True)
-def test_proxy_env_injection_in_layer(tmp_path):
+@pytest.mark.parametrize("do_inject", (True, False))
+def test_proxy_env_injection_in_layer(tmp_path, do_inject):
     # GIVEN a worker with some services
     MyCharm.layer = ops.pebble.Layer(
         {
@@ -138,13 +139,16 @@ def test_proxy_env_injection_in_layer(tmp_path):
         },
         config={"options": {"role-all": {"type": "boolean", "default": True}}},
     )
-    # WHEN the charm receives any event and the proxy envvars are set in the current environment
-    proxy_vars = {
-        "JUJU_CHARM_HTTPS_PROXY": "https_proxy",
-        "JUJU_CHARM_HTTP_PROXY": "http_proxy",
-        "JUJU_CHARM_NO_PROXY": "no_proxy",
-    }
-    os.environ.update(proxy_vars)
+
+    proxy_vars = {}
+    if do_inject:
+        # WHEN the charm receives any event and the proxy envvars are set in the current environment
+        proxy_vars = {
+            "JUJU_CHARM_HTTPS_PROXY": "https_proxy",
+            "JUJU_CHARM_HTTP_PROXY": "http_proxy",
+            "JUJU_CHARM_NO_PROXY": "no_proxy",
+        }
+        os.environ.update(proxy_vars)
 
     cfg = tmp_path / "cfg.yaml"
     cfg.write_text("some: yaml")
@@ -166,15 +170,21 @@ def test_proxy_env_injection_in_layer(tmp_path):
     # THEN the charm has set a layer with all proxy envvars passed down to its environment
     container_out = state_out.get_container("foo")
     foo_serv = container_out.plan.services["foo"]
-    translated_proxy_vars = {
-        "https_proxy": "https_proxy",
-        "http_proxy": "http_proxy",
-        "no_proxy": "no_proxy",
-    }
-    assert foo_serv.environment == {"foo": "bar", **translated_proxy_vars}
+    if do_inject:
+        extended_env = {
+            "https_proxy": "https_proxy",
+            "http_proxy": "http_proxy",
+            "no_proxy": "no_proxy",
+            "HTTPS_PROXY": "https_proxy",
+            "HTTP_PROXY": "http_proxy",
+            "NO_PROXY": "no_proxy",
+        }
+    else:
+        extended_env = {}
+    assert foo_serv.environment == {"foo": "bar", **extended_env}
 
     bar_serv = container_out.plan.services["bar"]
-    assert bar_serv.environment == translated_proxy_vars
+    assert bar_serv.environment == extended_env
 
 
 @patch.object(Worker, "is_ready", new=lambda _: True)

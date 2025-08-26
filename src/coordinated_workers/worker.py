@@ -460,13 +460,13 @@ class Worker(ops.Object):
     def _add_proxy_info(new_layer: Layer):
         """Add juju proxy envvars to all services a pebble layer."""
         for svc_spec in new_layer.services.values():
-            svc_spec.environment.update(
-                {
-                    "https_proxy": os.environ.get("JUJU_CHARM_HTTPS_PROXY", ""),
-                    "http_proxy": os.environ.get("JUJU_CHARM_HTTP_PROXY", ""),
-                    "no_proxy": os.environ.get("JUJU_CHARM_NO_PROXY", ""),
-                }
-            )
+            for source, dest in (
+                ("JUJU_CHARM_HTTPS_PROXY", "https_proxy"),
+                ("JUJU_CHARM_HTTP_PROXY", "http_proxy"),
+                ("JUJU_CHARM_NO_PROXY", "no_proxy"),
+            ):
+                if value_set := os.environ.get(source, None):
+                    svc_spec.environment.update({dest.upper(): value_set, dest: value_set})
 
     def _add_readiness_check(self, new_layer: Layer):
         """Add readiness check to a pebble layer."""
