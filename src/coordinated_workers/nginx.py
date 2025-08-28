@@ -260,7 +260,6 @@ class NginxConfig:
     _pid = "/tmp/nginx.pid"
     _worker_rlimit_nofile = "8192"
     _worker_connections = "4096"
-    _worker_connections = "4096"
     _proxy_read_timeout = "300"
     _supported_tls_versions = ["TLSv1", "TLSv1.1", "TLSv1.2", "TLSv1.3"]
     _ssl_ciphers = ["HIGH:!aNULL:!MD5"]
