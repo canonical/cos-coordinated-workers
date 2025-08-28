@@ -182,6 +182,28 @@ def test_generate_nginx_config(tls, workload):
         assert sample_config_path.read_text() == generated_config
 
 
+def test_generate_nginx_config_with_root_path():
+    upstream_configs, server_ports_to_locations = _get_nginx_config_params("tempo")
+
+    addrs_by_role = {
+        role: {"worker-address"}
+        for role in (upstream.worker_role for upstream in upstream_configs)
+    }
+    with mock_resolv_conf(f"foo bar\nnameserver {sample_dns_ip}"):
+        nginx = NginxConfig(
+            "localhost",
+            upstream_configs=upstream_configs,
+            server_ports_to_locations=server_ports_to_locations,
+            enable_health_check=False,
+            enable_status_page=False,
+        )
+        generated_config = nginx.get_config(addrs_by_role, False, root_path="/dist")
+        sample_config_path = (
+            Path(__file__).parent / "resources" / "sample_tempo_nginx_conf_root_path.txt"
+        )
+        assert sample_config_path.read_text() == generated_config
+
+
 upstream_configs = {
     "tempo": [
         NginxUpstream("zipkin", 9411, "distributor"),

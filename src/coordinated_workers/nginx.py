@@ -307,18 +307,27 @@ class NginxConfig:
         self._dns_IP_address = self._get_dns_ip_address()
         self._ipv6_enabled = is_ipv6_enabled()
 
-    def get_config(self, upstreams_to_addresses: Dict[str, Set[str]], listen_tls: bool, root_path: Optional[str] = None) -> str:
+    def get_config(
+        self,
+        upstreams_to_addresses: Dict[str, Set[str]],
+        listen_tls: bool,
+        root_path: Optional[str] = None,
+    ) -> str:
         """Render the Nginx configuration as a string.
 
         Args:
             upstreams_to_addresses: A dictionary mapping each upstream name to a set of addresses associated with that upstream.
             listen_tls: Whether Nginx should listen for incoming traffic over TLS.
+            root_path: If provided, it is used as a location where static files will be served.
         """
         full_config = self._prepare_config(upstreams_to_addresses, listen_tls, root_path)
         return crossplane.build(full_config)  # type: ignore
 
     def _prepare_config(
-        self, upstreams_to_addresses: Dict[str, Set[str]], listen_tls: bool, root_path: Optional[str] = None
+        self,
+        upstreams_to_addresses: Dict[str, Set[str]],
+        listen_tls: bool,
+        root_path: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         upstreams = self._upstreams(upstreams_to_addresses)
         # extract the upstream name
@@ -483,7 +492,7 @@ class NginxConfig:
         locations: List[NginxLocationConfig],
         backends: List[str],
         listen_tls: bool = False,
-        root_path: Optional[str] = None
+        root_path: Optional[str] = None,
     ) -> Dict[str, Any]:
         auth_enabled = False
         is_grpc = any(loc.is_grpc for loc in locations)
@@ -610,12 +619,10 @@ class NginxConfig:
                 )
 
         return nginx_locations
-    
+
     def _root_path(self, root_path: Optional[str] = None) -> List[Optional[Dict[str, Any]]]:
         if root_path:
-            return [
-                {"directive": "root", "args": [root_path]}
-            ]
+            return [{"directive": "root", "args": [root_path]}]
         return []
 
     def _basic_auth(self, enabled: bool) -> List[Optional[Dict[str, Any]]]:
