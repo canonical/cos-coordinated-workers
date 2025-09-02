@@ -32,7 +32,7 @@ import pydantic
 import yaml
 from cosl.interfaces.datasource_exchange import DatasourceExchange
 from opentelemetry import trace
-from ops import LifecycleEvent, StatusBase
+from ops import StatusBase
 
 from coordinated_workers import worker
 from coordinated_workers.helpers import check_libs_installed
@@ -69,10 +69,10 @@ from charms.tls_certificates_interface.v4.tls_certificates import (
     CertificateRequestAttributes,
     TLSCertificatesRequiresV4,
 )
+from cosl.reconciler import all_events, observe_events
 from lightkube.models.core_v1 import ResourceRequirements
 
 from coordinated_workers.models import TLSConfig
-from cosl.reconciler import observe_events, all_events
 
 logger = logging.getLogger(__name__)
 
