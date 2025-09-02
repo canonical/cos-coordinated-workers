@@ -72,6 +72,7 @@ from charms.tls_certificates_interface.v4.tls_certificates import (
 from lightkube.models.core_v1 import ResourceRequirements
 
 from coordinated_workers.models import TLSConfig
+from cosl.reconciler import observe_events, all_events
 
 logger = logging.getLogger(__name__)
 
@@ -391,15 +392,7 @@ class Coordinator(ops.Object):
             )
             return
 
-        for event in self._charm.on.events().values():
-            # ignore LifecycleEvents: we want to execute the reconciler exactly once per juju hook.
-            if issubclass(event.event_type, LifecycleEvent):
-                continue
-            self.framework.observe(event, self._on_any_event)
-
-    def _on_any_event(self, _: ops.EventBase):
-        """Common entry hook."""
-        self._reconcile()
+        observe_events(self._charm, all_events, self._reconcile)
 
     def _reconcile(self):
         """Run all logic that is independent of what event we're processing."""
