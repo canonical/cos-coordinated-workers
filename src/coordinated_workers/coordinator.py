@@ -202,6 +202,9 @@ class Coordinator(ops.Object):
     running Nginx, and implementing self-monitoring integrations.
     """
 
+    _default_degraded_message = "Degraded."
+    _default_active_message = ""
+
     def __init__(
         self,
         charm: ops.CharmBase,
@@ -700,7 +703,7 @@ class Coordinator(ops.Object):
             statuses.append(ops.BlockedStatus("[consistency] Cluster inconsistent."))
         elif not self.is_recommended:
             # if is_recommended is None: it means we don't meet the recommended deployment criterion.
-            statuses.append(ops.ActiveStatus("Degraded."))
+            statuses.append(ops.ActiveStatus(self._default_degraded_message))
 
         if not self.s3_requirer.relations:
             statuses.append(ops.BlockedStatus("[s3] Missing S3 integration."))
@@ -717,7 +720,7 @@ class Coordinator(ops.Object):
             )
 
         if not statuses:
-            statuses.append(ops.ActiveStatus())
+            statuses.append(ops.ActiveStatus(self._default_active_message))
 
         for status in statuses:
             e.add_status(status)
