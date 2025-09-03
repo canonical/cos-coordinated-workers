@@ -32,7 +32,7 @@ import pydantic
 import yaml
 from cosl.interfaces.datasource_exchange import DatasourceExchange
 from opentelemetry import trace
-from ops import LifecycleEvent, StatusBase
+from ops import StatusBase
 
 from coordinated_workers import worker
 from coordinated_workers.helpers import check_libs_installed
@@ -69,6 +69,7 @@ from charms.tls_certificates_interface.v4.tls_certificates import (
     CertificateRequestAttributes,
     TLSCertificatesRequiresV4,
 )
+from cosl.reconciler import all_events, observe_events
 from lightkube.models.core_v1 import ResourceRequirements
 
 from coordinated_workers.models import TLSConfig
@@ -394,15 +395,7 @@ class Coordinator(ops.Object):
             )
             return
 
-        for event in self._charm.on.events().values():
-            # ignore LifecycleEvents: we want to execute the reconciler exactly once per juju hook.
-            if issubclass(event.event_type, LifecycleEvent):
-                continue
-            self.framework.observe(event, self._on_any_event)
-
-    def _on_any_event(self, _: ops.EventBase):
-        """Common entry hook."""
-        self._reconcile()
+        observe_events(self._charm, all_events, self._reconcile)
 
     def _reconcile(self):
         """Run all logic that is independent of what event we're processing."""
