@@ -661,7 +661,7 @@ class Coordinator(ops.Object):
     def _certificate_request_attributes(self) -> CertificateRequestAttributes:
         return CertificateRequestAttributes(
             # common_name is deprecated but often still required in the wild, and is actually required by the TLS lib:
-            # https://github.com/canonical/tls-certificates-interface/issues/369
+            # TODO: drop common_name arg (https://github.com/canonical/tls-certificates-interface/issues/369).
             # It is also limited to 64 chars, so cannot always use socket.getfqdn().
             # We cannot use a constrained name such as self._charm.app.name, because Let's Encrypt complains:
             # "Domain name needs at least one dot".
