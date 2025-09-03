@@ -660,10 +660,15 @@ class Coordinator(ops.Object):
     @property
     def _certificate_request_attributes(self) -> CertificateRequestAttributes:
         return CertificateRequestAttributes(
-            # common_name is required and has a limit of 64 chars.
-            # it is superseded by sans anyway, so we can use a constrained name,
-            # such as app_name
-            common_name=self._charm.app.name,
+            # common_name is deprecated but often still required in the wild, and is actually required by the TLS lib:
+            # https://github.com/canonical/tls-certificates-interface/issues/369
+            # It is also limited to 64 chars, so cannot always use socket.getfqdn().
+            # We cannot use a constrained name such as self._charm.app.name, because Let's Encrypt complains:
+            # "Domain name needs at least one dot".
+            # https://community.letsencrypt.org/t/simplifying-issuance-for-very-long-domain-names/207924
+            # Since the CN must be derived from one of the SANs, and since COS workloads only have k8s cluster addresses,
+            # using a wildcard for now.
+            common_name="*.svc.cluster.local",
             # update certificate with new SANs whenever a worker is added/removed
             sans_dns=frozenset(
                 (
