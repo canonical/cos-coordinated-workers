@@ -703,15 +703,6 @@ class Coordinator(ops.Object):
         elif not self.s3_ready:
             statuses.append(ops.BlockedStatus("[s3] S3 not ready (probably misconfigured)."))
 
-        if self._external_url.startswith("https://") and not self.tls_available:
-            statuses.append(
-                ops.BlockedStatus(
-                    "[tls] misconfigured: the ingressed address is https, "
-                    "but TLS certificates aren't available."
-                    "Please relate to a certificates provider."
-                )
-            )
-
         if not statuses:
             statuses.append(ops.ActiveStatus(self._default_active_message))
 
