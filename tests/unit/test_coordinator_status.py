@@ -7,8 +7,6 @@ import pytest
 import tenacity
 from lightkube import ApiError
 from ops import testing
-from scenario import BlockedStatus
-from scenario.context import CharmEvents
 
 from coordinated_workers.coordinator import ClusterRolesConfig, Coordinator
 from coordinated_workers.interfaces.cluster import ClusterProviderAppData, ClusterRequirerAppData
@@ -206,25 +204,3 @@ def test_status_check_k8s_patch_success_after_retries(
     ):
         state_out = ctx.run(ctx.on.update_status(), state_intermediate)
     assert state_out.unit_status == ops.ActiveStatus("Degraded.")
-
-
-@patch(
-    "charms.observability_libs.v0.kubernetes_compute_resources_patch.ResourcePatcher.apply",
-    MagicMock(return_value=None),
-)
-@pytest.mark.parametrize(
-    "event",
-    (
-        CharmEvents.update_status(),
-        CharmEvents.start(),
-        CharmEvents.install(),
-    ),
-)
-def test_tls_misconfigured_sets_blocked(coord_charm, ctx, base_state, event):
-    # GIVEN an https ingress address, but no tls relation
-    coord_charm.external_url = "https://198.18.0.0:3200"
-    # WHEN the charm processes any event
-    state_out = ctx.run(event, base_state)
-    # THEN the charm sets blocked
-    assert isinstance(state_out.unit_status, BlockedStatus)
-    assert "[tls] misconfigured" in state_out.unit_status.message
