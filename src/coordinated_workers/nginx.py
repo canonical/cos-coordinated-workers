@@ -228,6 +228,10 @@ class NginxLocationConfig:
     """Whether to connect to the upstream over TLS (e.g., https:// or grpcs://)
     If None, it will inherit the TLS setting from the server block that the location is part of.
     """
+    rewrite: Optional[List[str]] = None
+    """Custom rewrite, used i.e. to drop the subpath from the proxied request if needed.
+    Example: ['^/auth(/.*)$', '$1', 'break'] to drop `/auth` from the request.
+    """
 
 
 @dataclass
@@ -595,6 +599,15 @@ class NginxConfig:
                                     f"{protocol}://{location.backend}{location.backend_url}",
                                 ],
                             },
+                            *(
+                                [
+                                    {
+                                        "directive": "rewrite",
+                                        "args": location.rewrite
+                                    }
+                                ] if location.rewrite
+                                else []
+                            ),
                             {
                                 "directive": "grpc_pass" if grpc else "proxy_pass",
                                 "args": ["$backend"],

@@ -204,6 +204,28 @@ def test_generate_nginx_config_with_root_path():
         assert sample_config_path.read_text() == generated_config
 
 
+def test_generate_litmus_config_with_rewrite():
+    upstream_configs, server_ports_to_locations = _get_nginx_config_params("litmus")
+
+    addrs_by_role = {
+        "auth": ["worker-address"],
+        "backend": ["worker-address"],
+    }
+    with mock_resolv_conf(f"foo bar\nnameserver {sample_dns_ip}"):
+        nginx = NginxConfig(
+            "localhost",
+            upstream_configs=upstream_configs,
+            server_ports_to_locations=server_ports_to_locations,
+            enable_health_check=False,
+            enable_status_page=False,
+        )
+        generated_config = nginx.get_config(addrs_by_role, False)
+        sample_config_path = (
+            Path(__file__).parent / "resources" / "sample_litmus_conf_with_rewrite.txt"
+        )
+        assert sample_config_path.read_text() == generated_config
+
+
 upstream_configs = {
     "tempo": [
         NginxUpstream("zipkin", 9411, "distributor"),
@@ -229,6 +251,10 @@ upstream_configs = {
         NginxUpstream("all", 3100, "all"),
         NginxUpstream("backend", 3100, "backend"),
         NginxUpstream("worker", 3100, "worker", ignore_worker_role=True),
+    ],
+    "litmus": [
+        NginxUpstream("auth", 3000, "auth"),
+        NginxUpstream("backend", 8080, "backend"),
     ],
 }
 server_ports_to_locations = {
@@ -282,6 +308,12 @@ server_ports_to_locations = {
             NginxLocationConfig(path="/ring", modifier="=", backend="worker"),
         ]
     },
+    "litmus": {
+        8185: [
+            NginxLocationConfig(path="/auth", backend="auth", rewrite=["^/auth(/.*)$", "$1", "break"]),
+            NginxLocationConfig(path="/api", backend="backend"),
+        ]
+    }
 }
 
 
