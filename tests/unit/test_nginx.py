@@ -310,10 +310,12 @@ server_ports_to_locations = {
     },
     "litmus": {
         8185: [
-            NginxLocationConfig(path="/auth", backend="auth", rewrite=["^/auth(/.*)$", "$1", "break"]),
+            NginxLocationConfig(
+                path="/auth", backend="auth", rewrite=["^/auth(/.*)$", "$1", "break"]
+            ),
             NginxLocationConfig(path="/api", backend="backend"),
         ]
-    }
+    },
 }
 
 

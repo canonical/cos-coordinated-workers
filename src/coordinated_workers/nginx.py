@@ -600,12 +600,8 @@ class NginxConfig:
                                 ],
                             },
                             *(
-                                [
-                                    {
-                                        "directive": "rewrite",
-                                        "args": location.rewrite
-                                    }
-                                ] if location.rewrite
+                                [{"directive": "rewrite", "args": location.rewrite}]
+                                if location.rewrite
                                 else []
                             ),
                             {

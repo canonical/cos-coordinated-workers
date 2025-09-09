@@ -407,7 +407,9 @@ class Coordinator(ops.Object):
             logger.debug("Resource patch not ready yet. Skipping cluster update step.")
             return
 
-        # keep this on top
+        # certificates must be synced before we reconcile the workloads; otherwise changes in the certs may go unnoticed.
+        self._certificates.sync()
+        # keep this on top right after certificates sync
         self._setup_charm_tracing()
 
         # reconcile workloads
@@ -415,7 +417,6 @@ class Coordinator(ops.Object):
         self.nginx_exporter.reconcile()
 
         # reconcile relations
-        self._certificates.sync()
         self._reconcile_cluster_relations()
         self._consolidate_alert_rules()
         self._scraping.set_scrape_job_spec()  # type: ignore
