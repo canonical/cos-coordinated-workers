@@ -348,13 +348,6 @@ class Worker(ops.Object):
             statuses.append(
                 BlockedStatus("Invalid or no roles assigned: please configure some valid roles")
             )
-        if self._tls_misconfigured:
-            statuses.append(
-                BlockedStatus(
-                    "TLS misconfigured: the ingressed endpoints are https, "
-                    "but the coordinator didn't give us a certificate (yet)."
-                )
-            )
 
         # if none of the conditions above applies, the worker should in principle be either up or starting
         if not statuses:
@@ -818,25 +811,6 @@ class Worker(ops.Object):
         if result := re.search(r"[Vv]ersion:?\s*(\S+)", version_output):
             return result.group(1)
         return None
-
-    @property
-    def _tls_misconfigured(self) -> bool:
-        """Helper method to determine if tls is misconfigured."""
-        # misconfiguration: the ingress has a tls relation, but we (the coordinator) don't:
-        # as a consequence, we obtain **https** receiver endpoints,
-        # but we don't have a server certificate.
-        receiver_endpoints = {
-            *self.cluster.get_workload_tracing_receivers().values(),
-            *self.cluster.get_charm_tracing_receivers().values(),
-        }
-        any_receiver_endpoint_is_https = any(
-            ep.startswith("https://") for ep in receiver_endpoints
-        )
-
-        has_server_cert = bool(getattr(self.cluster.get_tls_data(), "server_cert", None))
-        if any_receiver_endpoint_is_https and not has_server_cert:
-            return True
-        return False
 
     def charm_tracing_config(self) -> Tuple[Optional[str], Optional[str]]:
         """Get the charm tracing configuration from the coordinator."""

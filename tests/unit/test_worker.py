@@ -7,9 +7,8 @@ from unittest.mock import MagicMock, patch
 import ops
 import pytest
 import yaml
-from ops import BlockedStatus, testing
+from ops import testing
 from scenario import Secret
-from scenario.context import CharmEvents
 from scenario.errors import UncaughtCharmError
 
 from coordinated_workers.worker import (
@@ -1101,65 +1100,3 @@ def test_get_workload_tracing_receivers(remote_databag, expected):
         charm = mgr.charm
         # THEN the charm tracing receivers are picked up correctly
         assert charm.worker.cluster.get_workload_tracing_receivers() == expected
-
-
-@pytest.mark.parametrize(
-    "event",
-    (
-        CharmEvents.update_status(),
-        CharmEvents.start(),
-        CharmEvents.install(),
-        CharmEvents.relation_changed,
-    ),
-)
-def test_worker_blocks_on_tls_misconfigured(event):
-    class _MyCharm(MyCharm):
-        layer = ops.pebble.Layer({"services": {"foo": {"command": ["bar"]}}})
-
-    ctx = testing.Context(
-        _MyCharm,
-        meta={
-            "name": "foo",
-            "requires": {"cluster": {"interface": "cluster"}},
-            "containers": {"foo": {"type": "oci-image"}},
-        },
-        config={"options": {"role-all": {"type": "boolean", "default": True}}},
-    )
-    container = testing.Container(
-        "foo",
-        execs={testing.Exec(("update-ca-certificates", "--fresh"))},
-        can_connect=True,
-    )
-
-    # GIVEN the coordinator is giving us AT LEAST ONE https endpoint for charm_tracing
-    #  OR workload tracing, but no cert
-    relation = testing.Relation(
-        "cluster",
-        remote_app_data={
-            "charm_tracing_receivers": json.dumps(
-                {
-                    "jaeger_thrift_http": "https://198.18.0.0:14268",
-                    "otlp_http": "http://198.18.0.0:4318",
-                }
-            ),
-            "workload_tracing_receivers": json.dumps(
-                {
-                    "jaeger_thrift_http": "http://198.18.0.0:14268",
-                    "otlp_http": "http://198.18.0.0:4318",
-                }
-            ),
-            "worker_config": json.dumps("test"),
-        },
-    )
-
-    if callable(event):
-        event = event(relation)
-
-    # WHEN any event occurs
-    state_out = ctx.run(
-        event,
-        testing.State(containers={container}, relations={relation}),
-    )
-    # THEN the charm sets blocked
-    assert isinstance(state_out.unit_status, BlockedStatus)
-    assert "TLS misconfigured" in state_out.unit_status.message
