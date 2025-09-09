@@ -407,7 +407,7 @@ class Coordinator(ops.Object):
             logger.debug("Resource patch not ready yet. Skipping cluster update step.")
             return
 
-        # certificates must be synced first — all other components depend on them.
+        # certificates must be synced before we reconcile the workloads; otherwise changes in the certs may go unnoticed.
         self._certificates.sync()
         # keep this on top right after certificates sync
         self._setup_charm_tracing()
