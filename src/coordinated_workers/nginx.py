@@ -682,11 +682,12 @@ class Nginx:
         config_getter: Callable[[bool], str],
         tls_config_getter: Callable[[], Optional[TLSConfig]],
         options: Optional[NginxMappingOverrides] = None,
+        container_name: str = "nginx",
     ):
         self._charm = charm
         self._config_getter = config_getter
         self._tls_config_getter = tls_config_getter
-        self._container = self._charm.unit.get_container("nginx")
+        self._container = self._charm.unit.get_container(container_name)
         self.options.update(options or {})
 
     @property
