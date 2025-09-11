@@ -123,6 +123,44 @@ def test_has_config_changed(nginx_context: testing.Context):
         assert nginx._has_config_changed(new_config)
 
 
+@pytest.mark.parametrize("container_name", ("nginx", "custom-nginx"))
+def test_nginx_pebble_plan(container_name):
+    expected_layer = {
+        "summary": "nginx layer",
+        "description": "pebble config layer for Nginx",
+        "services": {
+            container_name: {
+                "override": "replace",
+                "summary": "nginx",
+                "command": "nginx -g 'daemon off;'",
+                "startup": "enabled",
+            }
+        },
+    }
+
+    # GIVEN any charm with a container
+    ctx = testing.Context(
+        ops.CharmBase, meta={"name": "foo", "containers": {container_name: {"type": "oci-image"}}}
+    )
+
+    # WHEN we process any event
+    with ctx(
+        ctx.on.update_status(),
+        state=testing.State(
+            containers={
+                testing.Container(
+                    container_name,
+                    can_connect=True,
+                )
+            },
+        ),
+    ) as mgr:
+        charm = mgr.charm
+        nginx = Nginx(charm, lambda: "foo_string", None, container_name=container_name)
+        # THEN the generated pebble layer has the container_name set as the service name
+        assert nginx.layer == expected_layer
+
+
 @contextmanager
 def mock_resolv_conf(contents: str):
     with tempfile.NamedTemporaryFile() as tf:
