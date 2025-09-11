@@ -673,7 +673,6 @@ class Nginx:
     """Helper class to manage the nginx workload."""
 
     config_path = NGINX_CONFIG
-    _name = "nginx"
     options: _NginxMapping = DEFAULT_OPTIONS
 
     def __init__(
@@ -687,6 +686,7 @@ class Nginx:
         self._charm = charm
         self._config_getter = config_getter
         self._tls_config_getter = tls_config_getter
+        self._container_name = container_name
         self._container = self._charm.unit.get_container(container_name)
         self.options.update(options or {})
 
@@ -803,7 +803,7 @@ class Nginx:
                 "summary": "nginx layer",
                 "description": "pebble config layer for Nginx",
                 "services": {
-                    "nginx": {
+                    self._container_name: {
                         "override": "replace",
                         "summary": "nginx",
                         "command": "nginx -g 'daemon off;'",
