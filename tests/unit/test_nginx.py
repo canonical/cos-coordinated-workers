@@ -264,6 +264,28 @@ def test_generate_litmus_config_with_rewrite():
         assert sample_config_path.read_text() == generated_config
 
 
+def test_generate_nginx_config_with_extra_location_directives():
+    upstream_configs, server_ports_to_locations = _get_nginx_config_params("litmus_ssl")
+
+    addrs_by_role = {
+        role: {"worker-address"}
+        for role in (upstream.worker_role for upstream in upstream_configs)
+    }
+    with mock_resolv_conf(f"foo bar\nnameserver {sample_dns_ip}"):
+        nginx = NginxConfig(
+            "localhost",
+            upstream_configs=upstream_configs,
+            server_ports_to_locations=server_ports_to_locations,
+            enable_health_check=False,
+            enable_status_page=False,
+        )
+        generated_config = nginx.get_config(addrs_by_role, False, root_path="/dist")
+        sample_config_path = (
+                Path(__file__).parent / "resources" / "sample_litmus_ssl_conf.txt"
+        )
+        assert sample_config_path.read_text() == generated_config
+
+
 upstream_configs = {
     "tempo": [
         NginxUpstream("zipkin", 9411, "distributor"),
@@ -293,6 +315,10 @@ upstream_configs = {
     "litmus": [
         NginxUpstream("auth", 3000, "auth"),
         NginxUpstream("backend", 8080, "backend"),
+    ],
+    "litmus_ssl": [
+        NginxUpstream("auth", 3001, "auth"),
+        NginxUpstream("backend", 8081, "backend"),
     ],
 }
 server_ports_to_locations = {
@@ -352,6 +378,31 @@ server_ports_to_locations = {
                 path="/auth", backend="auth", rewrite=["^/auth(/.*)$", "$1", "break"]
             ),
             NginxLocationConfig(path="/api", backend="backend"),
+        ]
+    },
+    "litmus_ssl": {
+        8185: [
+            NginxLocationConfig(
+                path="/auth",
+                backend="auth",
+                rewrite=["^/auth(/.*)$", "$1", "break"],
+                extra_directives={
+                    "proxy_ssl_verify": "off",
+                    "proxy_ssl_session_reuse": "on",
+                    "proxy_ssl_certificate": "/etc/tls/tls.crt",
+                    "proxy_ssl_certificate_key": "/etc/tls/tls.key",
+                },
+            ),
+            NginxLocationConfig(
+                path="/api",
+                backend="backend",
+                extra_directives={
+                    "proxy_ssl_verify": "off",
+                    "proxy_ssl_session_reuse": "on",
+                    "proxy_ssl_certificate": "/etc/tls/tls.crt",
+                    "proxy_ssl_certificate_key": "/etc/tls/tls.key",
+                },
+            ),
         ]
     },
 }
