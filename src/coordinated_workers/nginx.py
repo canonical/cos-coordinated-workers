@@ -234,7 +234,7 @@ class NginxLocationConfig:
     """
     extra_directives: Dict[str, List[str]] = field(default_factory=lambda: cast(Dict[str, List[str]], {}))
     """Dictionary of arbitrary location configuration keys and values.
-    Example: {"proxy_ssl_verify": "off"}
+    Example: {"proxy_ssl_verify": ["off"]}
     """
 
 
@@ -629,7 +629,7 @@ class NginxConfig:
                             # add extra config directives if any
                             *(
                                 [
-                                    {"directive": key, "args": [*val]}
+                                    {"directive": key, "args": val}
                                     for key, val in location.extra_directives.items()
                                 ]
                                 if location.extra_directives
