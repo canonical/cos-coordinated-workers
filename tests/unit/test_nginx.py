@@ -387,20 +387,20 @@ server_ports_to_locations = {
                 backend="auth",
                 rewrite=["^/auth(/.*)$", "$1", "break"],
                 extra_directives={
-                    "proxy_ssl_verify": "off",
-                    "proxy_ssl_session_reuse": "on",
-                    "proxy_ssl_certificate": "/etc/tls/tls.crt",
-                    "proxy_ssl_certificate_key": "/etc/tls/tls.key",
+                    "proxy_ssl_verify": ["off"],
+                    "proxy_ssl_session_reuse": ["on"],
+                    "proxy_ssl_certificate": ["/etc/tls/tls.crt"],
+                    "proxy_ssl_certificate_key": ["/etc/tls/tls.key"],
                 },
             ),
             NginxLocationConfig(
                 path="/api",
                 backend="backend",
                 extra_directives={
-                    "proxy_ssl_verify": "off",
-                    "proxy_ssl_session_reuse": "on",
-                    "proxy_ssl_certificate": "/etc/tls/tls.crt",
-                    "proxy_ssl_certificate_key": "/etc/tls/tls.key",
+                    "proxy_ssl_verify": ["off"],
+                    "proxy_ssl_session_reuse": ["on"],
+                    "proxy_ssl_certificate": ["/etc/tls/tls.crt"],
+                    "proxy_ssl_certificate_key": ["/etc/tls/tls.key"],
                 },
             ),
         ]

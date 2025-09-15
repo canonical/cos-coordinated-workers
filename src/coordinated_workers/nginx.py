@@ -232,7 +232,7 @@ class NginxLocationConfig:
     """Custom rewrite, used i.e. to drop the subpath from the proxied request if needed.
     Example: ['^/auth(/.*)$', '$1', 'break'] to drop `/auth` from the request.
     """
-    extra_directives: Dict[str, str] = field(default_factory=lambda: cast(Dict[str, str], {}))
+    extra_directives: Dict[str, List[str]] = field(default_factory=lambda: cast(Dict[str, List[str]], {}))
     """Dictionary of arbitrary location configuration keys and values.
     Example: {"proxy_ssl_verify": "off"}
     """
@@ -626,10 +626,10 @@ class NginxConfig:
                                 if location.headers
                                 else []
                             ),
-                            # add extra config directives in any
+                            # add extra config directives if any
                             *(
                                 [
-                                    {"directive": key, "args": [val]}
+                                    {"directive": key, "args": [*val]}
                                     for key, val in location.extra_directives.items()
                                 ]
                                 if location.extra_directives
