@@ -260,6 +260,8 @@ class Coordinator(ops.Object):
             If `resources_requests` is not None and `container_name` is None, a ValueError is raised.
         """
         super().__init__(charm, key="coordinator")
+        logger.error("Hello, from Coordinator!")
+
         _validate_container_name(container_name, resources_requests)
 
         # static attributes
