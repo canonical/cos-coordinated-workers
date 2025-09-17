@@ -782,6 +782,10 @@ class Coordinator(ops.Object):
                 url = deserialized_endpoint["url"]
                 endpoints[unit.name] = url
 
+        logger.error("!!!TEMPDEBUG!!!")
+        logger.error(endpoints)
+        logger.error("!!!TEMPDEBUG!!!")
+
         return endpoints
 
     def _reconcile_cluster_relations(self):
