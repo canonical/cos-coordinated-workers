@@ -314,6 +314,27 @@ class NginxConfig:
         self._dns_IP_address = self._get_dns_ip_address()
         self._ipv6_enabled = is_ipv6_enabled()
 
+    def extend_upstream_configs(self, upstream_configs: List[NginxUpstream]):
+        """Add upstreams to existing configuration."""
+        self._upstream_configs.extend(upstream_configs)
+
+    def update_server_ports_to_locations(self,
+                                       server_ports_to_locations: Dict[int, List[NginxLocationConfig]],
+                                       overwrite: bool = True):
+        """Add locations to existing port configurations.
+
+        Args:
+            server_ports_to_locations: Dictionary mapping ports to location configs
+            overwrite: If True, replace existing locations for each port.
+                      If False, extend existing locations for each port.
+        """
+        for port, locations in server_ports_to_locations.items():
+            if overwrite or port not in self._server_ports_to_locations:
+                self._server_ports_to_locations[port] = locations.copy()
+            else:
+                # Extend existing locations for this port
+                self._server_ports_to_locations[port].extend(locations)
+
     def get_config(
         self,
         upstreams_to_addresses: Dict[str, Set[str]],
