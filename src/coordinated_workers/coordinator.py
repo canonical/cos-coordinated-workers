@@ -633,16 +633,20 @@ class Coordinator(ops.Object):
         scrape_jobs: List[Dict[str, Any]] = []
 
         for worker_topology in self.cluster.gather_topology():
+            # Direct access to worker metrics endpoints
+            targets = [f"{worker_topology['address']}:{self._worker_metrics_port}"]
+            metrics_path = "/metrics"
             if self._route_worker_metrics:
-                # Route worker metrics through nginx proxy
+                # when proxied through nginx
+                # adress: address of the coordinator
+                # path: location used in the nginx config for proxying worker metric
                 targets = [
-                    f"{self.hostname}:{self._worker_metrics_port}/workers/{worker_topology['unit'].replace('/', '-')}"
+                    f"{self.hostname}:{self._worker_metrics_port}"
                 ]
-            else:
-                # Direct access to worker metrics endpoints
-                targets = [f"{worker_topology['address']}:{self._worker_metrics_port}"]
+                metrics_path = f"/workers/{worker_topology['unit'].replace('/', '-')}"
 
             job = {
+                "metrics_path": metrics_path,
                 "static_configs": [
                     {
                         "targets": targets,
