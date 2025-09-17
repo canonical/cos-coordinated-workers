@@ -227,7 +227,7 @@ class Coordinator(ops.Object):
         remote_write_endpoints: Optional[Callable[[], List[RemoteWriteEndpoint]]] = None,
         workload_tracing_protocols: Optional[List[ReceiverProtocol]] = None,
         catalogue_item: Optional[CatalogueItem] = None,
-        route_worker_metrics: bool = False,
+        proxy_worker_metrics: bool = False,
     ):
         """Constructor for a Coordinator object.
 
@@ -257,7 +257,7 @@ class Coordinator(ops.Object):
             workload_tracing_protocols: A list of protocols that the worker intends to send
                 workload traces with.
             catalogue_item: A catalogue application entry to be sent to catalogue.
-            route_worker_metrics: If True, enables routing worker metrics through nginx proxy.
+            proxy_worker_metrics: If True, enables routing worker metrics through nginx proxy.
                 Adds nginx upstreams and locations for /workers/{unit} paths.
 
         Raises:
@@ -272,7 +272,6 @@ class Coordinator(ops.Object):
         self._external_url = external_url
         self._worker_metrics_port = worker_metrics_port
         self._endpoints = endpoints
-        self._nginx_config = nginx_config
         self._roles_config = roles_config
         self._container_name = container_name
         self._resources_limit_options = resources_limit_options or {}
@@ -291,7 +290,7 @@ class Coordinator(ops.Object):
         )
         self._remote_write_endpoints_getter = remote_write_endpoints
         self._workers_config_getter = partial(workers_config, self)
-        self._route_worker_metrics = route_worker_metrics
+        self._proxy_worker_metrics = proxy_worker_metrics
 
         ## Integrations
         self.cluster = ClusterProvider(
@@ -303,7 +302,7 @@ class Coordinator(ops.Object):
         )
 
         # Extend nginx config with worker metrics if enabled
-        if self._route_worker_metrics:
+        if self._proxy_worker_metrics:
             worker_topology = self.cluster.gather_topology()
             if worker_topology:
                 worker_upstreams, worker_locations = self._generate_worker_metrics_nginx_config(
@@ -312,13 +311,16 @@ class Coordinator(ops.Object):
                 nginx_config.extend_upstream_configs(worker_upstreams)
                 nginx_config.update_server_ports_to_locations(worker_locations, overwrite=False)
 
-        logging.error("TEMP DEBGGING")
-        logging.error(nginx_config._upstream_configs)
+        upstreams_to_addresses = self.cluster.gather_addresses_by_role()
+        if self._proxy_worker_metrics:
+            # Merge role-based and unit-based addresses collection for nginx config
+            # Every unit will get its own upstream for metric proxying
+            upstreams_to_addresses.update(self.cluster.gather_addresses_by_unit())
 
         self.nginx = Nginx(
             self._charm,
             config_getter=partial(
-                nginx_config.get_config, self.cluster.gather_addresses_by_role()
+                nginx_config.get_config, upstreams_to_addresses
             ),
             tls_config_getter=lambda: self.tls_config,
             options=nginx_options,
@@ -637,7 +639,7 @@ class Coordinator(ops.Object):
         scrape_jobs: List[Dict[str, Any]] = []
 
         for worker_topology in self.cluster.gather_topology():
-            if self._route_worker_metrics:
+            if self._proxy_worker_metrics:
                 # when proxied through nginx
                 # adress: address of the coordinator
                 # path: location used in the nginx config for proxying worker metric
@@ -897,17 +899,22 @@ class Coordinator(ops.Object):
         }
 
         for worker_ in worker_topology:
-            unit_name = worker_["unit"].replace("/", "-")
-            upstream_name = f"worker-metrics-{unit_name}"
+            unit_name = worker_["unit"]
+            unit_name_sanitized = unit_name.replace("/", "-")
+            upstream_name = f"worker-metrics-{unit_name_sanitized}"
 
             # Create upstream for this worker
             upstreams.append(
-                NginxUpstream(upstream_name, self._worker_metrics_port, upstream_name)
+                NginxUpstream(
+                    name=upstream_name,
+                    port=self._worker_metrics_port,
+                    address_lookup_key=unit_name
+                )
             )
 
             # Route /workers/{unit}/metrics to upstream/metrics
             location = NginxLocationConfig(
-                path=f"/workers/{unit_name}/metrics",
+                path=f"/workers/{unit_name_sanitized}/metrics",
                 backend=upstream_name,
                 backend_url="/metrics",
                 is_grpc=False,

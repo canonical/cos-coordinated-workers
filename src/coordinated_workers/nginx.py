@@ -251,13 +251,14 @@ class NginxUpstream:
 
     Our coordinators assume that all servers under an upstream share the same port.
     """
-    worker_role: str
-    """The worker role that corresponds to this upstream.
+    address_lookup_key: str
+    """The address lookup key that corresponds to this upstream.
 
-    This role will be used to look up workers (backend server) addresses for this upstream.
+    This key will be used to look up backend server addresses for this upstream.
+    Can be a worker role (e.g., 'compactor') or individual unit identifier (e.g., 'worker-metrics-unit-0').
     """
-    ignore_worker_role: bool = False
-    """If True, overrides `worker_role` and routes to all available backend servers.
+    ignore_address_lookup: bool = False
+    """If True, overrides `address_lookup_key` and routes to all available backend servers.
 
     Use this when the upstream should be generic and include any available backend.
     """
@@ -465,13 +466,13 @@ class NginxConfig:
         nginx_upstreams: List[Any] = []
 
         for upstream_config in self._upstream_configs:
-            if upstream_config.ignore_worker_role:
+            if upstream_config.ignore_address_lookup:
                 # include all available addresses
                 addresses: Optional[Set[str]] = set()
                 for address_set in upstreams_to_addresses.values():
                     addresses.update(address_set)
             else:
-                addresses = upstreams_to_addresses.get(upstream_config.worker_role)
+                addresses = upstreams_to_addresses.get(upstream_config.address_lookup_key)
 
             # don't add an upstream block if there are no addresses
             if addresses:
