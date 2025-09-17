@@ -232,7 +232,9 @@ class NginxLocationConfig:
     """Custom rewrite, used i.e. to drop the subpath from the proxied request if needed.
     Example: ['^/auth(/.*)$', '$1', 'break'] to drop `/auth` from the request.
     """
-    extra_directives: Dict[str, List[str]] = field(default_factory=lambda: cast(Dict[str, List[str]], {}))
+    extra_directives: Dict[str, List[str]] = field(
+        default_factory=lambda: cast(Dict[str, List[str]], {})
+    )
     """Dictionary of arbitrary location configuration keys and values.
     Example: {"proxy_ssl_verify": ["off"]}
     """
@@ -365,6 +367,11 @@ class NginxConfig:
                     {"directive": "fastcgi_temp_path", "args": ["/tmp/fastcgi_temp"]},
                     {"directive": "uwsgi_temp_path", "args": ["/tmp/uwsgi_temp"]},
                     {"directive": "scgi_temp_path", "args": ["/tmp/scgi_temp"]},
+                    # include mime types so nginx can map file extensions correctly.
+                    # Without this, files may fall back to "application/octet-stream",
+                    # and when Nginx serves static files, browsers may download them
+                    # instead of rendering (e.g., JS, CSS, SVG).
+                    {"directive": "include", "args": ["/etc/nginx/mime.types"]},
                     # logging
                     {"directive": "default_type", "args": ["application/octet-stream"]},
                     {
