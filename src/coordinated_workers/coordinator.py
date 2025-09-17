@@ -272,6 +272,7 @@ class Coordinator(ops.Object):
         self._external_url = external_url
         self._worker_metrics_port = worker_metrics_port
         self._endpoints = endpoints
+        self._nginx_config = nginx_config
         self._roles_config = roles_config
         self._container_name = container_name
         self._resources_limit_options = resources_limit_options or {}
@@ -310,6 +311,9 @@ class Coordinator(ops.Object):
                 )
                 nginx_config.extend_upstream_configs(worker_upstreams)
                 nginx_config.update_server_ports_to_locations(worker_locations, overwrite=False)
+
+        logging.error("TEMP DEBGGING")
+        logging.error(nginx_config._upstream_configs)
 
         self.nginx = Nginx(
             self._charm,
@@ -633,9 +637,6 @@ class Coordinator(ops.Object):
         scrape_jobs: List[Dict[str, Any]] = []
 
         for worker_topology in self.cluster.gather_topology():
-            # Direct access to worker metrics endpoints
-            targets = [f"{worker_topology['address']}:{self._worker_metrics_port}"]
-            metrics_path = "/metrics"
             if self._route_worker_metrics:
                 # when proxied through nginx
                 # adress: address of the coordinator
@@ -643,7 +644,11 @@ class Coordinator(ops.Object):
                 targets = [
                     f"{self.hostname}:{self._worker_metrics_port}"
                 ]
-                metrics_path = f"/workers/{worker_topology['unit'].replace('/', '-')}"
+                metrics_path = f"/workers/{worker_topology['unit'].replace('/', '-')}/metrics"
+            else:
+                # Direct access to worker metrics endpoints
+                targets = [f"{worker_topology['address']}:{self._worker_metrics_port}"]
+                metrics_path = "/metrics"
 
             job = {
                 "metrics_path": metrics_path,
