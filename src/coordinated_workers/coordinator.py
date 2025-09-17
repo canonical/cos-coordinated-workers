@@ -40,8 +40,10 @@ from coordinated_workers.interfaces.cluster import ClusterProvider, RemoteWriteE
 from coordinated_workers.nginx import (
     Nginx,
     NginxConfig,
+    NginxLocationConfig,
     NginxMappingOverrides,
     NginxPrometheusExporter,
+    NginxUpstream,
 )
 
 check_libs_installed(
@@ -225,6 +227,7 @@ class Coordinator(ops.Object):
         remote_write_endpoints: Optional[Callable[[], List[RemoteWriteEndpoint]]] = None,
         workload_tracing_protocols: Optional[List[ReceiverProtocol]] = None,
         catalogue_item: Optional[CatalogueItem] = None,
+        route_worker_metrics: bool = False,
     ):
         """Constructor for a Coordinator object.
 
@@ -254,6 +257,8 @@ class Coordinator(ops.Object):
             workload_tracing_protocols: A list of protocols that the worker intends to send
                 workload traces with.
             catalogue_item: A catalogue application entry to be sent to catalogue.
+            route_worker_metrics: If True, enables routing worker metrics through nginx proxy.
+                Adds nginx upstreams and locations for /workers/{unit} paths.
 
         Raises:
         ValueError:
@@ -285,6 +290,7 @@ class Coordinator(ops.Object):
         )
         self._remote_write_endpoints_getter = remote_write_endpoints
         self._workers_config_getter = partial(workers_config, self)
+        self._route_worker_metrics = route_worker_metrics
 
         ## Integrations
         self.cluster = ClusterProvider(
@@ -294,6 +300,14 @@ class Coordinator(ops.Object):
             endpoint=self._endpoints["cluster"],
             worker_ports=worker_ports,
         )
+
+        # Extend nginx config with worker metrics if enabled
+        if self._route_worker_metrics:
+            worker_topology = self.cluster.gather_topology()
+            if worker_topology:
+                worker_upstreams, worker_locations = self._generate_worker_metrics_nginx_config(worker_topology)
+                nginx_config.extend_upstream_configs(worker_upstreams)
+                nginx_config.update_server_ports_to_locations(worker_locations, overwrite=False)
 
         self.nginx = Nginx(
             self._charm,
@@ -617,10 +631,17 @@ class Coordinator(ops.Object):
         scrape_jobs: List[Dict[str, Any]] = []
 
         for worker_topology in self.cluster.gather_topology():
+            if self._route_worker_metrics:
+                # Route worker metrics through nginx proxy
+                targets = [f"{self.hostname}:{self._worker_metrics_port}/workers/{worker_topology['unit'].replace('/', '-')}"]
+            else:
+                # Direct access to worker metrics endpoints
+                targets = [f"{worker_topology['address']}:{self._worker_metrics_port}"]
+
             job = {
                 "static_configs": [
                     {
-                        "targets": [f"{worker_topology['address']}:{self._worker_metrics_port}"],
+                        "targets": targets,
                     }
                 ],
                 # setting these as "labels" in the static config gets some of them
@@ -854,6 +875,29 @@ class Coordinator(ops.Object):
             self._resources_requests_getter() if self._resources_requests_getter else None,
             adhere_to_requests=True,  # type: ignore
         )
+
+    def _generate_worker_metrics_nginx_config(self, worker_topology):
+        """Generate nginx upstreams and locations for worker metrics routing."""
+        upstreams = []
+        locations = {self._worker_metrics_port: []}
+
+        for worker in worker_topology:
+            unit_name = worker["unit"].replace("/", "-")
+            upstream_name = f"worker-metrics-{unit_name}"
+
+            # Create upstream for this worker
+            upstreams.append(NginxUpstream(upstream_name, self._worker_metrics_port, upstream_name))
+
+            # Route /workers/{unit}/metrics to upstream/metrics
+            location = NginxLocationConfig(
+                path=f"/workers/{unit_name}/metrics",
+                backend=upstream_name,
+                backend_url="/metrics",
+                is_grpc=False
+            )
+            locations[self._worker_metrics_port].append(location)
+
+        return upstreams, locations
 
     def _setup_charm_tracing(self):
         """Configure ops.tracing to send traces to a tracing backend."""
