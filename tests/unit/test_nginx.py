@@ -280,9 +280,7 @@ def test_generate_nginx_config_with_extra_location_directives():
             enable_status_page=False,
         )
         generated_config = nginx.get_config(addrs_by_role, False, root_path="/dist")
-        sample_config_path = (
-                Path(__file__).parent / "resources" / "sample_litmus_ssl_conf.txt"
-        )
+        sample_config_path = Path(__file__).parent / "resources" / "sample_litmus_ssl_conf.txt"
         assert sample_config_path.read_text() == generated_config
 
 
