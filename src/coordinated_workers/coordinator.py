@@ -305,7 +305,9 @@ class Coordinator(ops.Object):
         if self._route_worker_metrics:
             worker_topology = self.cluster.gather_topology()
             if worker_topology:
-                worker_upstreams, worker_locations = self._generate_worker_metrics_nginx_config(worker_topology)
+                worker_upstreams, worker_locations = self._generate_worker_metrics_nginx_config(
+                    worker_topology
+                )
                 nginx_config.extend_upstream_configs(worker_upstreams)
                 nginx_config.update_server_ports_to_locations(worker_locations, overwrite=False)
 
@@ -633,7 +635,9 @@ class Coordinator(ops.Object):
         for worker_topology in self.cluster.gather_topology():
             if self._route_worker_metrics:
                 # Route worker metrics through nginx proxy
-                targets = [f"{self.hostname}:{self._worker_metrics_port}/workers/{worker_topology['unit'].replace('/', '-')}"]
+                targets = [
+                    f"{self.hostname}:{self._worker_metrics_port}/workers/{worker_topology['unit'].replace('/', '-')}"
+                ]
             else:
                 # Direct access to worker metrics endpoints
                 targets = [f"{worker_topology['address']}:{self._worker_metrics_port}"]
@@ -879,21 +883,25 @@ class Coordinator(ops.Object):
     def _generate_worker_metrics_nginx_config(self, worker_topology):
         """Generate nginx upstreams and locations for worker metrics routing."""
         upstreams = []
-        locations = {self._worker_metrics_port: []}
+        locations = {
+            self._worker_metrics_port: []
+        }
 
-        for worker in worker_topology:
-            unit_name = worker["unit"].replace("/", "-")
+        for worker_ in worker_topology:
+            unit_name = worker_["unit"].replace("/", "-")
             upstream_name = f"worker-metrics-{unit_name}"
 
             # Create upstream for this worker
-            upstreams.append(NginxUpstream(upstream_name, self._worker_metrics_port, upstream_name))
+            upstreams.append(
+                NginxUpstream(upstream_name, self._worker_metrics_port, upstream_name)
+            )
 
             # Route /workers/{unit}/metrics to upstream/metrics
             location = NginxLocationConfig(
                 path=f"/workers/{unit_name}/metrics",
                 backend=upstream_name,
                 backend_url="/metrics",
-                is_grpc=False
+                is_grpc=False,
             )
             locations[self._worker_metrics_port].append(location)
 

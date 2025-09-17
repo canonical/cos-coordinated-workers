@@ -232,7 +232,9 @@ class NginxLocationConfig:
     """Custom rewrite, used i.e. to drop the subpath from the proxied request if needed.
     Example: ['^/auth(/.*)$', '$1', 'break'] to drop `/auth` from the request.
     """
-    extra_directives: Dict[str, List[str]] = field(default_factory=lambda: cast(Dict[str, List[str]], {}))
+    extra_directives: Dict[str, List[str]] = field(
+        default_factory=lambda: cast(Dict[str, List[str]], {})
+    )
     """Dictionary of arbitrary location configuration keys and values.
     Example: {"proxy_ssl_verify": ["off"]}
     """
@@ -318,9 +320,11 @@ class NginxConfig:
         """Add upstreams to existing configuration."""
         self._upstream_configs.extend(upstream_configs)
 
-    def update_server_ports_to_locations(self,
-                                       server_ports_to_locations: Dict[int, List[NginxLocationConfig]],
-                                       overwrite: bool = True):
+    def update_server_ports_to_locations(
+        self,
+        server_ports_to_locations: Dict[int, List[NginxLocationConfig]],
+        overwrite: bool = True,
+    ):
         """Add locations to existing port configurations.
 
         Args:
