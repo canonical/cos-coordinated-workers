@@ -94,7 +94,7 @@ CONSOLIDATED_LOGS_ALERT_RULES_PATH = Path("src/loki_alert_rules/consolidated_rul
 PROXY_WORKER_TELEMETRY_PATHS = {
     "worker_metrics": "/proxy/worker/{unit}/metrics",
     "loki_endpoint": "proxy/loki/{unit}/push",
-    "remote_Write_endpoint": "",
+    "remote_write_endpoint": "proxy/remote-write/{unit}/write",
 }
 
 
@@ -937,13 +937,25 @@ class Coordinator(ops.Object):
             self._nginx_config.extend_upstream_configs(telemetry_upstreams)
             self._nginx_config.update_server_ports_to_locations(telemetry_locations, overwrite=False)
 
+        self._update_upstreams_with_worker_telemetry_servers()
+
+    def _update_upstreams_with_worker_telemetry_servers(self) -> None:
+        """Update the upstreams in the nginx config to include the required servers/clinets that send/receive worker telemetry."""
         # Merge role-based and unit-based addresses collection for nginx config
         # Every unit will get its own upstream for metric proxying
         self._upstreams_to_addresses.update(self.cluster.gather_addresses_by_unit())
+
         # loki upstream to address mapper
         for loki_unit, address in self.loki_endpoints_by_unit.items():
             p = urlparse(address)
             self._upstreams_to_addresses[loki_unit] = {f"{p.scheme}://{p.hostname}"}
+
+        # remote write upstream to address mapper
+        if self._remote_write_endpoints_getter:
+            for endpoint in self._remote_write_endpoints_getter():
+                p = urlparse(endpoint["url"])
+                remote_write_unit = p.hostname.split(".")[0]  # type: ignore
+                self._upstreams_to_addresses[remote_write_unit] = {f"{p.scheme}://{p.hostname}"}
 
     def _generate_worker_telemetry_nginx_config(self, worker_topology: List[Dict[str, str]]) -> Tuple[List[NginxUpstream], Dict[int, List[NginxLocationConfig]]]:
         """Generate nginx upstreams and locations for proxying worker telemetry via nginx."""
@@ -952,15 +964,18 @@ class Coordinator(ops.Object):
             worker_topology,
         )
         upstreams_loki_endpoints, locations_loki_endpoints = self._generate_loki_endpoints_nginx_config()
+        upstreams_remote_write_endpoints, locations_remote_write_endpoints = self._generate_remote_write_endpoints_nginx_config()
 
         upstreams: List[NginxUpstream] = [
             *upstreams_worker_metrics,
             *upstreams_loki_endpoints,
+            *upstreams_remote_write_endpoints,
         ]
         locations: Dict[int, List[NginxLocationConfig]] = {
             self._proxy_worker_telemetry_port: [
                 *locations_worker_metrics,
                 *locations_loki_endpoints,
+                *locations_remote_write_endpoints
             ]
         }
 
@@ -976,7 +991,6 @@ class Coordinator(ops.Object):
             unit_name_sanitized = unit_name.replace("/", "-")
             upstream_name = f"worker-metrics-{unit_name_sanitized}"
 
-            # Create upstream for this worker
             upstreams.append(
                 NginxUpstream(
                     name=upstream_name,
@@ -985,7 +999,6 @@ class Coordinator(ops.Object):
                 )
             )
 
-            # Route /workers/{unit}/metrics to upstream/metrics
             locations.append(
                 NginxLocationConfig(
                     path=PROXY_WORKER_TELEMETRY_PATHS["worker_metrics"].format(unit=unit_name_sanitized),
@@ -998,16 +1011,14 @@ class Coordinator(ops.Object):
         return upstreams, locations
 
     def _generate_loki_endpoints_nginx_config(self) -> Tuple[List[NginxUpstream], List[NginxLocationConfig]]:
-        """Generate nginx upstreams and locations for loki enspoints routing."""
+        """Generate nginx upstreams and locations for loki endpoints routing."""
         upstreams: List[NginxUpstream] = []
         locations: List[NginxLocationConfig] = []
 
-        # logging proxy
         for unit_name, address in self.loki_endpoints_by_unit.items():
             unit_name_sanitized = unit_name.replace("/", "-")
             parsed_address = urlparse(address)
 
-            # Create upstream for this worker
             upstreams.append(
                 NginxUpstream(
                     name=unit_name_sanitized,
@@ -1016,10 +1027,42 @@ class Coordinator(ops.Object):
                 )
             )
 
-            # Route /workers/{unit}/metrics to upstream/metrics
             locations.append(
                 NginxLocationConfig(
                     path=PROXY_WORKER_TELEMETRY_PATHS["loki_endpoint"].format(unit=unit_name_sanitized),
+                    backend=unit_name_sanitized,
+                    backend_url=parsed_address.path,
+                    is_grpc=False,
+                )
+            )
+
+        return upstreams, locations
+
+    def _generate_remote_write_endpoints_nginx_config(self) -> Tuple[List[NginxUpstream], List[NginxLocationConfig]]:
+        """Generate nginx upstreams and locations for remote write endpoints routing."""
+        upstreams: List[NginxUpstream] = []
+        locations: List[NginxLocationConfig] = []
+
+        if not self._remote_write_endpoints_getter:
+            return upstreams, locations
+
+        remote_write_endpoints: List[RemoteWriteEndpoint] = self._remote_write_endpoints_getter()
+
+        for endpoints in remote_write_endpoints:
+            parsed_address = urlparse(endpoints["url"])
+            unit_name_sanitized = parsed_address.hostname.split(".")[0]  # type: ignore
+
+            upstreams.append(
+                NginxUpstream(
+                    name=unit_name_sanitized,
+                    port=parsed_address.port,  # type: ignore
+                    address_lookup_key=unit_name_sanitized
+                )
+            )
+
+            locations.append(
+                NginxLocationConfig(
+                    path=PROXY_WORKER_TELEMETRY_PATHS["remote_write_endpoint"].format(unit=unit_name_sanitized),
                     backend=unit_name_sanitized,
                     backend_url=parsed_address.path,
                     is_grpc=False,
