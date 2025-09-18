@@ -23,6 +23,7 @@ from typing import (
     Set,
     TypedDict,
     Tuple,
+    Union,
 )
 from urllib.parse import urlparse, urlunparse
 
@@ -809,11 +810,7 @@ class Coordinator(ops.Object):
             ),
             charm_tracing_receivers=self._charm_tracing_receivers_urls,
             workload_tracing_receivers=self._workload_tracing_receivers_urls,
-            remote_write_endpoints=(
-                self._remote_write_endpoints_getter()
-                if self._remote_write_endpoints_getter
-                else None
-            ),
+            remote_write_endpoints=self.remote_write_endpoints,
             s3_tls_ca_chain=self.s3_connection_info.ca_cert,
         )
 
@@ -922,7 +919,43 @@ class Coordinator(ops.Object):
         endpoints: Dict[str, str] = {}
 
         for unit in self.loki_endpoints_by_unit:
-            endpoints[unit] = f"{self.hostname}:{self._proxy_worker_telemetry_port}/{PROXY_WORKER_TELEMETRY_PATHS['loki_endpoint'].format(unit=unit.replace('/', '-'))}"
+            # NOTE: does TLS apply here?
+            scheme = "https" if self.tls_available else "http"
+            endpoints[unit] = f"{scheme}://{self.hostname}:{self._proxy_worker_telemetry_port}/{PROXY_WORKER_TELEMETRY_PATHS['loki_endpoint'].format(unit=unit.replace('/', '-'))}"
+
+        return endpoints
+
+    @property
+    def remote_write_endpoints(self):
+        """Returns the remote write endpoints based on if its available and if proxying telemetry is enabled."""
+        if not self._remote_write_endpoints_getter:
+            return None
+
+        endpoints = self._remote_write_endpoints_getter()
+        return self.proxy_remote_write_endpoints if self._proxy_worker_telemetry else endpoints
+
+    @property
+    def proxy_remote_write_endpoints(self) -> Union[List[RemoteWriteEndpoint], None]:
+        """Proxy remote write endpoints published to the by the cluster provider for metrics forwarding via the proxy.
+
+        Returns:
+            A list of RemoteWriteEndpoint.
+        """
+        endpoints:List[RemoteWriteEndpoint] = []
+
+        if not self._remote_write_endpoints_getter:
+            return None
+
+        for endpoint in self._remote_write_endpoints_getter():
+            p = urlparse(endpoint["url"])
+            unit = p.hostname.split(".")[0]  # type: ignore
+            # NOTE: does TLS apply here?
+            scheme = "https" if self.tls_available else "http"
+            proxy_url = f"{scheme}://{self.hostname}:{self._proxy_worker_telemetry_port}/{PROXY_WORKER_TELEMETRY_PATHS['remote_write_endpoint'].format(unit=unit)}"
+
+            endpoints.append(
+                RemoteWriteEndpoint(url=proxy_url)
+            )
 
         return endpoints
 
@@ -948,14 +981,14 @@ class Coordinator(ops.Object):
         # loki upstream to address mapper
         for loki_unit, address in self.loki_endpoints_by_unit.items():
             p = urlparse(address)
-            self._upstreams_to_addresses[loki_unit] = {f"{p.scheme}://{p.hostname}"}
+            self._upstreams_to_addresses[loki_unit] = {p.hostname}  # type: ignore
 
         # remote write upstream to address mapper
         if self._remote_write_endpoints_getter:
             for endpoint in self._remote_write_endpoints_getter():
                 p = urlparse(endpoint["url"])
                 remote_write_unit = p.hostname.split(".")[0]  # type: ignore
-                self._upstreams_to_addresses[remote_write_unit] = {f"{p.scheme}://{p.hostname}"}
+                self._upstreams_to_addresses[remote_write_unit] = {p.hostname}  # type: ignore
 
     def _generate_worker_telemetry_nginx_config(self, worker_topology: List[Dict[str, str]]) -> Tuple[List[NginxUpstream], Dict[int, List[NginxLocationConfig]]]:
         """Generate nginx upstreams and locations for proxying worker telemetry via nginx."""
@@ -975,7 +1008,7 @@ class Coordinator(ops.Object):
             self._proxy_worker_telemetry_port: [
                 *locations_worker_metrics,
                 *locations_loki_endpoints,
-                *locations_remote_write_endpoints
+                *locations_remote_write_endpoints,
             ]
         }
 
