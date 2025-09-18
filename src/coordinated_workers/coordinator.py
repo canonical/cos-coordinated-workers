@@ -93,7 +93,7 @@ CONSOLIDATED_LOGS_ALERT_RULES_PATH = Path("src/loki_alert_rules/consolidated_rul
 # Paths for proxied worker telementry urlparse
 PROXY_WORKER_TELEMETRY_PATHS = {
     "worker_metrics": "/proxy/worker/{unit}/metrics",
-    "loki_endpoint": "proxy/loki/{unit}/logs",
+    "loki_endpoint": "proxy/loki/{unit}/push",
     "remote_Write_endpoint": "",
 }
 
