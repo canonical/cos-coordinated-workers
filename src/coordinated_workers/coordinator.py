@@ -922,7 +922,7 @@ class Coordinator(ops.Object):
         endpoints: Dict[str, str] = {}
 
         for unit in self.loki_endpoints_by_unit:
-            endpoints[unit] = f"{self.hostname}:{self._proxy_worker_telemetry_port}/{PROXY_WORKER_TELEMETRY_PATHS['loki_endpoint'].format(unit.replace('/', '-'))}"
+            endpoints[unit] = f"{self.hostname}:{self._proxy_worker_telemetry_port}/{PROXY_WORKER_TELEMETRY_PATHS['loki_endpoint'].format(unit=unit.replace('/', '-'))}"
 
         return endpoints
 
