@@ -943,7 +943,7 @@ class Coordinator(ops.Object):
         # loki upstream to address mapper
         for loki_unit, address in self.loki_endpoints_by_unit.items():
             p = urlparse(address)
-            self._upstreams_to_addresses[loki_unit] = {urlunparse((p.scheme, p.netloc, '', '', '', ''))}
+            self._upstreams_to_addresses[loki_unit] = {f"{p.scheme}://{p.hostname}"}
 
     def _generate_worker_telemetry_nginx_config(self, worker_topology: List[Dict[str, str]]) -> Tuple[List[NginxUpstream], Dict[int, List[NginxLocationConfig]]]:
         """Generate nginx upstreams and locations for proxying worker telemetry via nginx."""
