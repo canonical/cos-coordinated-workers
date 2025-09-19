@@ -270,7 +270,7 @@ class Coordinator(ops.Object):
             workload_tracing_protocols: A list of protocols that the worker intends to send
                 workload traces with.
             catalogue_item: A catalogue application entry to be sent to catalogue.
-            proxy_worker_telemetry: If True, enables routing worker metrics,logs and traces through nginx proxy.
+            proxy_worker_telemetry: If True, enables routing worker metrics, logs and traces through nginx proxy.
             proxy_worker_telemetry_port: The HTTP port through which all worker telemetry traffic will be proxied when proxy_worker_telemetry is enabled.
 
         Raises:
@@ -318,20 +318,7 @@ class Coordinator(ops.Object):
             worker_ports=worker_ports,
         )
 
-        self._upstreams_to_addresses = self.cluster.gather_addresses_by_role()
-        if self._proxy_worker_telemetry:
-            self._setup_proxy_worker_telemetry()
-
-        self.nginx = Nginx(
-            self._charm,
-            config_getter=partial(
-                self._nginx_config.get_config, self._upstreams_to_addresses
-            ),
-            tls_config_getter=lambda: self.tls_config,
-            options=nginx_options,
-        )
-        self.nginx_exporter = NginxPrometheusExporter(self._charm, options=nginx_options)
-
+        
         self._certificates = TLSCertificatesRequiresV4(
             self._charm,
             relationship_name=self._endpoints["certificates"],
@@ -363,14 +350,6 @@ class Coordinator(ops.Object):
             relation_name=self._endpoints["logging"],
             alert_rules_path=str(CONSOLIDATED_LOGS_ALERT_RULES_PATH),
         )
-
-        self._scraping = MetricsEndpointProvider(
-            self._charm,
-            relation_name=self._endpoints["metrics"],
-            alert_rules_path=str(CONSOLIDATED_METRICS_ALERT_RULES_PATH),
-            jobs=self._scrape_jobs,
-            external_url=self._external_url,
-        )
         self.charm_tracing = TracingEndpointRequirer(
             self._charm,
             relation_name=self._endpoints["charm-tracing"],
@@ -380,6 +359,30 @@ class Coordinator(ops.Object):
             self._charm,
             relation_name=self._endpoints["workload-tracing"],
             protocols=workload_tracing_protocols,
+        )
+
+        # NOTE: setup nginx after tracing requirers as uses logging and tracing endpoints for config building
+        self._upstreams_to_addresses = self.cluster.gather_addresses_by_role()
+        if self._proxy_worker_telemetry:
+            self._setup_proxy_worker_telemetry()
+
+        self.nginx = Nginx(
+            self._charm,
+            config_getter=partial(
+                self._nginx_config.get_config, self._upstreams_to_addresses
+            ),
+            tls_config_getter=lambda: self.tls_config,
+            options=nginx_options,
+        )
+        self.nginx_exporter = NginxPrometheusExporter(self._charm, options=nginx_options)
+
+        # NOTE: setup metrics after nginx as scrape jobs include nginx scrape jobs as well
+        self._scraping = MetricsEndpointProvider(
+            self._charm,
+            relation_name=self._endpoints["metrics"],
+            alert_rules_path=str(CONSOLIDATED_METRICS_ALERT_RULES_PATH),
+            jobs=self._scrape_jobs,
+            external_url=self._external_url,
         )
 
         # Resources patch
@@ -1039,11 +1042,11 @@ class Coordinator(ops.Object):
                 self._upstreams_to_addresses[remote_write_unit] = {p.hostname}  # type: ignore
 
         # tracing upstream to address mapper
-        for protocol, address in self._charm_tracing_receivers_urls:
+        for protocol, address in self._charm_tracing_receivers_urls.items():
             p = urlparse(address)
             upstream_name = f"{PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX}-{protocol}"
             self._upstreams_to_addresses[upstream_name] = {p.hostname}  # type: ignore
-        for protocol, address in self._workload_tracing_receivers_urls:
+        for protocol, address in self._workload_tracing_receivers_urls.items():
             p = urlparse(address)
             upstream_name = f"{PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX}-{protocol}"
             self._upstreams_to_addresses[upstream_name] = {p.hostname}  # type: ignore
