@@ -97,7 +97,7 @@ PROXY_WORKER_TELEMETRY_PATHS = {
     "loki_endpoint": "proxy/loki/{unit}/push",
     "remote_write_endpoint": "proxy/remote-write/{unit}/write",
     "charm_tracing_receivers_urls": "/proxy/charm-tracing/{protocol}",
-    "workload_tracing_receivers_urls": "/proxy/worload-tracing/{protocol}",
+    "workload_tracing_receivers_urls": "/proxy/workload-tracing/{protocol}",
 }
 PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX = "worker-telemetry-proxy"
 
@@ -1044,10 +1044,14 @@ class Coordinator(ops.Object):
         # tracing upstream to address mapper
         for protocol, address in self._charm_tracing_receivers_urls.items():
             p = urlparse(address)
+            if p.hostname == self.hostname:  # we are tracing ourselves. ignore
+                continue
             upstream_name = f"{PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX}-{protocol}"
             self._upstreams_to_addresses[upstream_name] = {p.hostname}  # type: ignore
         for protocol, address in self._workload_tracing_receivers_urls.items():
             p = urlparse(address)
+            if p.hostname == self.hostname:  # we are tracing ourselves. ignore
+                continue
             upstream_name = f"{PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX}-{protocol}"
             self._upstreams_to_addresses[upstream_name] = {p.hostname}  # type: ignore
 
@@ -1177,49 +1181,48 @@ class Coordinator(ops.Object):
         """Generate nginx upstreams and locations for routing charm and workload tracing."""
         upstreams: List[NginxUpstream] = []
         locations: List[NginxLocationConfig] = []
+        created_upstreams: Set[str] = set()
 
-        for protocol, address in self._charm_tracing_receivers_urls.items():
-            parsed_address = urlparse(address)
+        # Merge both dictionaries to avoid duplicates
+        all_tracing_urls = {**self._charm_tracing_receivers_urls, **self._workload_tracing_receivers_urls}
+
+        for protocol, address in all_tracing_urls.items():
+            parsed_address = urlparse(address)  # we are tracing ourselves. ignore
+            if parsed_address.hostname == self.hostname:
+                continue
             upstream_name = f"{PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX}-{protocol}"
 
-            upstreams.append(
-                NginxUpstream(
-                    name=upstream_name,
-                    port=parsed_address.port,  # type: ignore
-                    address_lookup_key=upstream_name,
+            # Create only unique upstreams
+            if upstream_name not in created_upstreams:
+                upstreams.append(
+                    NginxUpstream(
+                        name=upstream_name,
+                        port=parsed_address.port,  # type: ignore
+                        address_lookup_key=upstream_name,
+                    )
                 )
-            )
+                created_upstreams.add(upstream_name)
 
-            locations.append(
-                NginxLocationConfig(
-                    path=PROXY_WORKER_TELEMETRY_PATHS["charm_tracing_receivers_urls"].format(protocol=protocol),
-                    backend=upstream_name,
-                    backend_url=parsed_address.path,
-                    upstream_tls=parsed_address.scheme.endswith('s'),
-                    is_grpc=False,
+            if protocol in self._charm_tracing_receivers_urls:
+                locations.append(
+                    NginxLocationConfig(
+                        path=PROXY_WORKER_TELEMETRY_PATHS["charm_tracing_receivers_urls"].format(protocol=protocol),
+                        backend=upstream_name,
+                        backend_url=parsed_address.path,
+                        upstream_tls=parsed_address.scheme.endswith('s'),
+                        is_grpc=False,
+                    )
                 )
-            )
 
-        for protocol, address in self._workload_tracing_receivers_urls.items():
-            parsed_address = urlparse(address)
-            upstream_name = f"{PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX}-{protocol}"
-
-            upstreams.append(
-                NginxUpstream(
-                    name=upstream_name,
-                    port=parsed_address.port,  # type: ignore
-                    address_lookup_key=upstream_name,
+            if protocol in self._workload_tracing_receivers_urls:
+                locations.append(
+                    NginxLocationConfig(
+                        path=PROXY_WORKER_TELEMETRY_PATHS["workload_tracing_receivers_urls"].format(protocol=protocol),
+                        backend=upstream_name,
+                        backend_url=parsed_address.path,
+                        upstream_tls=parsed_address.scheme.endswith('s'),
+                        is_grpc=False,  # FIXME: GRPC must be allowed. See issue.
+                    )
                 )
-            )
-
-            locations.append(
-                NginxLocationConfig(
-                    path=PROXY_WORKER_TELEMETRY_PATHS["workload_tracing_receivers_urls"].format(protocol=protocol),
-                    backend=upstream_name,
-                    backend_url=parsed_address.path,
-                    upstream_tls=parsed_address.scheme.endswith('s'),
-                    is_grpc=False,  # FIXME: GRPC must be allowed. See issue.
-                )
-            )
 
         return upstreams, locations
