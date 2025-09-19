@@ -521,6 +521,13 @@ class Coordinator(ops.Object):
         """Unit's hostname."""
         return socket.getfqdn()
 
+    # private internal property as the charms seem to use the static method for reasons unknown to man.
+    @property
+    def _app_hostname(self) -> str:
+        """Application-level FQDN."""
+        return self.app_hostname(self.hostname, self._charm.app.name, self._charm.model.name)
+
+    # why is this a horrible staticmethod while it could a beautiful property???
     @staticmethod
     def app_hostname(hostname: str, app_name: str, model_name: str) -> str:
         """The FQDN of the k8s service associated with this application.
@@ -715,7 +722,7 @@ class Coordinator(ops.Object):
             sans_dns=frozenset(
                 (
                     self.hostname,
-                    self.app_hostname(self.hostname, self._charm.app.name, self._charm.model.name),
+                    self._app_hostname,
                     *self.cluster.gather_addresses(),
                 )
             ),
@@ -966,7 +973,8 @@ class Coordinator(ops.Object):
         urls: Dict[str, str] = {}
 
         for protocol, address in self._charm_tracing_receivers_urls.items():
-            if urlparse(address).hostname == self.hostname:  # we are tracing ourselves. no need to proxy
+            parsed_hostname = urlparse(address).hostname
+            if parsed_hostname == self.hostname or parsed_hostname == self._app_hostname:  # we are tracing ourselves. no need to proxy
                 urls.update({protocol: address})
                 continue
             scheme = "https" if self.tls_available else "http"
@@ -981,7 +989,8 @@ class Coordinator(ops.Object):
         urls: Dict[str, str] = {}
 
         for protocol, address in self._workload_tracing_receivers_urls.items():
-            if urlparse(address).hostname == self.hostname:  # we are tracing ourselves. no need to proxy
+            parsed_hostname = urlparse(address).hostname
+            if parsed_hostname == self.hostname or parsed_hostname == self._app_hostname:  # we are tracing ourselves. no need to proxy
                 urls.update({protocol: address})
                 continue
             scheme = "https" if self.tls_available else "http"
@@ -1050,14 +1059,14 @@ class Coordinator(ops.Object):
         # charm tracing upstream to address mapper
         for protocol, address in self._charm_tracing_receivers_urls.items():
             p = urlparse(address)
-            if p.hostname == self.hostname:  # we are tracing ourselves. ignore
+            if p.hostname == self.hostname or p.hostname == self._app_hostname:  # we are tracing ourselves. ignore
                 continue
             upstream_name = f"{PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX}-charm-{protocol}"
             self._upstreams_to_addresses[upstream_name] = {p.hostname}  # type: ignore
         # workload tracing upstream to address mapper
         for protocol, address in self._workload_tracing_receivers_urls.items():
             p = urlparse(address)
-            if p.hostname == self.hostname:  # we are tracing ourselves. ignore
+            if p.hostname == self.hostname or p.hostname == self._app_hostname:  # we are tracing ourselves. ignore
                 continue
             upstream_name = f"{PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX}-workload-{protocol}"
             self._upstreams_to_addresses[upstream_name] = {p.hostname}  # type: ignore
@@ -1193,7 +1202,7 @@ class Coordinator(ops.Object):
         # Handle charm tracing receivers
         for protocol, address in self._charm_tracing_receivers_urls.items():
             parsed_address = urlparse(address)
-            if parsed_address.hostname == self.hostname:  # we are tracing ourselves. ignore
+            if parsed_address.hostname == self.hostname or parsed_address.hostname == self._app_hostname:  # we are tracing ourselves. ignore
                 continue
             upstream_name = f"{PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX}-charm-{protocol}"
             # Create upstream if we haven't already
@@ -1220,7 +1229,7 @@ class Coordinator(ops.Object):
         # Handle workload tracing receivers separately
         for protocol, address in self._workload_tracing_receivers_urls.items():
             parsed_address = urlparse(address)
-            if parsed_address.hostname == self.hostname:  # we are tracing ourselves. ignore
+            if parsed_address.hostname == self.hostname or parsed_address.hostname == self._app_hostname:  # we are tracing ourselves. ignore
                 continue
             upstream_name = f"{PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX}-workload-{protocol}"
             # Create upstream if we haven't already
