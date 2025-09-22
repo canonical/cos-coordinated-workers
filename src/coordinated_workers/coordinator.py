@@ -96,8 +96,8 @@ PROXY_WORKER_TELEMETRY_PATHS = {
     "worker_metrics": "/proxy/worker/{unit}/metrics",
     "loki_endpoint": "/proxy/loki/{unit}/push",
     "remote_write_endpoint": "/proxy/remote-write/{unit}/write",
-    "charm_tracing_receivers_urls": "/proxy/charm-tracing/{protocol}",
-    "workload_tracing_receivers_urls": "/proxy/workload-tracing/{protocol}",
+    "charm_tracing_receivers_urls": "/proxy/charm-tracing/{protocol}/",
+    "workload_tracing_receivers_urls": "/proxy/workload-tracing/{protocol}/",
 }
 PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX = "worker-telemetry-proxy"
 
@@ -1003,14 +1003,16 @@ class Coordinator(ops.Object):
                 urls.update({protocol: address})
                 continue
             scheme = "https" if self.tls_available else "http"
+            protocol = protocol.replace("_", "-")
             proxy_url = f"{scheme}://{self.hostname}:{self._proxy_worker_telemetry_port}{PROXY_WORKER_TELEMETRY_PATHS['workload_tracing_receivers_urls'].format(protocol=protocol)}"
             urls.update({protocol: proxy_url})
 
         return urls
 
     def _validate_proxy_worker_telemetry_setup(
-        self, workload_tracing_protocols: Union[List[ReceiverProtocol], None]
-    ) -> None:  # type: ignore
+        self,
+        workload_tracing_protocols: Union[List[ReceiverProtocol], None],  # type: ignore
+    ) -> None:
         """Check if a valid proxy setup for worker telemetry is possible."""
         # return true if proxying for worker telemetry is not enabled
         if not self._proxy_worker_telemetry:
@@ -1275,6 +1277,11 @@ class Coordinator(ops.Object):
                         path=path_template.format(protocol=protocol),
                         backend=upstream_name,
                         backend_url=parsed_address.path,
+                        rewrite=[
+                            f"^{path_template.format(protocol=protocol)}(.*)",
+                            "/$1",
+                            "break",
+                        ],  # strip the custom prefix before redirecting
                         upstream_tls=parsed_address.scheme.endswith("s"),
                         is_grpc=False,  # FIXME: GRPC must be allowed. See issue.
                     )
