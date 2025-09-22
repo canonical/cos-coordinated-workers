@@ -204,7 +204,7 @@ class NginxLocationConfig:
 
     For example, NginxLocationConfig('/', 'foo', backend_url="/api/v1" headers={'a': 'b'}, modifier=EXACT, is_grpc=True, use_tls=True)
     would result in:
-        location = / {
+        location / {
             set $backend grpcs://foo/api/v1;
             grpc_pass $backend;
             proxy_connect_timeout 5s;
@@ -213,7 +213,7 @@ class NginxLocationConfig:
 
     To support serving static files `backend` should be omitted. For example, NginxLocationConfig('/', extra_directives={"try_files": ["$uri", "/index.html"], "autoindex": ["on"],})
     would result in:
-        location = / {
+        location / {
             try_files $uri /index.html;
             autoindex on;
         }
