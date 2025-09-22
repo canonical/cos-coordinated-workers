@@ -373,6 +373,14 @@ server_ports_to_locations = {
     "litmus": {
         8185: [
             NginxLocationConfig(
+                path="/",
+                extra_directives={
+                    "add_header": ["Cache-Control", "no-cache"],
+                    "try_files": ["$uri", "/index.html"],
+                    "autoindex": ["on"],
+                },
+            ),
+            NginxLocationConfig(
                 path="/auth", backend="auth", rewrite=["^/auth(/.*)$", "$1", "break"]
             ),
             NginxLocationConfig(path="/api", backend="backend"),
@@ -380,6 +388,14 @@ server_ports_to_locations = {
     },
     "litmus_ssl": {
         8185: [
+            NginxLocationConfig(
+                path="/",
+                extra_directives={
+                    "add_header": ["Cache-Control", "no-cache"],
+                    "try_files": ["$uri", "/index.html"],
+                    "autoindex": ["on"],
+                },
+            ),
             NginxLocationConfig(
                 path="/auth",
                 backend="auth",

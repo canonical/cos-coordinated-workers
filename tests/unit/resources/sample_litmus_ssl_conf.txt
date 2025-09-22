@@ -41,11 +41,16 @@ http {
         root /dist;
         proxy_set_header X-Scope-OrgID $ensured_x_scope_orgid;
         server_name localhost;
+        location / {
+            add_header Cache-Control no-cache;
+            try_files $uri /index.html;
+            autoindex on;
+        }
         location /auth {
             set $backend http://auth;
-            rewrite '^/auth(/.*)$' $1 break;
             proxy_pass $backend;
             proxy_connect_timeout 5s;
+            rewrite '^/auth(/.*)$' $1 break;
             proxy_ssl_verify off;
             proxy_ssl_session_reuse on;
             proxy_ssl_certificate /etc/tls/tls.crt;
