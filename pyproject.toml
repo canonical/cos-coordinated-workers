@@ -33,7 +33,7 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Typing :: Typed",
 ]
-[project.dependencies-groups]
+[dependency-groups]
 dev = [
     # UNIT TESTS
     "pytest",
