@@ -658,7 +658,7 @@ class NginxConfig:
         return nginx_locations
 
     @staticmethod
-    def _extra_directives_block(extra_directives: dict[str, list[str]]):
+    def _extra_directives_block(extra_directives: Optional[Dict[str, List[str]]]) -> List[Optional[Dict[str, Any]]]:
         if extra_directives:
             return [
                 {"directive": key, "args": val}
@@ -667,7 +667,7 @@ class NginxConfig:
         return []
 
     @staticmethod
-    def _headers_block(headers: dict[str, str]):
+    def _headers_block(headers: Optional[Dict[str, str]]) -> List[Optional[Dict[str, Any]]]:
         if headers:
             return [
                 {"directive": "proxy_set_header", "args": [key, val]}
@@ -676,7 +676,7 @@ class NginxConfig:
         return []
 
     @staticmethod
-    def _rewrite_block(rewrite: list[str]):
+    def _rewrite_block(rewrite: Optional[List[str]]) -> List[Optional[Dict[str, Any]]]:
         if rewrite:
             return [{"directive": "rewrite", "args": rewrite}]
         return []
