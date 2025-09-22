@@ -2,7 +2,7 @@ import logging
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Tuple
+from typing import Dict, List, Tuple
 from unittest.mock import patch
 
 import ops
@@ -284,6 +284,26 @@ def test_generate_nginx_config_with_extra_location_directives():
         assert sample_config_path.read_text() == generated_config
 
 
+def test_location_skipped_if_no_matching_upstream():
+    upstream_configs, server_ports_to_locations = ([], _get_server_ports_to_locations("litmus_ssl"))
+
+    addrs_by_role = {
+        role: {"worker-address"}
+        for role in (upstream.worker_role for upstream in upstream_configs)
+    }
+    with mock_resolv_conf(f"foo bar\nnameserver {sample_dns_ip}"):
+        nginx = NginxConfig(
+            "localhost",
+            upstream_configs=upstream_configs,
+            server_ports_to_locations=server_ports_to_locations,
+            enable_health_check=False,
+            enable_status_page=False,
+        )
+        generated_config = nginx.get_config(addrs_by_role, False, root_path="/dist")
+        sample_config_path = Path(__file__).parent / "resources" / "sample_litmus_missing_upstreams_conf.txt"
+        assert sample_config_path.read_text() == generated_config
+
+
 upstream_configs = {
     "tempo": [
         NginxUpstream("zipkin", 9411, "distributor"),
@@ -373,6 +393,14 @@ server_ports_to_locations = {
     "litmus": {
         8185: [
             NginxLocationConfig(
+                path="/",
+                extra_directives={
+                    "add_header": ["Cache-Control", "no-cache"],
+                    "try_files": ["$uri", "/index.html"],
+                    "autoindex": ["on"],
+                },
+            ),
+            NginxLocationConfig(
                 path="/auth", backend="auth", rewrite=["^/auth(/.*)$", "$1", "break"]
             ),
             NginxLocationConfig(path="/api", backend="backend"),
@@ -380,6 +408,14 @@ server_ports_to_locations = {
     },
     "litmus_ssl": {
         8185: [
+            NginxLocationConfig(
+                path="/",
+                extra_directives={
+                    "add_header": ["Cache-Control", "no-cache"],
+                    "try_files": ["$uri", "/index.html"],
+                    "autoindex": ["on"],
+                },
+            ),
             NginxLocationConfig(
                 path="/auth",
                 backend="auth",
@@ -407,4 +443,8 @@ server_ports_to_locations = {
 
 
 def _get_nginx_config_params(workload: str) -> Tuple[list, dict]:
-    return upstream_configs[workload], server_ports_to_locations[workload]
+    return upstream_configs[workload], _get_server_ports_to_locations(workload)
+
+
+def _get_server_ports_to_locations(workload: str) -> Dict[int, List[NginxLocationConfig]]:
+    return server_ports_to_locations[workload]

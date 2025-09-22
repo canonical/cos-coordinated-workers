@@ -210,11 +210,18 @@ class NginxLocationConfig:
             proxy_connect_timeout 5s;
             proxy_set_header a b;
         }
+
+    To support serving static files `backend` should be omitted. For example, NginxLocationConfig('/', extra_directives={"try_files": ["$uri", "/index.html"], "autoindex": ["on"],})
+    would result in:
+        location / {
+            try_files $uri /index.html;
+            autoindex on;
+        }
     """
 
     path: str
     """The location path (e.g., '/', '/api') to match incoming requests."""
-    backend: str
+    backend: Optional[str] = None
     """The name of the upstream service to route requests to (e.g., defined in an `upstream` block)."""
     backend_url: str = ""
     """An optional URL path to append when forwarding to the upstream (e.g., '/v1')."""
@@ -588,6 +595,26 @@ class NginxConfig:
             )
 
         for location in locations:
+            # Handle locations without backend, i.e. serving static files
+            if not location.backend:
+                nginx_locations.append(
+                    {
+                        "directive": "location",
+                        "args": (
+                            [location.path]
+                            if location.modifier == ""
+                            else [location.modifier, location.path]
+                        ),
+                        "block": [
+                            *self._rewrite_block(location.rewrite),
+                            # add headers if any
+                            *self._headers_block(location.headers),
+                            # add extra config directives if any
+                            *self._extra_directives_block(location.extra_directives),
+                        ],
+                    }
+                )
+            # Handle locations with corresponding backends
             # don't add a location block if the upstream backend doesn't exist in the config
             if location.backend in backends:
                 # if upstream_tls is explicitly set for this location, use that; otherwise, use the server's listen_tls setting.
@@ -610,11 +637,7 @@ class NginxConfig:
                                     f"{protocol}://{location.backend}{location.backend_url}",
                                 ],
                             },
-                            *(
-                                [{"directive": "rewrite", "args": location.rewrite}]
-                                if location.rewrite
-                                else []
-                            ),
+                            *self._rewrite_block(location.rewrite),
                             {
                                 "directive": "grpc_pass" if grpc else "proxy_pass",
                                 "args": ["$backend"],
@@ -625,28 +648,38 @@ class NginxConfig:
                                 "args": [self._proxy_connect_timeout],
                             },
                             # add headers if any
-                            *(
-                                [
-                                    {"directive": "proxy_set_header", "args": [key, val]}
-                                    for key, val in location.headers.items()
-                                ]
-                                if location.headers
-                                else []
-                            ),
+                            *self._headers_block(location.headers),
                             # add extra config directives if any
-                            *(
-                                [
-                                    {"directive": key, "args": val}
-                                    for key, val in location.extra_directives.items()
-                                ]
-                                if location.extra_directives
-                                else []
-                            ),
+                            *self._extra_directives_block(location.extra_directives),
                         ],
                     }
                 )
 
         return nginx_locations
+
+    @staticmethod
+    def _extra_directives_block(extra_directives: Optional[Dict[str, List[str]]]) -> List[Optional[Dict[str, Any]]]:
+        if extra_directives:
+            return [
+                {"directive": key, "args": val}
+                for key, val in extra_directives.items()
+            ]
+        return []
+
+    @staticmethod
+    def _headers_block(headers: Optional[Dict[str, str]]) -> List[Optional[Dict[str, Any]]]:
+        if headers:
+            return [
+                {"directive": "proxy_set_header", "args": [key, val]}
+                for key, val in headers.items()
+            ]
+        return []
+
+    @staticmethod
+    def _rewrite_block(rewrite: Optional[List[str]]) -> List[Optional[Dict[str, Any]]]:
+        if rewrite:
+            return [{"directive": "rewrite", "args": rewrite}]
+        return []
 
     def _root_path(self, root_path: Optional[str] = None) -> List[Optional[Dict[str, Any]]]:
         if root_path:

@@ -41,6 +41,11 @@ http {
         root /dist;
         proxy_set_header X-Scope-OrgID $ensured_x_scope_orgid;
         server_name localhost;
+        location / {
+            add_header Cache-Control no-cache;
+            try_files $uri /index.html;
+            autoindex on;
+        }
         location /auth {
             set $backend http://auth;
             rewrite '^/auth(/.*)$' $1 break;
