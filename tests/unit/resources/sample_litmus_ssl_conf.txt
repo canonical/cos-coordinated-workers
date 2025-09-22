@@ -48,9 +48,9 @@ http {
         }
         location /auth {
             set $backend http://auth;
+            rewrite '^/auth(/.*)$' $1 break;
             proxy_pass $backend;
             proxy_connect_timeout 5s;
-            rewrite '^/auth(/.*)$' $1 break;
             proxy_ssl_verify off;
             proxy_ssl_session_reuse on;
             proxy_ssl_certificate /etc/tls/tls.crt;

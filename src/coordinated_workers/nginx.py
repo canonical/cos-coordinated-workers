@@ -595,69 +595,91 @@ class NginxConfig:
             )
 
         for location in locations:
-            # if upstream_tls is explicitly set for this location, use that; otherwise, use the server's listen_tls setting.
-            tls = location.upstream_tls if location.upstream_tls is not None else listen_tls
-            s = "s" if tls else ""
-            protocol = f"grpc{s}" if grpc else f"http{s}"
-            nginx_locations.append(
-                {
-                    "directive": "location",
-                    "args": (
-                        [location.path]
-                        if location.modifier == ""
-                        else [location.modifier, location.path]
-                    ),
-                    "block": [
-                        *(
-                            [
-                                {
-                                    "directive": "set",
-                                    "args": [
-                                        "$backend",
-                                        f"{protocol}://{location.backend}{location.backend_url}",
-                                    ],
-                                },
-                                {
-                                    "directive": "grpc_pass" if grpc else "proxy_pass",
-                                    "args": ["$backend"],
-                                },
-                                # if a server is down, no need to wait for a long time to pass on the request to the next available server
-                                {
-                                    "directive": "proxy_connect_timeout",
-                                    "args": [self._proxy_connect_timeout],
-                                },
-                            ]
-                            if location.backend and location.backend in backends
-                            else []
+            # Handle locations without backend, i.e. serving static files
+            if not location.backend:
+                nginx_locations.append(
+                    {
+                        "directive": "location",
+                        "args": (
+                            [location.path]
+                            if location.modifier == ""
+                            else [location.modifier, location.path]
                         ),
-                        *(
-                            [{"directive": "rewrite", "args": location.rewrite}]
-                            if location.rewrite
-                            else []
+                        "block": [
+                            *self._rewrite_block(location.rewrite),
+                            # add headers if any
+                            *self._headers_block(location.headers),
+                            # add extra config directives if any
+                            *self._extra_directives_block(location.extra_directives),
+                        ],
+                    }
+                )
+            # Handle locations with corresponding backends
+            # don't add a location block if the upstream backend doesn't exist in the config
+            if location.backend in backends:
+                # if upstream_tls is explicitly set for this location, use that; otherwise, use the server's listen_tls setting.
+                tls = location.upstream_tls if location.upstream_tls is not None else listen_tls
+                s = "s" if tls else ""
+                protocol = f"grpc{s}" if grpc else f"http{s}"
+                nginx_locations.append(
+                    {
+                        "directive": "location",
+                        "args": (
+                            [location.path]
+                            if location.modifier == ""
+                            else [location.modifier, location.path]
                         ),
-                        # add headers if any
-                        *(
-                            [
-                                {"directive": "proxy_set_header", "args": [key, val]}
-                                for key, val in location.headers.items()
-                            ]
-                            if location.headers
-                            else []
-                        ),
-                        # add extra config directives if any
-                        *(
-                            [
-                                {"directive": key, "args": val}
-                                for key, val in location.extra_directives.items()
-                            ]
-                            if location.extra_directives
-                            else []
-                        ),
-                    ],
-                }
-            )
+                        "block": [
+                            {
+                                "directive": "set",
+                                "args": [
+                                    "$backend",
+                                    f"{protocol}://{location.backend}{location.backend_url}",
+                                ],
+                            },
+                            *self._rewrite_block(location.rewrite),
+                            {
+                                "directive": "grpc_pass" if grpc else "proxy_pass",
+                                "args": ["$backend"],
+                            },
+                            # if a server is down, no need to wait for a long time to pass on the request to the next available server
+                            {
+                                "directive": "proxy_connect_timeout",
+                                "args": [self._proxy_connect_timeout],
+                            },
+                            # add headers if any
+                            *self._headers_block(location.headers),
+                            # add extra config directives if any
+                            *self._extra_directives_block(location.extra_directives),
+                        ],
+                    }
+                )
 
         return nginx_locations
+
+    @staticmethod
+    def _extra_directives_block(extra_directives: dict[str, list[str]]):
+        if extra_directives:
+            return [
+                {"directive": key, "args": val}
+                for key, val in extra_directives.items()
+            ]
+        return []
+
+    @staticmethod
+    def _headers_block(headers: dict[str, str]):
+        if headers:
+            return [
+                {"directive": "proxy_set_header", "args": [key, val]}
+                for key, val in headers.items()
+            ]
+        return []
+
+    @staticmethod
+    def _rewrite_block(rewrite: list[str]):
+        if rewrite:
+            return [{"directive": "rewrite", "args": rewrite}]
+        return []
 
     def _root_path(self, root_path: Optional[str] = None) -> List[Optional[Dict[str, Any]]]:
         if root_path:
