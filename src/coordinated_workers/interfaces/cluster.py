@@ -12,6 +12,7 @@ it does not live in a charm lib as most other relation endpoint wrappers do.
 import collections
 import json
 import logging
+import traceback
 from typing import (
     Any,
     Callable,
@@ -287,7 +288,7 @@ class ClusterProvider(Object):
             try:
                 worker_app_data = ClusterRequirerAppData.load(relation.data[relation.app])
             except cosl.interfaces.utils.DataValidationError as e:
-                log.info(f"invalid databag contents: {e}")
+                log.info(f"invalid databag contents for ClusterRequirerAppData: {e}")
                 continue
 
             for worker_unit in relation.units:
@@ -297,7 +298,7 @@ class ClusterProvider(Object):
                     for role in self._expand_roles(worker_app_data.role):
                         data[role].add(unit_address)
                 except cosl.interfaces.utils.DataValidationError as e:
-                    log.info(f"invalid databag contents: {e}")
+                    log.info(f"invalid databag contents for ClusterRequirerUnitData: {e}")
                     continue
         return data
 
@@ -498,6 +499,9 @@ class ClusterRequirer(Object):
                 data = coordinator_databag
             except cosl.interfaces.utils.DataValidationError as e:
                 log.info(f"invalid databag contents: {e}")
+                # Provide extra context that is included in `e` because it was raised from another exception
+                log.info(traceback.format_exc())
+
                 return None  # explicit is better than implicit
 
         return data

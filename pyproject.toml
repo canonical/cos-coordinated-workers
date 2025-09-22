@@ -13,6 +13,8 @@ readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.8"
 dependencies = [
+#    NOTE: always replicate any changes in dependencies to Coordinator and Worker tester charms
+#          as they should always match this
     "crossplane",
     "ops[tracing]",
     "pydantic",
@@ -31,7 +33,7 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Typing :: Typed",
 ]
-[project.optional-dependencies]
+[project.dependencies-groups]
 dev = [
     # UNIT TESTS
     "pytest",
@@ -41,6 +43,9 @@ dev = [
     # LINTING
     "pyright",
     "ruff",
+    # INTEGRATION TESTS
+    "jubilant",
+    "pytest-jubilant",
 ]
 [project.urls]
 "Homepage" = "https://github.com/canonical/cos-coordinated-workers"
@@ -105,7 +110,11 @@ reportIncompatibleMethodOverride = false
 reportImportCycles = false
 reportTypeCommentUsage = false
 
-
 [tool.hatch.metadata]
 # allow git+ dependencies in pyproject
 allow-direct-references = true
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+log_cli_level = "INFO"
+log_format = "%(asctime)s %(levelname)-9s %(module)s:%(filename)s:%(lineno)d %(message)s"

@@ -805,11 +805,15 @@ class Worker(ops.Object):
         if not self._container.can_connect():
             return None
 
-        version_output, _ = self._container.exec([f"/bin/{self._name}", "-version"]).wait_output()
-        # Output looks like this:
-        # <WORKLOAD_NAME>, version 2.4.0 (branch: HEAD, revision 32137ee...)
-        if result := re.search(r"[Vv]ersion:?\s*(\S+)", version_output):
-            return result.group(1)
+        try:
+            version_output, _ = self._container.exec([f"/bin/{self._name}", "-version"]).wait_output()
+            # Output looks like this:
+            # <WORKLOAD_NAME>, version 2.4.0 (branch: HEAD, revision 32137ee...)
+            if result := re.search(r"[Vv]ersion:?\s*(\S+)", version_output):
+                return result.group(1)
+        except ops.pebble.APIError as e:
+            logger.exception(f"could not get running version from the worker process, got error {e}")
+            return None
         return None
 
     def charm_tracing_config(self) -> Tuple[Optional[str], Optional[str]]:

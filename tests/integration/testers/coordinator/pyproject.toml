@@ -1,0 +1,75 @@
+# Copyright 2022 Canonical Ltd.
+# See LICENSE file for licensing details.
+[project]
+name = "coordinator-tester"
+version = "0.1"  # this is in fact irrelevant
+requires-python = "~=3.12.0"
+
+dependencies = [
+    # dependencies for this tester
+    # (none)
+
+    # Dependencies inherritted from the coordinated-worker package:
+    # Rather than install the coordinated-worker package, the tester charm vendors the coordinated-worker source to
+    # `tester/src/coordinated_worker` during integration tests.  Thus, we do not automatically get coordinated-worker's
+    # transitive dependencies and must install them manually here.  To keep them in sync with the real coordinated-worker
+    # dependencies, always replicate them here.
+    "crossplane",
+    "ops[tracing]",
+    "pydantic",
+    "lightkube>=v0.15.4",
+    "cosl>=1",
+    # charms.tls_certificates_interface.v4.tls_certificates
+    "cryptography",
+]
+
+[build]
+build-base = "/tmp/build"
+
+[egg_info]
+egg-base = "/tmp"
+
+# Formatting tools configuration
+[tool.isort]
+profile = "black"
+
+[tool.black]
+line-length = 99
+target-version = ["py312"]
+
+# Linting tools configuration
+[lint]
+line-length = 99
+select = ["E", "W", "F", "C", "N", "D", "I001"]
+extend-ignore = [
+    "D203",
+    "D204",
+    "D213",
+    "D215",
+    "D400",
+    "D404",
+    "D406",
+    "D407",
+    "D408",
+    "D409",
+    "D413",
+]
+ignore = ["E501", "D107"]
+extend-exclude = ["__pycache__", "*.egg_info", "*integration/tester*"]
+
+[tool.ruff.lint]
+# enforce best practices for logging
+# cfr. https://docs.astral.sh/ruff/rules/#flake8-logging-format-g
+select = ["G001", "G002", "G003", "G004"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["D100","D101","D102","D103","D104","G"]
+# Remove charm_tracing.py E402 when _remove_stale_otel_sdk_packages() is removed
+# from the library
+"lib/charms/tempo_coordinator_k8s/v0/charm_tracing.py" = ["E402"]
+
+[lint.mccabe]
+max-complexity = 10
+
+[tool.codespell]
+skip = "build,lib,venv,icon.svg,.tox,.git,.mypy_cache,.ruff_cache,.vscode,.coverage"

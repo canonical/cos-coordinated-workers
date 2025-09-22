@@ -172,3 +172,7 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# tester charm copies of this package's source code
+/tests/integration/testers/coordinator/src/coordinated_workers/
+/tests/integration/testers/worker/src/coordinated_workers/
