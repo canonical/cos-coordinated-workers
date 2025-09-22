@@ -2,7 +2,7 @@ import logging
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Tuple
+from typing import Dict, List, Tuple
 from unittest.mock import patch
 
 import ops
@@ -446,5 +446,5 @@ def _get_nginx_config_params(workload: str) -> Tuple[list, dict]:
     return upstream_configs[workload], _get_server_ports_to_locations(workload)
 
 
-def _get_server_ports_to_locations(workload: str) -> dict[int, list[NginxLocationConfig]]:
+def _get_server_ports_to_locations(workload: str) -> Dict[int, List[NginxLocationConfig]]:
     return server_ports_to_locations[workload]
