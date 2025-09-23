@@ -91,7 +91,7 @@ CONSOLIDATED_METRICS_ALERT_RULES_PATH = Path("src/prometheus_alert_rules/consoli
 ORIGINAL_LOGS_ALERT_RULES_PATH = Path("src/loki_alert_rules")
 CONSOLIDATED_LOGS_ALERT_RULES_PATH = Path("src/loki_alert_rules/consolidated_rules")
 
-# Paths for proxied worker telementry urlparse
+# Paths for proxied worker telemetry urlparse
 PROXY_WORKER_TELEMETRY_PATHS = {
     "worker_metrics": "/proxy/worker/{unit}/metrics",
     "loki_endpoint": "/proxy/loki/{unit}/push",
@@ -142,7 +142,7 @@ class ClusterRolesConfig:
     minimal_deployment: Iterable[str]
     """The minimal set of roles that need to be allocated for the deployment to be considered consistent."""
     recommended_deployment: Dict[str, int]
-    """The set of roles that need to be allocated for the deployment to be considered robust according to the official recommendations/guidelines.."""
+    """The set of roles that need to be allocated for the deployment to be considered robust according to the official recommendations/guidelines."""
 
     def __post_init__(self):
         """Ensure the various role specifications are consistent with one another."""
@@ -271,7 +271,7 @@ class Coordinator(ops.Object):
                 workload traces with.
             catalogue_item: A catalogue application entry to be sent to catalogue.
             proxy_worker_telemetry: If True, enables routing worker metrics, logs and traces through nginx proxy.
-            proxy_worker_telemetry_port: A function generating the HTTP port through which all worker telemetry traffic will be proxied when proxy_worker_telemetry is enabled. The function should take a bollean input which will indicate if TLS is enabled.
+            proxy_worker_telemetry_port: A function generating the HTTP port through which all worker telemetry traffic will be proxied when proxy_worker_telemetry is enabled. The function should take a boolean input which will indicate if TLS is enabled.
 
         Raises:
         ValueError:
@@ -307,7 +307,7 @@ class Coordinator(ops.Object):
         self._proxy_worker_telemetry = proxy_worker_telemetry
         self._proxy_worker_telemetry_port: Union[int, None] = None
         self._proxy_worker_telemetry_port_getter = proxy_worker_telemetry_port
-        # check if the worker telmetry can be validly proxied, if not disable proxying with an error log
+        # check if the worker telemetry can be validly proxied, if not log it as an error
         self._validate_proxy_worker_telemetry_setup(workload_tracing_protocols)  # type: ignore
 
         ## Integrations
@@ -656,7 +656,7 @@ class Coordinator(ops.Object):
         for worker_topology in self.cluster.gather_topology():
             if self._proxy_worker_telemetry:
                 # when proxied through nginx
-                # adress: address of the coordinator
+                # address: address of the coordinator
                 # path: location used in the nginx config for proxying worker metric
                 targets = [f"{self.hostname}:{self._proxy_worker_telemetry_port}"]
                 metrics_path = PROXY_WORKER_TELEMETRY_PATHS["worker_metrics"].format(
@@ -1019,7 +1019,8 @@ class Coordinator(ops.Object):
         # return true if proxying for worker telemetry is not enabled
         if not self._proxy_worker_telemetry:
             return
-        # return false if no port for proxying worker telemetry is provided
+        # log error if no port for proxying worker telemetry is provided
+        # NOTE: should we gracefully disable proxying?
         if not self._proxy_worker_telemetry_port_getter:
             logger.error(
                 "Proxying worker telemetry via the coordinator failed."
@@ -1028,6 +1029,7 @@ class Coordinator(ops.Object):
         # if no workload protocol is defined, let the TracingEndpointRequirer handle this
         if not workload_tracing_protocols:
             return
+        # FIXME: GRPC should be allowed. Create an issue and link here.
         for protocol in workload_tracing_protocols:  # type: ignore
             if "grpc" in protocol:
                 logger.error(
@@ -1037,7 +1039,7 @@ class Coordinator(ops.Object):
                 break
 
     def _setup_proxy_worker_telemetry(self) -> None:
-        """Extends nginx coniguration with configurations required prxying worker telemetry to and from the workers via nginx."""
+        """Extends nginx configuration with configurations required proxying worker telemetry to and from the workers via nginx."""
         # Extend nginx config with worker metrics if enabled
         worker_topology = self.cluster.gather_topology()
         if worker_topology:
@@ -1051,7 +1053,7 @@ class Coordinator(ops.Object):
         self._update_upstreams_with_worker_telemetry_servers()
 
     def _update_upstreams_with_worker_telemetry_servers(self) -> None:
-        """Update the upstreams in the nginx config to include the required servers/clinets that send/receive worker telemetry."""
+        """Update the upstreams in the nginx config to include the required servers/clients that send/receive worker telemetry."""
         # Merge role-based and unit-based addresses collection for nginx config
         # Every unit will get its own upstream for metric proxying
         self._upstreams_to_addresses.update(self.cluster.gather_addresses_by_unit())
@@ -1184,7 +1186,7 @@ class Coordinator(ops.Object):
                     backend=upstream_name,
                     backend_url=parsed_address.path,
                     upstream_tls=parsed_address.scheme.endswith("s"),
-                    modifier="=",  # exactl amtch, match only the push endpoint
+                    modifier="=",  # exact match, match only the push endpoint
                     is_grpc=False,
                 )
             )
@@ -1256,7 +1258,7 @@ class Coordinator(ops.Object):
         for tracing_type, receivers_urls, path_template in tracing_types:
             for protocol, address in receivers_urls.items():
                 parsed_address = urlparse(address)
-                # No need to proxy when we trace orselves.
+                # No need to proxy when we trace ourselves.
                 if (
                     parsed_address.hostname == self.hostname
                     or parsed_address.hostname == self._app_hostname
@@ -1289,7 +1291,7 @@ class Coordinator(ops.Object):
                             "break",
                         ],  # strip the custom prefix before redirecting
                         upstream_tls=parsed_address.scheme.endswith("s"),
-                        is_grpc=False,  # FIXME: GRPC must be allowed. See issue.
+                        is_grpc=False,  # FIXME: GRPC must be allowed. Create an issue and link here.
                     )
                 )
 
