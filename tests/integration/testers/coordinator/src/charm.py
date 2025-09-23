@@ -34,7 +34,7 @@ class CoordinatorTester(CharmBase):
         self.coordinator = Coordinator(
             charm=self,
             roles_config=ROLES_CONFIG,
-            external_url=self.url,
+            external_url=self._internal_app_hostname,
             worker_metrics_port=2345,
             endpoints={
                 "certificates": "certificates",
@@ -51,9 +51,17 @@ class CoordinatorTester(CharmBase):
                 "service-mesh": "service-mesh",
             },
             nginx_config=NginxConfig(
-                server_name=self.url,
-                upstream_configs=[NginxUpstream("test-upstream", 1234, "test-role")],
-                server_ports_to_locations={1234: [NginxLocationConfig(path="/test-server-port-to-location", backend="test-server-port-to-location-backend")]},
+                server_name=self._internal_app_hostname,
+                upstream_configs=[
+                    NginxUpstream("worker-role-a", 8080, "role-a"),
+                    NginxUpstream("worker-role-b", 8080, "role-b"),
+                ],
+                server_ports_to_locations={
+                    8080: [
+                        NginxLocationConfig(path="/role-a", backend="worker-role-a"),
+                        NginxLocationConfig(path="/role-b", backend="worker-role-b"),
+                    ]
+                },
             ),
             # Fake data cannot be an empty string as that is interpreted as no data
             workers_config=lambda _: "fake: data",
@@ -74,7 +82,7 @@ class CoordinatorTester(CharmBase):
         e.add_status(ops.ActiveStatus("I'm active, I think?"))
 
     @property
-    def url(self) -> str:
+    def _internal_app_hostname(self) -> str:
         """Return the locally addressable, FQDN based service address."""
         return f"http://{self.app.name}.{self.model.name}.svc.cluster.local"
 
