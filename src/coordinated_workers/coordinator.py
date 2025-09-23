@@ -240,7 +240,7 @@ class Coordinator(ops.Object):
         workload_tracing_protocols: Optional[List[ReceiverProtocol]] = None,
         catalogue_item: Optional[CatalogueItem] = None,
         proxy_worker_telemetry: Optional[bool] = False,
-        proxy_worker_telemetry_port: Optional[int] = None,
+        proxy_worker_telemetry_port: Optional[Callable[[bool], int]] = None,
     ):
         """Constructor for a Coordinator object.
 
@@ -271,7 +271,7 @@ class Coordinator(ops.Object):
                 workload traces with.
             catalogue_item: A catalogue application entry to be sent to catalogue.
             proxy_worker_telemetry: If True, enables routing worker metrics, logs and traces through nginx proxy.
-            proxy_worker_telemetry_port: The HTTP port through which all worker telemetry traffic will be proxied when proxy_worker_telemetry is enabled.
+            proxy_worker_telemetry_port: A function generating the HTTP port through which all worker telemetry traffic will be proxied when proxy_worker_telemetry is enabled. The function should take a bollean input which will indicate if TLS is enabled.
 
         Raises:
         ValueError:
@@ -305,7 +305,8 @@ class Coordinator(ops.Object):
         self._remote_write_endpoints_getter = remote_write_endpoints
         self._workers_config_getter = partial(workers_config, self)
         self._proxy_worker_telemetry = proxy_worker_telemetry
-        self._proxy_worker_telemetry_port = proxy_worker_telemetry_port
+        self._proxy_worker_telemetry_port: Union[int, None] = None
+        self._proxy_worker_telemetry_port_getter = proxy_worker_telemetry_port
         # check if the worker telmetry can be validly proxied, if not disable proxying with an error log
         self._validate_proxy_worker_telemetry_setup(workload_tracing_protocols)  # type: ignore
 
@@ -361,6 +362,8 @@ class Coordinator(ops.Object):
         )
 
         # NOTE: setup nginx after tracing requirers as uses logging and tracing endpoints for config building
+        if self._proxy_worker_telemetry_port_getter:
+            self._proxy_worker_telemetry_port = self._proxy_worker_telemetry_port_getter(self.tls_available)
         self._upstreams_to_addresses = self.cluster.gather_addresses_by_role()
         if self._proxy_worker_telemetry:
             self._setup_proxy_worker_telemetry()
@@ -1018,7 +1021,7 @@ class Coordinator(ops.Object):
         if not self._proxy_worker_telemetry:
             return
         # return false if no port for proxying worker telemetry is provided
-        if not self._proxy_worker_telemetry_port:
+        if not self._proxy_worker_telemetry_port_getter:
             logger.error(
                 "Proxying worker telemetry via the coordinator failed."
                 "Port for proxying worker telemetry not defined."
@@ -1145,6 +1148,8 @@ class Coordinator(ops.Object):
                     ),
                     backend=upstream_name,
                     backend_url="/metrics",
+                    upstream_tls=self.tls_available,
+                    modifier="=",  # exact match, match only the metrics endpoint
                     is_grpc=False,
                 )
             )
@@ -1180,6 +1185,7 @@ class Coordinator(ops.Object):
                     backend=upstream_name,
                     backend_url=parsed_address.path,
                     upstream_tls=parsed_address.scheme.endswith("s"),
+                    modifier="=",  # exactl amtch, match only the push endpoint
                     is_grpc=False,
                 )
             )
@@ -1220,6 +1226,7 @@ class Coordinator(ops.Object):
                     backend=upstream_name,
                     backend_url=parsed_address.path,
                     upstream_tls=parsed_address.scheme.endswith("s"),
+                    modifier="=",  # exact match, match only the remote write path
                     is_grpc=False,
                 )
             )
