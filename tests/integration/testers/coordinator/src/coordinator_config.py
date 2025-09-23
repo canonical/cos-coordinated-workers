@@ -6,6 +6,7 @@ from coordinated_workers.coordinator import ClusterRolesConfig
 @unique
 class Role(StrEnum):
     """Coordinator component role names."""
+
     a = "a"
     b = "b"
 

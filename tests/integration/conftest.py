@@ -3,20 +3,19 @@
 For shared and importable helpers, use helpers.py instead.
 """
 
-import shutil
-from collections import defaultdict
 import functools
 import logging
 import os
+import shutil
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Union
 
 import pytest
 import yaml
-from pytest_jubilant import pack
-
 from helpers import PackedCharm
+from pytest_jubilant import pack
 
 logger = logging.getLogger(__name__)
 store = defaultdict(str)

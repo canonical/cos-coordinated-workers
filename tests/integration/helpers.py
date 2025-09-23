@@ -1,6 +1,7 @@
 """Helper functions for integration tests."""
+
 import logging
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from typing import Optional
 
 from jubilant import Juju, all_active, all_blocked
@@ -30,16 +31,21 @@ s3_integrator = CharmDeploymentConfiguration(
 )
 
 
-def deploy_coordinated_worker_solution(juju: Juju, coordinator_charm: PackedCharm, coordinator_name: str, worker_charm: PackedCharm, worker_a_name: str, worker_b_name: str):
+def deploy_coordinated_worker_solution(
+    juju: Juju,
+    coordinator_charm: PackedCharm,
+    coordinator_name: str,
+    worker_charm: PackedCharm,
+    worker_a_name: str,
+    worker_b_name: str,
+):
     logging.info("Deploying coordinator and worker")
     juju.deploy(**asdict(coordinator_charm), app=coordinator_name, trust=True)
     juju.deploy(**asdict(worker_charm), app=worker_a_name, trust=True, config={"role-a": True})
     juju.deploy(**asdict(worker_charm), app=worker_b_name, trust=True, config={"role-b": True})
 
     logging.info("Waiting for all to settle and be blocked")
-    juju.wait(
-        lambda status: all_blocked(status, coordinator_name, worker_a_name, worker_b_name)
-    )
+    juju.wait(lambda status: all_blocked(status, coordinator_name, worker_a_name, worker_b_name))
 
     logging.info("Deploying s3-integrator")
     s3_integrator = deploy_s3_integrator(juju)
@@ -57,7 +63,7 @@ def deploy_coordinated_worker_solution(juju: Juju, coordinator_charm: PackedChar
     logging.info("Waiting for all to settle and be active")
     juju.wait(
         lambda status: all_active(status, coordinator_name, worker_a_name, worker_b_name),
-        timeout=180
+        timeout=180,
     )
 
 
@@ -67,6 +73,10 @@ def deploy_s3_integrator(juju: Juju) -> str:
     juju.deploy(**asdict(s3_integrator))
     juju.wait(lambda status: all_blocked(status, s3_integrator.app))
     logging.info("Configuring s3-integrator with fake credentials")
-    juju.run(s3_integrator.app + "/0", "sync-s3-credentials", params={"access-key":"minio123", "secret-key":"minio123"})
+    juju.run(
+        s3_integrator.app + "/0",
+        "sync-s3-credentials",
+        params={"access-key": "minio123", "secret-key": "minio123"},
+    )
     juju.wait(lambda status: all_active(status, s3_integrator.app))
     return s3_integrator.app

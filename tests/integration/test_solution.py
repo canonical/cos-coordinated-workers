@@ -4,9 +4,8 @@ These are simple smoke tests to assert a basic deployment of a coordinator and t
 specific tests than basic function should be covered in other test suites.
 """
 
-from jubilant import Juju
-
 from helpers import PackedCharm, deploy_coordinated_worker_solution
+from jubilant import Juju
 
 COORDINATOR_NAME = "coordinator"
 WORKER_A_NAME = "worker-a"

@@ -3,6 +3,7 @@
 # See LICENSE file for licensing details.
 
 """Worker Charm"""
+
 import logging
 
 from ops.charm import CharmBase
@@ -11,6 +12,7 @@ from ops.pebble import Layer
 from coordinated_workers.worker import Worker
 
 container_name = "echoserver"
+
 
 class WorkerCharm(CharmBase):
     def __init__(self, *args):
@@ -50,4 +52,5 @@ class WorkerCharm(CharmBase):
 
 if __name__ == "__main__":  # pragma: nocover
     import ops
+
     ops.main(WorkerCharm)

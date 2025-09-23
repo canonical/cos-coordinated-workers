@@ -15,7 +15,9 @@ from coordinated_workers.nginx import (
     CA_CERT_PATH,
     CERT_PATH,
     KEY_PATH,
-    NginxConfig, NginxLocationConfig, NginxUpstream,
+    NginxConfig,
+    NginxLocationConfig,
+    NginxUpstream,
 )
 from coordinator_config import ROLES_CONFIG
 
