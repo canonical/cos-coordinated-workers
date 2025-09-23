@@ -176,3 +176,7 @@ cython_debug/
 # tester charm copies of this package's source code
 /tests/integration/testers/coordinator/src/coordinated_workers/
 /tests/integration/testers/worker/src/coordinated_workers/
+
+# tester charms should always include their libraries
+!/tests/integration/testers/coordinator/lib
+!/tests/integration/testers/worker/lib
