@@ -1006,7 +1006,6 @@ class Coordinator(ops.Object):
                 urls.update({protocol: address})
                 continue
             scheme = "https" if self.tls_available else "http"
-            protocol = protocol.replace("_", "-")
             proxy_url = f"{scheme}://{self.hostname}:{self._proxy_worker_telemetry_port}{PROXY_WORKER_TELEMETRY_PATHS['workload_tracing_receivers_urls'].format(protocol=protocol)}"
             urls.update({protocol: proxy_url})
 
