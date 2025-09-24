@@ -1,3 +1,0 @@
-ops
-# TODO: just add transitive dependencies of coordinated workers, and then dynamically copy the local package to somewhere packable
-coordinated-workers
