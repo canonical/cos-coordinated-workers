@@ -270,6 +270,15 @@ class NginxUpstream:
     """
 
 
+@dataclass
+class NginxTracingConfig:
+    """Configuration for OTel tracing in Nginx."""
+
+    endpoint: str
+    service_name: str
+    resource_attributes: Dict[str, str] = field(default_factory=lambda: {})
+
+
 class NginxConfig:
     """Responsible for building the Nginx configuration used by the coordinators."""
 
@@ -328,7 +337,7 @@ class NginxConfig:
         upstreams_to_addresses: Dict[str, Set[str]],
         listen_tls: bool,
         root_path: Optional[str] = None,
-        tracing_endpoint: Optional[str] = None,
+        tracing_config: Optional[NginxTracingConfig] = None,
     ) -> str:
         """Render the Nginx configuration as a string.
 
@@ -336,11 +345,11 @@ class NginxConfig:
             upstreams_to_addresses: A dictionary mapping each upstream name to a set of addresses associated with that upstream.
             listen_tls: Whether Nginx should listen for incoming traffic over TLS.
             root_path: If provided, it is used as a location where static files will be served.
-            tracing_endpoint: Enables tracing in Nginx and exports traces to the specified endpoint if provided.
-                Note: Tracing requires the Nginx binary to be built with ngx_otel_module.
+            tracing_config: Enables tracing in Nginx and exports traces to the specified endpoint if provided.
+                Note: Tracing is only available if the Nginx binary has been built with the ngx_otel_module.
         """
         full_config = self._prepare_config(
-            upstreams_to_addresses, listen_tls, root_path, tracing_endpoint
+            upstreams_to_addresses, listen_tls, root_path, tracing_config
         )
         return crossplane.build(full_config)  # type: ignore
 
@@ -349,7 +358,7 @@ class NginxConfig:
         upstreams_to_addresses: Dict[str, Set[str]],
         listen_tls: bool,
         root_path: Optional[str] = None,
-        tracing_endpoint: Optional[str] = None,
+        tracing_config: Optional[NginxTracingConfig] = None,
     ) -> List[Dict[str, Any]]:
         upstreams = self._upstreams(upstreams_to_addresses)
         # extract the upstream name
@@ -358,7 +367,7 @@ class NginxConfig:
         full_config = [
             *(
                 [{"directive": "load_module", "args": ["/etc/nginx/modules/ngx_otel_module.so"]}]
-                if tracing_endpoint
+                if tracing_config
                 else []
             ),
             {"directive": "worker_processes", "args": [self._worker_processes]},
@@ -374,7 +383,7 @@ class NginxConfig:
                 "directive": "http",
                 "args": [],
                 "block": [
-                    *self._tracing_block(tracing_endpoint),
+                    *self._tracing_block(tracing_config),
                     # upstreams (load balancing)
                     *upstreams,
                     # temp paths
@@ -732,7 +741,7 @@ class NginxConfig:
             args.append("ssl")
         return args
 
-    def _tracing_block(self, tracing_endpoint: Optional[str]) -> List[Dict[str, Any]]:
+    def _tracing_block(self, tracing_config: Optional[NginxTracingConfig]) -> List[Dict[str, Any]]:
         return (
             [
                 {"directive": "otel_trace", "args": ["on"]},
@@ -741,10 +750,17 @@ class NginxConfig:
                 {
                     "directive": "otel_exporter",
                     "args": [],
-                    "block": [{"directive": "endpoint", "args": [tracing_endpoint]}],
+                    "block": [{"directive": "endpoint", "args": [tracing_config.endpoint]}],
                 },
+                {"directive": "otel_service_name", "args": [tracing_config.service_name]},
+                *(
+                    [
+                        {"directive": "otel_resource_attr", "args": [attr_key, attr_val]}
+                        for attr_key, attr_val in tracing_config.resource_attributes.items()
+                    ]
+                ),
             ]
-            if tracing_endpoint
+            if tracing_config
             else []
         )
 

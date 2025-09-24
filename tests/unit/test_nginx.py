@@ -17,6 +17,7 @@ from coordinated_workers.nginx import (
     Nginx,
     NginxConfig,
     NginxLocationConfig,
+    NginxTracingConfig,
     NginxUpstream,
 )
 
@@ -310,7 +311,15 @@ def test_location_skipped_if_no_matching_upstream():
 
 
 def test_generate_nginx_config_with_tracing_enabled():
-    mock_tracing_endpoint = "endpoint:4317"
+    mock_tracing_config = NginxTracingConfig(
+        endpoint="endpoint:4317",
+        service_name="nginx-workload",
+        resource_attributes={
+            "juju_application": "nginx",
+            "juju_model": "test",
+            "juju_unit": "nginx/0",
+        },
+    )
     upstream_configs, server_ports_to_locations = _get_nginx_config_params("litmus")
 
     addrs_by_role = {
@@ -326,7 +335,7 @@ def test_generate_nginx_config_with_tracing_enabled():
             enable_status_page=False,
         )
         generated_config = nginx.get_config(
-            addrs_by_role, False, tracing_endpoint=mock_tracing_endpoint
+            addrs_by_role, False, tracing_config=mock_tracing_config
         )
         sample_config_path = (
             Path(__file__).parent / "resources" / "sample_litmus_conf_with_tracing.txt"

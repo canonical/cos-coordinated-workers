@@ -12,6 +12,10 @@ http {
     otel_exporter {
         endpoint endpoint:4317;
     }
+    otel_service_name nginx-workload;
+    otel_resource_attr juju_application nginx;
+    otel_resource_attr juju_model test;
+    otel_resource_attr juju_unit nginx/0;
     upstream auth {
         zone auth_zone 64k;
         server worker-address:3000 resolve;
