@@ -50,6 +50,19 @@ def copy_coordinated_worker_source(destination: Union[str, Path]):
     shutil.copytree(src=source, dst=destination, dirs_exist_ok=False)
 
 
+def copy_coordinated_worker_project_files(destination: Union[str, Path]):
+    """Copy project files from the repo root to the destination directory.
+
+    These are files that are needed for charmcraft pack to succeed, but the contents of which don't change between the
+    root and tester charms
+    """
+    for filename in ("pyproject.toml", "uv.lock"):
+        source = REPO_ROOT / filename
+        destination_path = Path(destination).resolve() / filename
+        shutil.copyfile(src=source, dst=destination_path)
+        logging.info(f"Copied {source} to {destination_path}")
+
+
 def timed_memoizer(func):
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
@@ -89,6 +102,7 @@ def tester_charm_builder(tester_path: Path) -> PackedCharm:
         # standard packages.  The charm code will use coordinated_worker imports from here instead of the regular
         # package.
         copy_coordinated_worker_source(destination=tester_coordinated_worker_source)
+        copy_coordinated_worker_project_files(destination=tester_path)
         logger.info(f"Packing tester charm {tester_charm_name} from {tester_path}")
         charm = pack(tester_path)
 
