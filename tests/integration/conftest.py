@@ -63,24 +63,6 @@ def copy_coordinated_worker_project_files(destination: Union[str, Path]):
         logging.info(f"Copied {source} to {destination_path}")
 
 
-def timed_memoizer(func):
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        fname = func.__qualname__
-        logger.info("Started: %s" % fname)
-        start_time = datetime.now()
-        if fname in store.keys():
-            ret = store[fname]
-        else:
-            logger.info("Return for {} not cached".format(fname))
-            ret = func(*args, **kwargs)
-            store[fname] = ret
-        logger.info("Finished: {} in: {} seconds".format(fname, datetime.now() - start_time))
-        return ret
-
-    return wrapper
-
-
 def tester_charm_builder(tester_path: Path) -> PackedCharm:
     """Build a tester charm from the given path.
 
@@ -121,13 +103,11 @@ def get_charm_resources(charmcraft_file: Union[str, Path]) -> dict[str, str]:
     return {name: resource["upstream-source"] for name, resource in resources.items()}
 
 
-@pytest.fixture(scope="module")
-@timed_memoizer
+@pytest.fixture(scope="session")
 def coordinator_charm() -> PackedCharm:
     return tester_charm_builder(REPO_ROOT / "tests/integration/testers/coordinator")
 
 
-@pytest.fixture(scope="module")
-@timed_memoizer
+@pytest.fixture(scope="session")
 def worker_charm() -> PackedCharm:
     return tester_charm_builder(REPO_ROOT / "tests/integration/testers/worker")
