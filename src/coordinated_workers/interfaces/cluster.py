@@ -498,10 +498,7 @@ class ClusterRequirer(Object):
                 coordinator_databag = ClusterProviderAppData.load(databag)
                 data = coordinator_databag
             except cosl.interfaces.utils.DataValidationError as e:
-                log.info(f"invalid databag contents: {e}")
-                # Provide extra context that is included in `e` because it was raised from another exception
-                log.info(traceback.format_exc())
-
+                log.info(f"invalid databag contents: {e}", exc_info=True)
                 return None  # explicit is better than implicit
 
         return data
