@@ -1,4 +1,4 @@
-from enum import Enum, unique, StrEnum
+from enum import StrEnum, unique
 
 from coordinated_workers.coordinator import ClusterRolesConfig
 

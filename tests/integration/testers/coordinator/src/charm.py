@@ -4,17 +4,11 @@
 import logging
 
 import ops
-import yaml
 from ops.charm import CharmBase, CollectStatusEvent
 from ops.main import main
-from ops.model import ActiveStatus
-from ops.pebble import Layer
 
 from coordinated_workers.coordinator import Coordinator
 from coordinated_workers.nginx import (
-    CA_CERT_PATH,
-    CERT_PATH,
-    KEY_PATH,
     NginxConfig,
     NginxLocationConfig,
     NginxUpstream,
