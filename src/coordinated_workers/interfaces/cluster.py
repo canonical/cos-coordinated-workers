@@ -12,7 +12,6 @@ it does not live in a charm lib as most other relation endpoint wrappers do.
 import collections
 import json
 import logging
-import traceback
 from typing import (
     Any,
     Callable,

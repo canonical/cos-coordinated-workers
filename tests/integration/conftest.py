@@ -12,7 +12,7 @@ from typing import Union
 
 import pytest
 from helpers import PackedCharm
-from pytest_jubilant import pack, get_resources
+from pytest_jubilant import get_resources, pack
 
 logger = logging.getLogger(__name__)
 store = defaultdict(str)

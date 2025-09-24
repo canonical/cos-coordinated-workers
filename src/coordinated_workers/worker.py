@@ -813,10 +813,8 @@ class Worker(ops.Object):
             # <WORKLOAD_NAME>, version 2.4.0 (branch: HEAD, revision 32137ee...)
             if result := re.search(r"[Vv]ersion:?\s*(\S+)", version_output):
                 return result.group(1)
-        except ops.pebble.APIError as e:
-            logger.exception(
-                f"could not get running version from the worker process"
-            )
+        except ops.pebble.APIError:
+            logger.exception("could not get running version from the worker process")
             return None
         return None
 

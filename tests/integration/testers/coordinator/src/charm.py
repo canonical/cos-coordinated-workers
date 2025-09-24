@@ -4,6 +4,7 @@
 import logging
 
 import ops
+from coordinator_config import ROLES_CONFIG
 from ops.charm import CharmBase, CollectStatusEvent
 from ops.main import main
 
@@ -13,7 +14,6 @@ from coordinated_workers.nginx import (
     NginxLocationConfig,
     NginxUpstream,
 )
-from coordinator_config import ROLES_CONFIG
 
 logger = logging.getLogger(__name__)
 
