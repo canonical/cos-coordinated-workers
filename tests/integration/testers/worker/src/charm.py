@@ -2,7 +2,7 @@
 # Copyright 2025 Canonical
 # See LICENSE file for licensing details.
 
-"""Worker Charm"""
+"""Worker Charm."""
 
 import logging
 

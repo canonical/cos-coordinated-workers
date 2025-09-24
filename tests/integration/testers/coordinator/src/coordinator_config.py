@@ -32,7 +32,7 @@ RECOMMENDED_DEPLOYMENT = {
 
 
 ROLES_CONFIG = ClusterRolesConfig(
-    roles={role for role in Role},
+    roles=set(role for role in Role),
     meta_roles=META_ROLES,
     minimal_deployment=MINIMAL_DEPLOYMENT,
     recommended_deployment=RECOMMENDED_DEPLOYMENT,
