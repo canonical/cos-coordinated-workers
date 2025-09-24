@@ -328,6 +328,7 @@ class NginxConfig:
         upstreams_to_addresses: Dict[str, Set[str]],
         listen_tls: bool,
         root_path: Optional[str] = None,
+        tracing_endpoint: Optional[str] = None,
     ) -> str:
         """Render the Nginx configuration as a string.
 
@@ -335,8 +336,12 @@ class NginxConfig:
             upstreams_to_addresses: A dictionary mapping each upstream name to a set of addresses associated with that upstream.
             listen_tls: Whether Nginx should listen for incoming traffic over TLS.
             root_path: If provided, it is used as a location where static files will be served.
+            tracing_endpoint: Enables tracing in Nginx and exports traces to the specified endpoint if provided.
+                Note: Tracing requires the Nginx binary to be built with ngx_otel_module.
         """
-        full_config = self._prepare_config(upstreams_to_addresses, listen_tls, root_path)
+        full_config = self._prepare_config(
+            upstreams_to_addresses, listen_tls, root_path, tracing_endpoint
+        )
         return crossplane.build(full_config)  # type: ignore
 
     def _prepare_config(
@@ -344,12 +349,18 @@ class NginxConfig:
         upstreams_to_addresses: Dict[str, Set[str]],
         listen_tls: bool,
         root_path: Optional[str] = None,
+        tracing_endpoint: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         upstreams = self._upstreams(upstreams_to_addresses)
         # extract the upstream name
         backends = [upstream["args"][0] for upstream in upstreams]
         # build the complete configuration
         full_config = [
+            *(
+                [{"directive": "load_module", "args": ["/etc/nginx/modules/ngx_otel_module.so"]}]
+                if tracing_endpoint
+                else []
+            ),
             {"directive": "worker_processes", "args": [self._worker_processes]},
             {"directive": "error_log", "args": ["/dev/stderr", "error"]},
             {"directive": "pid", "args": [self._pid]},
@@ -363,6 +374,7 @@ class NginxConfig:
                 "directive": "http",
                 "args": [],
                 "block": [
+                    *self._tracing_block(tracing_endpoint),
                     # upstreams (load balancing)
                     *upstreams,
                     # temp paths
@@ -658,12 +670,11 @@ class NginxConfig:
         return nginx_locations
 
     @staticmethod
-    def _extra_directives_block(extra_directives: Optional[Dict[str, List[str]]]) -> List[Optional[Dict[str, Any]]]:
+    def _extra_directives_block(
+        extra_directives: Optional[Dict[str, List[str]]],
+    ) -> List[Optional[Dict[str, Any]]]:
         if extra_directives:
-            return [
-                {"directive": key, "args": val}
-                for key, val in extra_directives.items()
-            ]
+            return [{"directive": key, "args": val} for key, val in extra_directives.items()]
         return []
 
     @staticmethod
@@ -720,6 +731,22 @@ class NginxConfig:
         if ssl:
             args.append("ssl")
         return args
+
+    def _tracing_block(self, tracing_endpoint: Optional[str]) -> List[Dict[str, Any]]:
+        return (
+            [
+                {"directive": "otel_trace", "args": ["on"]},
+                # propagate the trace context headers
+                {"directive": "otel_trace_context", "args": ["propagate"]},
+                {
+                    "directive": "otel_exporter",
+                    "args": [],
+                    "block": [{"directive": "endpoint", "args": [tracing_endpoint]}],
+                },
+            ]
+            if tracing_endpoint
+            else []
+        )
 
 
 class Nginx:

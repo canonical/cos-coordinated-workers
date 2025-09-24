@@ -285,7 +285,10 @@ def test_generate_nginx_config_with_extra_location_directives():
 
 
 def test_location_skipped_if_no_matching_upstream():
-    upstream_configs, server_ports_to_locations = ([], _get_server_ports_to_locations("litmus_ssl"))
+    upstream_configs, server_ports_to_locations = (
+        [],
+        _get_server_ports_to_locations("litmus_ssl"),
+    )
 
     addrs_by_role = {
         role: {"worker-address"}
@@ -300,7 +303,34 @@ def test_location_skipped_if_no_matching_upstream():
             enable_status_page=False,
         )
         generated_config = nginx.get_config(addrs_by_role, False, root_path="/dist")
-        sample_config_path = Path(__file__).parent / "resources" / "sample_litmus_missing_upstreams_conf.txt"
+        sample_config_path = (
+            Path(__file__).parent / "resources" / "sample_litmus_missing_upstreams_conf.txt"
+        )
+        assert sample_config_path.read_text() == generated_config
+
+
+def test_generate_nginx_config_with_tracing_enabled():
+    mock_tracing_endpoint = "endpoint:4317"
+    upstream_configs, server_ports_to_locations = _get_nginx_config_params("litmus")
+
+    addrs_by_role = {
+        "auth": ["worker-address"],
+        "backend": ["worker-address"],
+    }
+    with mock_resolv_conf(f"foo bar\nnameserver {sample_dns_ip}"):
+        nginx = NginxConfig(
+            "localhost",
+            upstream_configs=upstream_configs,
+            server_ports_to_locations=server_ports_to_locations,
+            enable_health_check=False,
+            enable_status_page=False,
+        )
+        generated_config = nginx.get_config(
+            addrs_by_role, False, tracing_endpoint=mock_tracing_endpoint
+        )
+        sample_config_path = (
+            Path(__file__).parent / "resources" / "sample_litmus_conf_with_tracing.txt"
+        )
         assert sample_config_path.read_text() == generated_config
 
 
