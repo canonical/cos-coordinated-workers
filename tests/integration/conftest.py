@@ -11,9 +11,8 @@ from pathlib import Path
 from typing import Union
 
 import pytest
-import yaml
 from helpers import PackedCharm
-from pytest_jubilant import pack
+from pytest_jubilant import pack, get_resources
 
 logger = logging.getLogger(__name__)
 store = defaultdict(str)
@@ -86,19 +85,12 @@ def tester_charm_builder(tester_path: Path) -> PackedCharm:
         logger.info(f"Packing tester charm {tester_charm_name} from {tester_path}")
         charm = pack(tester_path)
 
-    resources = get_charm_resources(tester_path / "charmcraft.yaml")
+    resources = get_resources(tester_path)
 
     return PackedCharm(
         charm=str(charm),
         resources=resources,
     )
-
-
-def get_charm_resources(charmcraft_file: Union[str, Path]) -> dict[str, str]:
-    """Get the resources from a charmcraft.yaml file."""
-    charmcraft_file_text = Path(charmcraft_file).read_text()
-    resources = yaml.safe_load(charmcraft_file_text)["resources"]
-    return {name: resource["upstream-source"] for name, resource in resources.items()}
 
 
 @pytest.fixture(scope="session")
