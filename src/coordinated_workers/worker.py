@@ -815,7 +815,7 @@ class Worker(ops.Object):
                 return result.group(1)
         except ops.pebble.APIError as e:
             logger.exception(
-                f"could not get running version from the worker process, got error {e}"
+                f"could not get running version from the worker process"
             )
             return None
         return None
