@@ -94,8 +94,8 @@ CONSOLIDATED_LOGS_ALERT_RULES_PATH = Path("src/loki_alert_rules/consolidated_rul
 # Paths for proxied worker telemetry urlparse
 PROXY_WORKER_TELEMETRY_PATHS = {
     "worker_metrics": "/proxy/worker/{unit}/metrics",
-    "loki_endpoint": "/proxy/loki/{unit}/push",
-    "remote_write_endpoint": "/proxy/remote-write/{unit}/write",
+    "loki_endpoints": "/proxy/loki/{unit}/push",
+    "remote_write_endpoints": "/proxy/remote-write/{unit}/write",
     "charm_tracing_receivers_urls": "/proxy/charm-tracing/{protocol}/",
     "workload_tracing_receivers_urls": "/proxy/workload-tracing/{protocol}/",
 }
@@ -521,13 +521,13 @@ class Coordinator(ops.Object):
         """Unit's hostname."""
         return socket.getfqdn()
 
-    # private internal property as the charms seem to use the static method for reasons unknown to man.
+    # private internal property as the charms seem to use the static method for reasons unknown.
     @property
     def _app_hostname(self) -> str:
         """Application-level FQDN."""
         return self.app_hostname(self.hostname, self._charm.app.name, self._charm.model.name)
 
-    # why is this a horrible staticmethod while it could a beautiful property???
+    # why is this a staticmethod while it could a beautiful property???
     @staticmethod
     def app_hostname(hostname: str, app_name: str, model_name: str) -> str:
         """The FQDN of the k8s service associated with this application.
@@ -938,7 +938,7 @@ class Coordinator(ops.Object):
         for unit in self.loki_endpoints_by_unit:
             scheme = "https" if self.tls_available else "http"
             endpoints[unit] = (
-                f"{scheme}://{self.hostname}:{self._proxy_worker_telemetry_port}{PROXY_WORKER_TELEMETRY_PATHS['loki_endpoint'].format(unit=unit.replace('/', '-'))}"
+                f"{scheme}://{self.hostname}:{self._proxy_worker_telemetry_port}{PROXY_WORKER_TELEMETRY_PATHS['loki_endpoints'].format(unit=unit.replace('/', '-'))}"
             )
 
         return endpoints
@@ -970,7 +970,7 @@ class Coordinator(ops.Object):
             parsed_address = urlparse(remote_write_endpoint["url"])
             unit = parsed_address.hostname.split(".")[0]  # type: ignore
             scheme = "https" if self.tls_available else "http"
-            proxy_url = f"{scheme}://{self.hostname}:{self._proxy_worker_telemetry_port}{PROXY_WORKER_TELEMETRY_PATHS['remote_write_endpoint'].format(unit=unit)}"
+            proxy_url = f"{scheme}://{self.hostname}:{self._proxy_worker_telemetry_port}{PROXY_WORKER_TELEMETRY_PATHS['remote_write_endpoints'].format(unit=unit)}"
             endpoints.append(RemoteWriteEndpoint(url=proxy_url))
 
         return endpoints
@@ -980,13 +980,13 @@ class Coordinator(ops.Object):
         """Returns proxy charm tracing receivers urls published to the cluster."""
         urls: Dict[str, str] = {}
 
-        for protocol, address in self._charm_tracing_receivers_urls.items():
-            parsed_hostname = urlparse(address).hostname
-            if (
-                parsed_hostname == self.hostname or parsed_hostname == self._app_hostname
-            ):  # we are tracing ourselves. no need to proxy
-                urls.update({protocol: address})
-                continue
+        for protocol in self._charm_tracing_receivers_urls:
+            # parsed_hostname = urlparse(address).hostname
+            # if (
+            #     parsed_hostname == self.hostname or parsed_hostname == self._app_hostname
+            # ):  # we are tracing ourselves. no need to proxy
+            #     urls.update({protocol: address})
+            #     continue
             scheme = "https" if self.tls_available else "http"
             proxy_url = f"{scheme}://{self.hostname}:{self._proxy_worker_telemetry_port}{PROXY_WORKER_TELEMETRY_PATHS['charm_tracing_receivers_urls'].format(protocol=protocol)}"
             urls.update({protocol: proxy_url})
@@ -998,13 +998,13 @@ class Coordinator(ops.Object):
         """Returns proxy workload tracing receivers urls published to the cluster."""
         urls: Dict[str, str] = {}
 
-        for protocol, address in self._workload_tracing_receivers_urls.items():
-            parsed_hostname = urlparse(address).hostname
-            if (
-                parsed_hostname == self.hostname or parsed_hostname == self._app_hostname
-            ):  # we are tracing ourselves. no need to proxy
-                urls.update({protocol: address})
-                continue
+        for protocol in self._workload_tracing_receivers_urls:
+            # parsed_hostname = urlparse(address).hostname
+            # if (
+            #     parsed_hostname == self.hostname or parsed_hostname == self._app_hostname
+            # ):  # we are tracing ourselves. no need to proxy
+            #     urls.update({protocol: address})
+            #     continue
             scheme = "https" if self.tls_available else "http"
             proxy_url = f"{scheme}://{self.hostname}:{self._proxy_worker_telemetry_port}{PROXY_WORKER_TELEMETRY_PATHS['workload_tracing_receivers_urls'].format(protocol=protocol)}"
             urls.update({protocol: proxy_url})
@@ -1050,7 +1050,7 @@ class Coordinator(ops.Object):
             self._nginx_config.update_server_ports_to_locations(
                 telemetry_locations, overwrite=False
             )
-        self._update_upstreams_with_worker_telemetry_servers()
+            self._update_upstreams_with_worker_telemetry_servers()
 
     def _update_upstreams_with_worker_telemetry_servers(self) -> None:
         """Update the upstreams in the nginx config to include the required servers/clients that send/receive worker telemetry."""
@@ -1079,10 +1079,10 @@ class Coordinator(ops.Object):
         for tracing_type, receivers_urls in tracing_configs:
             for protocol, address in receivers_urls.items():
                 p = urlparse(address)
-                if (
-                    p.hostname == self.hostname or p.hostname == self._app_hostname
-                ):  # we are tracing ourselves. ignore
-                    continue
+                # if (
+                #     p.hostname == self.hostname or p.hostname == self._app_hostname
+                # ):  # we are tracing ourselves. ignore
+                #     continue
                 upstream_name = (
                     f"{PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX}-{tracing_type}-{protocol}"
                 )
@@ -1180,7 +1180,7 @@ class Coordinator(ops.Object):
 
             locations.append(
                 NginxLocationConfig(
-                    path=PROXY_WORKER_TELEMETRY_PATHS["loki_endpoint"].format(
+                    path=PROXY_WORKER_TELEMETRY_PATHS["loki_endpoints"].format(
                         unit=unit_name_sanitized
                     ),
                     backend=upstream_name,
@@ -1221,7 +1221,7 @@ class Coordinator(ops.Object):
 
             locations.append(
                 NginxLocationConfig(
-                    path=PROXY_WORKER_TELEMETRY_PATHS["remote_write_endpoint"].format(
+                    path=PROXY_WORKER_TELEMETRY_PATHS["remote_write_endpoints"].format(
                         unit=unit_name_sanitized
                     ),
                     backend=upstream_name,
@@ -1259,11 +1259,11 @@ class Coordinator(ops.Object):
             for protocol, address in receivers_urls.items():
                 parsed_address = urlparse(address)
                 # No need to proxy when we trace ourselves.
-                if (
-                    parsed_address.hostname == self.hostname
-                    or parsed_address.hostname == self._app_hostname
-                ):
-                    continue
+                # if (
+                #     parsed_address.hostname == self.hostname
+                #     or parsed_address.hostname == self._app_hostname
+                # ):
+                #     continue
                 upstream_name = (
                     f"{PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX}-{tracing_type}-{protocol}"
                 )

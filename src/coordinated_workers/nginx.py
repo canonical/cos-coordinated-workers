@@ -338,7 +338,7 @@ class NginxConfig:
                 self._server_ports_to_locations[port] = locations.copy()
             else:
                 # Extend existing locations for this port
-                self._server_ports_to_locations[port].extend(locations)
+                self._server_ports_to_locations[port].extend(locations.copy())
 
     def get_config(
         self,
