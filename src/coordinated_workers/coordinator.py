@@ -295,12 +295,9 @@ class Coordinator(ops.Object):
             worker_ports=worker_ports,
         )
 
+        self._nginx_config = nginx_config
         self.nginx = Nginx(
             self._charm,
-            config_getter=partial(
-                nginx_config.get_config, self.cluster.gather_addresses_by_role()
-            ),
-            tls_config_getter=lambda: self.tls_config,
             options=nginx_options,
         )
         self.nginx_exporter = NginxPrometheusExporter(self._charm, options=nginx_options)
@@ -413,7 +410,15 @@ class Coordinator(ops.Object):
         self._setup_charm_tracing()
 
         # reconcile workloads
-        self.nginx.reconcile()
+        self.nginx.reconcile(
+            nginx_config=self._nginx_config.get_config(
+                upstreams_to_addresses=self.cluster.gather_addresses_by_role(),
+                listen_tls=self.nginx.are_certificates_on_disk,
+                # TODO: pass tracing_config once https://github.com/canonical/cos-coordinated-workers/issues/77 is addressed
+                tracing_config=None,
+            ),
+            tls_config=self.tls_config,
+        )
         self.nginx_exporter.reconcile()
 
         # reconcile relations

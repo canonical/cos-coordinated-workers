@@ -60,7 +60,7 @@ def test_certs_on_disk(certificate_mounts: dict, nginx_context: testing.Context)
         ),
     ) as mgr:
         charm = mgr.charm
-        nginx = Nginx(charm, lambda: "foo_string", None)
+        nginx = Nginx(charm)
 
         # THEN the certs exist on disk
         assert nginx.are_certificates_on_disk
@@ -80,7 +80,7 @@ def test_certs_deleted(certificate_mounts: dict, nginx_context: testing.Context)
         ),
     ) as mgr:
         charm = mgr.charm
-        nginx = Nginx(charm, lambda: "foo_string", None)
+        nginx = Nginx(charm)
 
         # AND when we call delete_certificates
         nginx._delete_certificates()
@@ -115,7 +115,7 @@ def test_has_config_changed(nginx_context: testing.Context):
         ),
     ) as mgr:
         charm = mgr.charm
-        nginx = Nginx(charm, lambda: "foo_string", None)
+        nginx = Nginx(charm)
 
         # AND a unique config is added
         new_config = "bar"
@@ -157,7 +157,7 @@ def test_nginx_pebble_plan(container_name):
         ),
     ) as mgr:
         charm = mgr.charm
-        nginx = Nginx(charm, lambda: "foo_string", None, container_name=container_name)
+        nginx = Nginx(charm, container_name=container_name)
         # THEN the generated pebble layer has the container_name set as the service name
         assert nginx.layer == expected_layer
 

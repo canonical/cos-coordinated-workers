@@ -155,7 +155,7 @@ import logging
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Literal, Optional, Set, TypedDict, cast
+from typing import Any, Dict, List, Literal, Optional, Set, TypedDict, cast
 
 import crossplane  # type: ignore
 from opentelemetry import trace
@@ -290,6 +290,7 @@ class NginxConfig:
     _supported_tls_versions = ["TLSv1", "TLSv1.1", "TLSv1.2", "TLSv1.3"]
     _ssl_ciphers = ["HIGH:!aNULL:!MD5"]
     _proxy_connect_timeout = "5s"
+    otel_module_path = "/etc/nginx/modules/ngx_otel_module.so"
 
     def __init__(
         self,
@@ -366,7 +367,7 @@ class NginxConfig:
         # build the complete configuration
         full_config = [
             *(
-                [{"directive": "load_module", "args": ["/etc/nginx/modules/ngx_otel_module.so"]}]
+                [{"directive": "load_module", "args": [self.otel_module_path]}]
                 if tracing_config
                 else []
             ),
@@ -774,14 +775,10 @@ class Nginx:
     def __init__(
         self,
         charm: CharmBase,
-        config_getter: Callable[[bool], str],
-        tls_config_getter: Callable[[], Optional[TLSConfig]],
         options: Optional[NginxMappingOverrides] = None,
         container_name: str = "nginx",
     ):
         self._charm = charm
-        self._config_getter = config_getter
-        self._tls_config_getter = tls_config_getter
         self._container_name = container_name
         self._container = self._charm.unit.get_container(container_name)
         self.options.update(options or {})
@@ -863,14 +860,18 @@ class Nginx:
 
         return current_config != new_config
 
-    def reconcile(self):
+    def reconcile(
+        self,
+        nginx_config: str,
+        tls_config: Optional[TLSConfig] = None,
+    ):
         """Configure pebble layer and restart if necessary."""
         if self._container.can_connect():
-            self._reconcile_tls_config()
-            self._reconcile_nginx_config()
+            self._reconcile_tls_config(tls_config)
+            self._reconcile_nginx_config(nginx_config)
 
-    def _reconcile_tls_config(self):
-        if tls_config := self._tls_config_getter():
+    def _reconcile_tls_config(self, tls_config: Optional[TLSConfig] = None):
+        if tls_config:
             self._configure_tls(
                 server_cert=tls_config.server_cert,
                 ca_cert=tls_config.ca_cert,
@@ -879,13 +880,11 @@ class Nginx:
         else:
             self._delete_certificates()
 
-    def _reconcile_nginx_config(self):
-        new_config = self._config_getter(self.are_certificates_on_disk)
-        should_restart = self._has_config_changed(new_config)
-        self._container.push(self.config_path, new_config, make_dirs=True)  # type: ignore
+    def _reconcile_nginx_config(self, nginx_config: str):
+        should_restart = self._has_config_changed(nginx_config)
+        self._container.push(self.config_path, nginx_config, make_dirs=True)  # type: ignore
         self._container.add_layer("nginx", self.layer, combine=True)
         self._container.autostart()
-
         if should_restart:
             logger.info("new nginx config: restarting the service")
             # Reload the nginx config without restarting the service
