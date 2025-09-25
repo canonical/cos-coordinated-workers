@@ -413,7 +413,7 @@ class Coordinator(ops.Object):
         self.nginx.reconcile(
             nginx_config=self._nginx_config.get_config(
                 upstreams_to_addresses=self.cluster.gather_addresses_by_role(),
-                listen_tls=self.nginx.are_certificates_on_disk,
+                listen_tls=self.tls_available,
                 # TODO: pass tracing_config once https://github.com/canonical/cos-coordinated-workers/issues/77 is addressed
                 tracing_config=None,
             ),
