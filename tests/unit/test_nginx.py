@@ -3,11 +3,11 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, List, Tuple
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import ops
 import pytest
-from ops import testing
+from ops import pebble, testing
 
 from coordinated_workers.nginx import (
     CA_CERT_PATH,
@@ -341,6 +341,31 @@ def test_generate_nginx_config_with_tracing_enabled():
             Path(__file__).parent / "resources" / "sample_litmus_conf_with_tracing.txt"
         )
         assert sample_config_path.read_text() == generated_config
+
+
+def test_exception_raised_if_nginx_module_missing(caplog):
+    # GIVEN an instance of Nginx class
+    mock_container = MagicMock()
+    mock_unit = MagicMock()
+    mock_charm = MagicMock()
+    nginx = Nginx(mock_charm)
+
+    # AND a mock container that will fail when the pebble service is started
+    mock_container.autostart = MagicMock(side_effect=pebble.ChangeError("something", MagicMock()))
+    # AND ngx_otel_module file is not found in the container
+    mock_container.exists.return_value = False
+
+    mock_unit.get_container = MagicMock(return_value=mock_container)
+    mock_charm.unit = mock_unit
+
+    # WHEN we call nginx.reconcile with some tracing related config
+    # THEN an exception should be raised
+    with pytest.raises(pebble.ChangeError):
+        with caplog.at_level("ERROR"):
+            nginx.reconcile(nginx_config="dummy nginx config with ngx_otel_module")
+
+    # AND we can verify that the missing-module message is in the logs
+    assert "missing the ngx_otel_module" in caplog.text
 
 
 upstream_configs = {

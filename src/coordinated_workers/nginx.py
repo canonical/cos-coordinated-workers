@@ -884,7 +884,19 @@ class Nginx:
         should_restart = self._has_config_changed(nginx_config)
         self._container.push(self.config_path, nginx_config, make_dirs=True)  # type: ignore
         self._container.add_layer("nginx", self.layer, combine=True)
-        self._container.autostart()
+        try:
+            self._container.autostart()
+        except pebble.ChangeError:
+            # check if we're trying to load an external nginx module, but it doesn't exist in the nginx image
+            if "ngx_otel_module" in nginx_config and not self._container.exists(
+                NginxConfig.otel_module_path
+            ):
+                logger.exception(
+                    "Failed to enable tracing for nginx. The nginx image is missing the ngx_otel_module."
+                )
+            # otherwise, it's an unexpected error and we should raise it as is
+            raise
+
         if should_restart:
             logger.info("new nginx config: restarting the service")
             # Reload the nginx config without restarting the service
