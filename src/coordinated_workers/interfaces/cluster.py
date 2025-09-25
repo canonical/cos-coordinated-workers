@@ -287,7 +287,7 @@ class ClusterProvider(Object):
             try:
                 worker_app_data = ClusterRequirerAppData.load(relation.data[relation.app])
             except cosl.interfaces.utils.DataValidationError as e:
-                log.info(f"invalid databag contents: {e}")
+                log.info(f"invalid databag contents for ClusterRequirerAppData: {e}")
                 continue
 
             for worker_unit in relation.units:
@@ -297,7 +297,7 @@ class ClusterProvider(Object):
                     for role in self._expand_roles(worker_app_data.role):
                         data[role].add(unit_address)
                 except cosl.interfaces.utils.DataValidationError as e:
-                    log.info(f"invalid databag contents: {e}")
+                    log.info(f"invalid databag contents for ClusterRequirerUnitData: {e}")
                     continue
         return data
 
@@ -497,7 +497,7 @@ class ClusterRequirer(Object):
                 coordinator_databag = ClusterProviderAppData.load(databag)
                 data = coordinator_databag
             except cosl.interfaces.utils.DataValidationError as e:
-                log.info(f"invalid databag contents: {e}")
+                log.info(f"invalid databag contents: {e}", exc_info=True)
                 return None  # explicit is better than implicit
 
         return data
