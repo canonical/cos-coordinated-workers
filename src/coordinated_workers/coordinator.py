@@ -150,15 +150,13 @@ class ClusterRolesConfig:
         )
 
         error_messages = [
-            str(m)
-            for m in filter(
-                lambda msg: msg is not True,
-                [
+            m for m in (
                     are_meta_keys_valid,
                     are_meta_values_valid,
                     is_minimal_valid,
                     is_recommended_valid,
-                ],
+                )
+             if isinstance(m, str)
             )
         ]
         if error_messages:
