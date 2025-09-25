@@ -348,7 +348,6 @@ def test_exception_raised_if_nginx_module_missing(caplog):
     mock_container = MagicMock()
     mock_unit = MagicMock()
     mock_charm = MagicMock()
-    nginx = Nginx(mock_charm)
 
     # AND a mock container that will fail when the pebble service is started
     mock_container.autostart = MagicMock(side_effect=pebble.ChangeError("something", MagicMock()))
@@ -357,12 +356,13 @@ def test_exception_raised_if_nginx_module_missing(caplog):
 
     mock_unit.get_container = MagicMock(return_value=mock_container)
     mock_charm.unit = mock_unit
+    nginx = Nginx(mock_charm)
 
     # WHEN we call nginx.reconcile with some tracing related config
     # THEN an exception should be raised
     with pytest.raises(pebble.ChangeError):
         with caplog.at_level("ERROR"):
-            nginx.reconcile(nginx_config="dummy nginx config with ngx_otel_module")
+            nginx.reconcile(nginx_config="placeholder nginx config with ngx_otel_module")
 
     # AND we can verify that the missing-module message is in the logs
     assert "missing the ngx_otel_module" in caplog.text
