@@ -22,7 +22,7 @@ REPO_ROOT = Path(__file__).parent.parent.parent.resolve()
 COORDINATED_WORKER_PACKAGE_SRC = REPO_ROOT / "src/coordinated_workers"
 
 
-def copy_coordinated_worker_source(destination: Union[str, Path]):
+def _copy_coordinated_worker_source(destination: Union[str, Path]):
     """Copy the coordinated worker package to the destination directory, deleting any existing destination files first.
 
     This is useful for any tester charms needing an up-to-date copy of the coordinated_workers package.
@@ -47,7 +47,7 @@ def copy_coordinated_worker_source(destination: Union[str, Path]):
     shutil.copytree(src=source, dst=destination, dirs_exist_ok=False)
 
 
-def copy_coordinated_worker_project_files(destination: Union[str, Path]):
+def _copy_coordinated_worker_project_files(destination: Union[str, Path]):
     """Copy project files from the repo root to the destination directory.
 
     These are files that are needed for charmcraft pack to succeed, but the contents of which don't change between the
@@ -60,7 +60,7 @@ def copy_coordinated_worker_project_files(destination: Union[str, Path]):
         logging.info(f"Copied {source} to {destination_path}")
 
 
-def tester_charm_builder(tester_path: Path) -> PackedCharm:
+def _tester_charm_builder(tester_path: Path) -> PackedCharm:
     """Build a tester charm from the given path.
 
     The tester charm will have the coordinated_workers package copied into its src directory so it uses the latest
@@ -80,8 +80,8 @@ def tester_charm_builder(tester_path: Path) -> PackedCharm:
         # package.  This is copied into the tester's `src` dir because that is in the PYTHONPATH by default ahead of
         # standard packages.  The charm code will use coordinated_worker imports from here instead of the regular
         # package.
-        copy_coordinated_worker_source(destination=tester_coordinated_worker_source)
-        copy_coordinated_worker_project_files(destination=tester_path)
+        _copy_coordinated_worker_source(destination=tester_coordinated_worker_source)
+        _copy_coordinated_worker_project_files(destination=tester_path)
         logger.info(f"Packing tester charm {tester_charm_name} from {tester_path}")
         charm = pack(tester_path)
 
@@ -95,9 +95,9 @@ def tester_charm_builder(tester_path: Path) -> PackedCharm:
 
 @pytest.fixture(scope="session")
 def coordinator_charm() -> PackedCharm:
-    return tester_charm_builder(REPO_ROOT / "tests/integration/testers/coordinator")
+    return _tester_charm_builder(REPO_ROOT / "tests/integration/testers/coordinator")
 
 
 @pytest.fixture(scope="session")
 def worker_charm() -> PackedCharm:
-    return tester_charm_builder(REPO_ROOT / "tests/integration/testers/worker")
+    return _tester_charm_builder(REPO_ROOT / "tests/integration/testers/worker")
