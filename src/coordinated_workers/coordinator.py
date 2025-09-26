@@ -21,7 +21,7 @@ from typing import (
     Optional,
     Sequence,
     Set,
-    TypedDict,
+    TypedDict, cast,
 )
 from urllib.parse import urlparse
 
@@ -380,9 +380,9 @@ class Coordinator(ops.Object):
         ):
             self._mesh = ServiceMeshConsumer(
                 self._charm,
-                mesh_relation_name=mesh_relation_name,
-                cross_model_mesh_provides_name=provide_cmr_mesh_name,
-                cross_model_mesh_requires_name=require_cmr_mesh_name,
+                mesh_relation_name=str(mesh_relation_name),
+                cross_model_mesh_provides_name=str(provide_cmr_mesh_name),
+                cross_model_mesh_requires_name=str(require_cmr_mesh_name),
             )
         elif any(
             (
@@ -716,7 +716,7 @@ class Coordinator(ops.Object):
     def _worker_labels(self) -> Dict[str, str]:
         """Labels to be applied to worker pods."""
         labels = self._coordinated_worker_solution_labels
-        if self._mesh and (mesh_labels := self._mesh.labels()):
+        if self._mesh and (mesh_labels := cast(Dict[str, str], self._mesh.labels())):
             labels.update(mesh_labels)
         return labels
 
