@@ -53,11 +53,13 @@ check_libs_installed(
     "charms.observability_libs.v0.kubernetes_compute_resources_patch",
     "charms.tls_certificates_interface.v4.tls_certificates",
     "charms.catalogue_k8s.v1.catalogue",
+    "charms.istio_beacon_k8s.v0.service_mesh",
 )
 
 from charms.catalogue_k8s.v1.catalogue import CatalogueConsumer, CatalogueItem
 from charms.data_platform_libs.v0.s3 import S3Requirer
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
+from charms.istio_beacon_k8s.v0.service_mesh import ServiceMeshConsumer
 from charms.loki_k8s.v1.loki_push_api import LogForwarder, LokiPushApiConsumer
 from charms.observability_libs.v0.kubernetes_compute_resources_patch import (
     KubernetesComputeResourcesPatch,
@@ -181,6 +183,7 @@ _EndpointMapping = TypedDict(
         "send-datasource": Optional[str],
         "receive-datasource": Optional[str],
         "catalogue": Optional[str],
+        "service-mesh": Optional[str],
     },
     total=True,
 )
@@ -364,6 +367,10 @@ class Coordinator(ops.Object):
             )
             if self._resources_requests_getter
             else None
+        )
+
+        self._mesh = (
+            ServiceMeshConsumer(self._charm) if self._endpoints.get("service-mesh") else None
         )
 
         ## Observers

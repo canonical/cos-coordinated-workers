@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # Copyright 2025 Canonical Ltd.
 # See LICENSE file for licensing details.
+"""Coordinator Charm."""
+
 import logging
 
 import ops
@@ -19,6 +21,8 @@ logger = logging.getLogger(__name__)
 
 
 class CoordinatorTester(CharmBase):
+    """A Juju Charmed Operator for testing the Coordinator."""
+
     def __init__(self, framework):
         super().__init__(framework)
 

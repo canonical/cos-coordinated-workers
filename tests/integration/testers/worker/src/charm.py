@@ -15,6 +15,8 @@ container_name = "echoserver"
 
 
 class WorkerCharm(CharmBase):
+    """A Juju Charmed Operator for testing the Worker."""
+
     def __init__(self, *args):
         super().__init__(*args)
         logging.error("WorkerCharm __init__")
@@ -31,6 +33,7 @@ class WorkerCharm(CharmBase):
         )
 
     def pebble_layer(self, worker: Worker) -> Layer:
+        """Pebble layer for the echo server."""
         layer = Layer(
             # Start a listener for each defined port
             {

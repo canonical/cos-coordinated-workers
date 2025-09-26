@@ -1,3 +1,5 @@
+"""Coordinator configuration."""
+
 from enum import StrEnum, unique
 
 from coordinated_workers.coordinator import ClusterRolesConfig
@@ -12,6 +14,7 @@ class Role(StrEnum):
 
     @staticmethod
     def all_nonmeta():
+        """Return all non-meta roles."""
         return {
             Role.a,
             Role.b,
