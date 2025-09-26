@@ -21,7 +21,9 @@ from typing import (
     Optional,
     Sequence,
     Set,
+    Tuple,
     TypedDict,
+    Union,
 )
 from urllib.parse import urlparse
 
@@ -40,8 +42,10 @@ from coordinated_workers.interfaces.cluster import ClusterProvider, RemoteWriteE
 from coordinated_workers.nginx import (
     Nginx,
     NginxConfig,
+    NginxLocationConfig,
     NginxMappingOverrides,
     NginxPrometheusExporter,
+    NginxUpstream,
 )
 
 check_libs_installed(
@@ -89,6 +93,16 @@ CONSOLIDATED_METRICS_ALERT_RULES_PATH = Path("src/prometheus_alert_rules/consoli
 ORIGINAL_LOGS_ALERT_RULES_PATH = Path("src/loki_alert_rules")
 CONSOLIDATED_LOGS_ALERT_RULES_PATH = Path("src/loki_alert_rules/consolidated_rules")
 
+# Paths for proxied worker telemetry urlparse
+PROXY_WORKER_TELEMETRY_PATHS = {
+    "worker_metrics": "/proxy/worker/{unit}/metrics",
+    "loki_endpoints": "/proxy/loki/{unit}/push",
+    "remote_write_endpoints": "/proxy/remote-write/{unit}/write",
+    "charm_tracing_receivers_urls": "/proxy/charm-tracing/{protocol}/",
+    "workload_tracing_receivers_urls": "/proxy/workload-tracing/{protocol}/",
+}
+PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX = "worker-telemetry-proxy"
+
 
 class S3NotFoundError(Exception):
     """Raised when the s3 integration is not present or not ready."""
@@ -130,7 +144,7 @@ class ClusterRolesConfig:
     minimal_deployment: Iterable[str]
     """The minimal set of roles that need to be allocated for the deployment to be considered consistent."""
     recommended_deployment: Dict[str, int]
-    """The set of roles that need to be allocated for the deployment to be considered robust according to the official recommendations/guidelines.."""
+    """The set of roles that need to be allocated for the deployment to be considered robust according to the official recommendations/guidelines."""
 
     def __post_init__(self):
         """Ensure the various role specifications are consistent with one another."""
@@ -228,6 +242,7 @@ class Coordinator(ops.Object):
         remote_write_endpoints: Optional[Callable[[], List[RemoteWriteEndpoint]]] = None,
         workload_tracing_protocols: Optional[List[ReceiverProtocol]] = None,
         catalogue_item: Optional[CatalogueItem] = None,
+        proxy_worker_telemetry_port: Optional[Callable[[bool], int]] = None,
     ):
         """Constructor for a Coordinator object.
 
@@ -257,6 +272,7 @@ class Coordinator(ops.Object):
             workload_tracing_protocols: A list of protocols that the worker intends to send
                 workload traces with.
             catalogue_item: A catalogue application entry to be sent to catalogue.
+            proxy_worker_telemetry_port (optional): A function generating the HTTP port through which all worker telemetry traffic will be proxied when proxy_worker_telemetry is enabled. The function should take a boolean input which will indicate if TLS is enabled. If set, this enables routing worker metrics, logs and traces through nginx proxy.
 
         Raises:
         ValueError:
@@ -270,6 +286,7 @@ class Coordinator(ops.Object):
         self._external_url = external_url
         self._worker_metrics_port = worker_metrics_port
         self._endpoints = endpoints
+        self._nginx_config = nginx_config
         self._roles_config = roles_config
         self._container_name = container_name
         self._resources_limit_options = resources_limit_options or {}
@@ -288,6 +305,11 @@ class Coordinator(ops.Object):
         )
         self._remote_write_endpoints_getter = remote_write_endpoints
         self._workers_config_getter = partial(workers_config, self)
+        self._proxy_worker_telemetry_port: Union[int, None] = None
+        self._proxy_worker_telemetry_port_getter = proxy_worker_telemetry_port
+        self._proxy_worker_telemetry = True if self._proxy_worker_telemetry_port_getter else False
+        # check if the worker telemetry can be validly proxied, if not log it as an error
+        self._validate_proxy_worker_telemetry_setup(workload_tracing_protocols)  # type: ignore
 
         ## Integrations
         self.cluster = ClusterProvider(
@@ -297,16 +319,6 @@ class Coordinator(ops.Object):
             endpoint=self._endpoints["cluster"],
             worker_ports=worker_ports,
         )
-
-        self.nginx = Nginx(
-            self._charm,
-            config_getter=partial(
-                nginx_config.get_config, self.cluster.gather_addresses_by_role()
-            ),
-            tls_config_getter=lambda: self.tls_config,
-            options=nginx_options,
-        )
-        self.nginx_exporter = NginxPrometheusExporter(self._charm, options=nginx_options)
 
         self._certificates = TLSCertificatesRequiresV4(
             self._charm,
@@ -339,14 +351,6 @@ class Coordinator(ops.Object):
             relation_name=self._endpoints["logging"],
             alert_rules_path=str(CONSOLIDATED_LOGS_ALERT_RULES_PATH),
         )
-
-        self._scraping = MetricsEndpointProvider(
-            self._charm,
-            relation_name=self._endpoints["metrics"],
-            alert_rules_path=str(CONSOLIDATED_METRICS_ALERT_RULES_PATH),
-            jobs=self._scrape_jobs,
-            external_url=self._external_url,
-        )
         self.charm_tracing = TracingEndpointRequirer(
             self._charm,
             relation_name=self._endpoints["charm-tracing"],
@@ -356,6 +360,32 @@ class Coordinator(ops.Object):
             self._charm,
             relation_name=self._endpoints["workload-tracing"],
             protocols=workload_tracing_protocols,
+        )
+
+        # NOTE: setup nginx after tracing requirers as uses logging and tracing endpoints for config building
+        if self._proxy_worker_telemetry_port_getter:
+            self._proxy_worker_telemetry_port = self._proxy_worker_telemetry_port_getter(
+                self.tls_available
+            )
+        self._upstreams_to_addresses = self.cluster.gather_addresses_by_role()
+        if self._proxy_worker_telemetry:
+            self._setup_proxy_worker_telemetry()
+
+        self.nginx = Nginx(
+            self._charm,
+            config_getter=partial(self._nginx_config.get_config, self._upstreams_to_addresses),
+            tls_config_getter=lambda: self.tls_config,
+            options=nginx_options,
+        )
+        self.nginx_exporter = NginxPrometheusExporter(self._charm, options=nginx_options)
+
+        # NOTE: setup metrics after nginx as scrape jobs include nginx scrape jobs as well
+        self._scraping = MetricsEndpointProvider(
+            self._charm,
+            relation_name=self._endpoints["metrics"],
+            alert_rules_path=str(CONSOLIDATED_METRICS_ALERT_RULES_PATH),
+            jobs=self._scrape_jobs,
+            external_url=self._external_url,
         )
 
         # Resources patch
@@ -624,10 +654,24 @@ class Coordinator(ops.Object):
         scrape_jobs: List[Dict[str, Any]] = []
 
         for worker_topology in self.cluster.gather_topology():
+            if self._proxy_worker_telemetry:
+                # when proxied through nginx
+                # address: address of the coordinator
+                # path: location used in the nginx config for proxying worker metric
+                targets = [f"{self.hostname}:{self._proxy_worker_telemetry_port}"]
+                metrics_path = PROXY_WORKER_TELEMETRY_PATHS["worker_metrics"].format(
+                    unit=worker_topology["unit"].replace("/", "-"),
+                )
+            else:
+                # Direct access to worker metrics endpoints
+                targets = [f"{worker_topology['address']}:{self._worker_metrics_port}"]
+                metrics_path = "/metrics"
+
             job = {
+                "metrics_path": metrics_path,
                 "static_configs": [
                     {
-                        "targets": [f"{worker_topology['address']}:{self._worker_metrics_port}"],
+                        "targets": targets,
                     }
                 ],
                 # setting these as "labels" in the static config gets some of them
@@ -766,7 +810,9 @@ class Coordinator(ops.Object):
         # are no changes, Juju will notice there's no delta and do nothing
         self.cluster.publish_data(
             worker_config=self._workers_config_getter(),
-            loki_endpoints=self.loki_endpoints_by_unit,
+            loki_endpoints=self.proxy_loki_endpoints_by_unit
+            if self._proxy_worker_telemetry
+            else self.loki_endpoints_by_unit,
             # all arguments below are optional:
             ca_cert=tls_config.ca_cert if tls_config else None,
             server_cert=tls_config.server_cert if tls_config else None,
@@ -775,13 +821,13 @@ class Coordinator(ops.Object):
             privkey_secret_id=self.cluster.grant_privkey(
                 self._certificates._get_private_key_secret_label()  # type: ignore
             ),
-            charm_tracing_receivers=self._charm_tracing_receivers_urls,
-            workload_tracing_receivers=self._workload_tracing_receivers_urls,
-            remote_write_endpoints=(
-                self._remote_write_endpoints_getter()
-                if self._remote_write_endpoints_getter
-                else None
-            ),
+            charm_tracing_receivers=self._proxy_charm_tracing_receivers_urls
+            if self._proxy_worker_telemetry
+            else self._charm_tracing_receivers_urls,
+            workload_tracing_receivers=self._proxy_workload_tracing_receivers_urls
+            if self._proxy_worker_telemetry
+            else self._workload_tracing_receivers_urls,
+            remote_write_endpoints=self.remote_write_endpoints,
             s3_tls_ca_chain=self.s3_connection_info.ca_cert,
         )
 
@@ -872,3 +918,352 @@ class Coordinator(ops.Object):
                 url=endpoint + "/v1/traces",
                 ca=self.tls_config.ca_cert if self.tls_config else None,
             )
+
+    #####################################
+    # WORKER TELEMETRY PROXYING HELPERS #
+    #####################################
+    @property
+    def proxy_loki_endpoints_by_unit(self) -> Dict[str, str]:
+        """Returns proxy loki endpoints published to the cluster provider for log forwarding via the proxy.
+
+        Returns:
+            A dictionary of remote units and the respective proxy Loki endpoint.
+            {
+                "loki/0": "http://tempo:3200/proxy/loki/loki-0/push",
+                "another-loki/0": "http://tempo:3200/proxy/loki/another-loki-0/push",
+            }
+        """
+        endpoints: Dict[str, str] = {}
+
+        for unit in self.loki_endpoints_by_unit:
+            scheme = "https" if self.tls_available else "http"
+            endpoints[unit] = (
+                f"{scheme}://{self.hostname}:{self._proxy_worker_telemetry_port}{PROXY_WORKER_TELEMETRY_PATHS['loki_endpoints'].format(unit=unit.replace('/', '-'))}"
+            )
+
+        return endpoints
+
+    @property
+    def remote_write_endpoints(self):
+        """Returns the remote write endpoints based on if its available and if proxying telemetry is enabled."""
+        if not self._remote_write_endpoints_getter:
+            return None
+        return (
+            self.proxy_remote_write_endpoints
+            if self._proxy_worker_telemetry
+            else self._remote_write_endpoints_getter()
+        )
+
+    @property
+    def proxy_remote_write_endpoints(self) -> Union[List[RemoteWriteEndpoint], None]:
+        """Returns proxy remote write endpoints published to the cluster provider for metrics forwarding via the proxy.
+
+        Returns:
+            A list of RemoteWriteEndpoint.
+        """
+        endpoints: List[RemoteWriteEndpoint] = []
+
+        if not self._remote_write_endpoints_getter:
+            return None
+
+        for remote_write_endpoint in self._remote_write_endpoints_getter():
+            parsed_address = urlparse(remote_write_endpoint["url"])
+            unit = parsed_address.hostname.split(".")[0]  # type: ignore
+            scheme = "https" if self.tls_available else "http"
+            proxy_url = f"{scheme}://{self.hostname}:{self._proxy_worker_telemetry_port}{PROXY_WORKER_TELEMETRY_PATHS['remote_write_endpoints'].format(unit=unit)}"
+            endpoints.append(RemoteWriteEndpoint(url=proxy_url))
+
+        return endpoints
+
+    @property
+    def _proxy_charm_tracing_receivers_urls(self) -> Dict[str, str]:
+        """Returns proxy charm tracing receivers urls published to the cluster."""
+        urls: Dict[str, str] = {}
+
+        for protocol in self._charm_tracing_receivers_urls:
+            scheme = "https" if self.tls_available else "http"
+            proxy_url = f"{scheme}://{self.hostname}:{self._proxy_worker_telemetry_port}{PROXY_WORKER_TELEMETRY_PATHS['charm_tracing_receivers_urls'].format(protocol=protocol)}"
+            urls.update({protocol: proxy_url})
+
+        return urls
+
+    @property
+    def _proxy_workload_tracing_receivers_urls(self) -> Dict[str, str]:
+        """Returns proxy workload tracing receivers urls published to the cluster."""
+        urls: Dict[str, str] = {}
+
+        for protocol in self._workload_tracing_receivers_urls:
+            scheme = "https" if self.tls_available else "http"
+            proxy_url = f"{scheme}://{self.hostname}:{self._proxy_worker_telemetry_port}{PROXY_WORKER_TELEMETRY_PATHS['workload_tracing_receivers_urls'].format(protocol=protocol)}"
+            urls.update({protocol: proxy_url})
+
+        return urls
+
+    def _validate_proxy_worker_telemetry_setup(
+        self,
+        workload_tracing_protocols: Union[List[ReceiverProtocol], None],  # type: ignore
+    ) -> None:
+        """Check if a valid proxy setup for worker telemetry is possible."""
+        # return true if proxying for worker telemetry is not enabled
+        if not self._proxy_worker_telemetry:
+            return
+        # if no workload protocol is defined, let the TracingEndpointRequirer handle this
+        if not workload_tracing_protocols:
+            return
+        # FIXME: GRPC should be allowed. Create an issue and link here.
+        for protocol in workload_tracing_protocols:  # type: ignore
+            if "grpc" in protocol:
+                logger.error(
+                    "Proxying worker telemetry via the coordinator failed."
+                    "Proxying worker telemetry does not support receiving workload traces via a GRPC based protocol."
+                )
+                break
+
+    def _setup_proxy_worker_telemetry(self) -> None:
+        """Extends nginx configuration with configurations required proxying worker telemetry to and from the workers via nginx."""
+        # Extend nginx config with worker metrics if enabled
+        worker_topology = self.cluster.gather_topology()
+        if worker_topology:
+            telemetry_upstreams, telemetry_locations = (
+                self._generate_worker_telemetry_nginx_config(worker_topology)
+            )
+            self._nginx_config.extend_upstream_configs(telemetry_upstreams)
+            self._nginx_config.update_server_ports_to_locations(
+                telemetry_locations, overwrite=False
+            )
+            self._update_upstreams_with_worker_telemetry_servers()
+
+    def _update_upstreams_with_worker_telemetry_servers(self) -> None:
+        """Update the upstreams in the nginx config to include the required servers/clients that send/receive worker telemetry."""
+        # Merge role-based and unit-based addresses collection for nginx config
+        # Every unit will get its own upstream for metric proxying
+        self._upstreams_to_addresses.update(self.cluster.gather_addresses_by_unit())
+
+        # loki upstream to address mapper
+        for loki_unit, address in self.loki_endpoints_by_unit.items():
+            p = urlparse(address)
+            self._upstreams_to_addresses[loki_unit] = {p.hostname}  # type: ignore
+
+        # remote write upstream to address mapper
+        if self._remote_write_endpoints_getter:
+            for endpoint in self._remote_write_endpoints_getter():
+                p = urlparse(endpoint["url"])
+                remote_write_unit = p.hostname.split(".")[0]  # type: ignore
+                self._upstreams_to_addresses[remote_write_unit] = {p.hostname}  # type: ignore
+
+        # tracing upstream to address mapper (both charm and workload)
+        tracing_configs = [
+            ("charm", self._charm_tracing_receivers_urls),
+            ("workload", self._workload_tracing_receivers_urls),
+        ]
+
+        for tracing_type, receivers_urls in tracing_configs:
+            for protocol, address in receivers_urls.items():
+                p = urlparse(address)
+                upstream_name = (
+                    f"{PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX}-{tracing_type}-{protocol}"
+                )
+                self._upstreams_to_addresses[upstream_name] = {p.hostname}  # type: ignore
+
+    def _generate_worker_telemetry_nginx_config(
+        self, worker_topology: List[Dict[str, str]]
+    ) -> Tuple[List[NginxUpstream], Dict[int, List[NginxLocationConfig]]]:
+        """Generate nginx upstreams and locations for proxying worker telemetry via nginx."""
+        upstreams_worker_metrics, locations_worker_metrics = (
+            self._generate_worker_metrics_nginx_config(
+                worker_topology,
+            )
+        )
+        upstreams_loki_endpoints, locations_loki_endpoints = (
+            self._generate_loki_endpoints_nginx_config()
+        )
+        upstreams_remote_write_endpoints, locations_remote_write_endpoints = (
+            self._generate_remote_write_endpoints_nginx_config()
+        )
+        upstreams_tracing_urls, locations_tracing_urls = self._generate_tracing_urls_nginx_config()
+
+        upstreams: List[NginxUpstream] = [
+            *upstreams_worker_metrics,
+            *upstreams_loki_endpoints,
+            *upstreams_remote_write_endpoints,
+            *upstreams_tracing_urls,
+        ]
+        locations: Dict[int, List[NginxLocationConfig]] = {
+            self._proxy_worker_telemetry_port: [  # type: ignore
+                *locations_worker_metrics,
+                *locations_loki_endpoints,
+                *locations_remote_write_endpoints,
+                *locations_tracing_urls,
+            ]
+        }
+
+        return upstreams, locations
+
+    def _generate_worker_metrics_nginx_config(
+        self, worker_topology: List[Dict[str, str]]
+    ) -> Tuple[List[NginxUpstream], List[NginxLocationConfig]]:
+        """Generate nginx upstreams and locations for worker metrics routing."""
+        upstreams: List[NginxUpstream] = []
+        locations: List[NginxLocationConfig] = []
+
+        for worker_ in worker_topology:
+            unit_name = worker_["unit"]
+            unit_name_sanitized = unit_name.replace("/", "-")
+            upstream_name = f"{PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX}-{unit_name_sanitized}"
+
+            upstreams.append(
+                NginxUpstream(
+                    name=upstream_name,
+                    port=self._worker_metrics_port,
+                    address_lookup_key=unit_name,
+                )
+            )
+
+            locations.append(
+                NginxLocationConfig(
+                    path=PROXY_WORKER_TELEMETRY_PATHS["worker_metrics"].format(
+                        unit=unit_name_sanitized
+                    ),
+                    backend=upstream_name,
+                    backend_url="/metrics",
+                    upstream_tls=self.tls_available,
+                    modifier="=",  # exact match, match only the metrics endpoint
+                    is_grpc=False,
+                )
+            )
+
+        return upstreams, locations
+
+    def _generate_loki_endpoints_nginx_config(
+        self,
+    ) -> Tuple[List[NginxUpstream], List[NginxLocationConfig]]:
+        """Generate nginx upstreams and locations for loki endpoints routing."""
+        upstreams: List[NginxUpstream] = []
+        locations: List[NginxLocationConfig] = []
+
+        for unit_name, address in self.loki_endpoints_by_unit.items():
+            parsed_address = urlparse(address)
+
+            unit_name_sanitized = unit_name.replace("/", "-")
+            upstream_name = f"{PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX}-{unit_name_sanitized}"
+
+            upstreams.append(
+                NginxUpstream(
+                    name=upstream_name,
+                    port=parsed_address.port,  # type: ignore
+                    address_lookup_key=unit_name,
+                )
+            )
+
+            locations.append(
+                NginxLocationConfig(
+                    path=PROXY_WORKER_TELEMETRY_PATHS["loki_endpoints"].format(
+                        unit=unit_name_sanitized
+                    ),
+                    backend=upstream_name,
+                    backend_url=parsed_address.path,
+                    upstream_tls=parsed_address.scheme.endswith("s"),
+                    modifier="=",  # exact match, match only the push endpoint
+                    is_grpc=False,
+                )
+            )
+
+        return upstreams, locations
+
+    def _generate_remote_write_endpoints_nginx_config(
+        self,
+    ) -> Tuple[List[NginxUpstream], List[NginxLocationConfig]]:
+        """Generate nginx upstreams and locations for remote write endpoints routing."""
+        upstreams: List[NginxUpstream] = []
+        locations: List[NginxLocationConfig] = []
+
+        if not self._remote_write_endpoints_getter:
+            return upstreams, locations
+
+        remote_write_endpoints: List[RemoteWriteEndpoint] = self._remote_write_endpoints_getter()
+
+        for remote_write_endpoint in remote_write_endpoints:
+            parsed_address = urlparse(remote_write_endpoint["url"])
+
+            unit_name_sanitized = parsed_address.hostname.split(".")[0]  # type: ignore
+            upstream_name = f"{PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX}-{unit_name_sanitized}"
+
+            upstreams.append(
+                NginxUpstream(
+                    name=upstream_name,
+                    port=parsed_address.port,  # type: ignore
+                    address_lookup_key=unit_name_sanitized,
+                )
+            )
+
+            locations.append(
+                NginxLocationConfig(
+                    path=PROXY_WORKER_TELEMETRY_PATHS["remote_write_endpoints"].format(
+                        unit=unit_name_sanitized
+                    ),
+                    backend=upstream_name,
+                    backend_url=parsed_address.path,
+                    upstream_tls=parsed_address.scheme.endswith("s"),
+                    modifier="=",  # exact match, match only the remote write path
+                    is_grpc=False,
+                )
+            )
+
+        return upstreams, locations
+
+    def _generate_tracing_urls_nginx_config(
+        self,
+    ) -> Tuple[List[NginxUpstream], List[NginxLocationConfig]]:
+        """Generate nginx upstreams and locations for routing charm and workload tracing."""
+        upstreams: List[NginxUpstream] = []
+        locations: List[NginxLocationConfig] = []
+        created_upstreams: Set[str] = set()
+
+        tracing_types = [
+            (
+                "charm",
+                self._charm_tracing_receivers_urls,
+                PROXY_WORKER_TELEMETRY_PATHS["charm_tracing_receivers_urls"],
+            ),
+            (
+                "workload",
+                self._workload_tracing_receivers_urls,
+                PROXY_WORKER_TELEMETRY_PATHS["workload_tracing_receivers_urls"],
+            ),
+        ]
+
+        for tracing_type, receivers_urls, path_template in tracing_types:
+            for protocol, address in receivers_urls.items():
+                parsed_address = urlparse(address)
+                upstream_name = (
+                    f"{PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX}-{tracing_type}-{protocol}"
+                )
+
+                # Create upstream if we haven't already
+                if upstream_name not in created_upstreams:
+                    upstreams.append(
+                        NginxUpstream(
+                            name=upstream_name,
+                            port=parsed_address.port,  # type: ignore
+                            address_lookup_key=upstream_name,
+                        )
+                    )
+                    created_upstreams.add(upstream_name)
+
+                # Create tracing location
+                locations.append(
+                    NginxLocationConfig(
+                        path=path_template.format(protocol=protocol),
+                        backend=upstream_name,
+                        backend_url=parsed_address.path,
+                        rewrite=[
+                            f"^{path_template.format(protocol=protocol)}(.*)",
+                            "/$1",
+                            "break",
+                        ],  # strip the custom prefix before redirecting
+                        upstream_tls=parsed_address.scheme.endswith("s"),
+                        is_grpc=False,  # FIXME: GRPC must be allowed. Create an issue and link here.
+                    )
+                )
+
+        return upstreams, locations
