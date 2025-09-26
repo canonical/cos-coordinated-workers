@@ -1100,3 +1100,45 @@ def test_get_workload_tracing_receivers(remote_databag, expected):
         charm = mgr.charm
         # THEN the charm tracing receivers are picked up correctly
         assert charm.worker.cluster.get_workload_tracing_receivers() == expected
+
+
+@pytest.mark.parametrize(
+    "remote_databag, expected",
+    (
+        (
+            {
+                "pod_labels": json.dumps({"label1": "value1", "label2": "value2"}),
+                "worker_config": json.dumps("test"),
+            },
+            {"label1": "value1", "label2": "value2"},
+        ),
+    ),
+)
+# is_ready=False to disable most of the charm logic as we dont need it here
+@patch.object(Worker, "is_ready", new=lambda _: False)
+def test_worker_charm_labels(remote_databag, expected, mock_worker_reconcile_charm_labels):
+    """Assert the Worker correctly tries to reconcile the expected labels."""
+    ctx = testing.Context(
+        MyCharm,
+        meta={
+            "name": "foo",
+            "requires": {"cluster": {"interface": "cluster"}},
+            "containers": {"foo": {"type": "oci-image"}},
+        },
+        config={"options": {"role-all": {"type": "boolean", "default": True}}},
+    )
+    container = testing.Container(
+        "foo",
+        execs={testing.Exec(("update-ca-certificates", "--fresh"))},
+        can_connect=True,
+    )
+    relation = testing.Relation(
+        "cluster",
+        remote_app_data=remote_databag,
+    )
+    ctx.run(
+        ctx.on.relation_changed(relation),
+        testing.State(containers={container}, relations={relation}),
+    )
+
+    assert mock_worker_reconcile_charm_labels.call_args.kwargs["labels"] == expected
