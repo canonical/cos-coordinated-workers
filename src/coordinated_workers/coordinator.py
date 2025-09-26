@@ -716,8 +716,9 @@ class Coordinator(ops.Object):
     @property
     def _worker_labels(self) -> Dict[str, str]:
         """Labels to be applied to worker pods."""
-        labels = self._coordinated_worker_solution_labels
-        if self._mesh and (mesh_labels := cast(Dict[str, str], self._mesh.labels())):
+        labels = cast(Dict[str, str], self._coordinated_worker_solution_labels)
+        if self._mesh and (mesh_labels := self._mesh.labels()):
+            mesh_labels = cast(Dict[str, str], mesh_labels)
             labels.update(mesh_labels)
         return labels
 
