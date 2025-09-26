@@ -64,10 +64,22 @@ def patch_all(tmp_path: Path):
 
 
 @pytest.fixture(autouse=True)
+def mock_worker_lightkube_client(request):
+    """Global mock for the Worker's lightkube client to avoid lightkube calls."""
+    # Skip this fixture if the test has explicitly disabled it.
+    # To use this feature in a test, mark it with @pytest.mark.disable_worker_lightkube_client_autouse
+    if "disable_worker_lightkube_client_autouse" in request.keywords:
+        yield
+    else:
+        with patch("coordinated_workers.worker.Client") as mocked:
+            yield mocked
+
+
+@pytest.fixture(autouse=True)
 def mock_worker_reconcile_charm_labels(request):
     """Global mock for the Worker's reconcile_charm_labels to avoid lightkube calls."""
     # Skip this fixture if the test has explicitly disabled it.
-    # To use this feature in a test, mark it with @pytest.mark.disable_charm_lightkube_client_autouse
+    # To use this feature in a test, mark it with @pytest.mark.disable_worker_reconcile_charm_labels_autouse
     if "disable_worker_reconcile_charm_labels_autouse" in request.keywords:
         yield
     else:
