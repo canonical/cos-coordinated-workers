@@ -345,9 +345,13 @@ class Coordinator(ops.Object):
 
         self._proxy_worker_telemetry_port: Optional[int] = None
         if worker_telemetry_proxy_config:
-            self._proxy_worker_telemetry_port = worker_telemetry_proxy_config.http if self.tls_available else worker_telemetry_proxy_config.https
+            self._proxy_worker_telemetry_port = (
+                worker_telemetry_proxy_config.http
+                if self.tls_available
+                else worker_telemetry_proxy_config.https
+            )
             worker_telemetry.configure(
-                worker_telemetry_proxy_config=worker_telemetry_proxy_config,
+                tls_available=self.tls_available,
                 nginx_config=self._nginx_config,
                 workload_tracing_protocols=workload_tracing_protocols or [],
                 worker_topology=self.cluster.gather_topology(),
@@ -356,7 +360,7 @@ class Coordinator(ops.Object):
                 workload_tracing_receivers_urls=self._workload_tracing_receivers_urls,
                 loki_endpoints_by_unit=self.loki_endpoints_by_unit,
                 remote_write_endpoints_getter=self._remote_write_endpoints_getter,
-                proxy_worker_telemetry_port=self._proxy_worker_telemetry_port
+                proxy_worker_telemetry_port=self._proxy_worker_telemetry_port,
             )
             worker_telemetry.configure_upstreams(
                 upstreams_to_addresses=self._upstreams_to_addresses,
@@ -460,17 +464,17 @@ class Coordinator(ops.Object):
     # UTILITY PROPERTIES #
     ######################
 
-    def _tracing_receivers_urls(self, requirer:TracingEndpointRequirer, _type: str):
+    def _tracing_receivers_urls(self, requirer: TracingEndpointRequirer, _type: str):
         endpoints = requirer.get_all_endpoints()
         receivers = endpoints.receivers if endpoints else ()
 
         if proxy_worker_telemetry_port := self._proxy_worker_telemetry_port:
             return worker_telemetry.tracing_receivers_urls(
-                protocols = [receiver.protocol.name for receiver in receivers],
+                protocols=[receiver.protocol.name for receiver in receivers],
                 tls_available=self.tls_available,
                 hostname=self.hostname,
                 proxy_worker_telemetry_port=proxy_worker_telemetry_port,
-                endpoint=_type
+                endpoint=_type,
             )
 
         return {receiver.protocol.name: receiver.url for receiver in receivers}
@@ -497,7 +501,7 @@ class Coordinator(ops.Object):
                 proxy_worker_telemetry_port=proxy_worker_telemetry_port,
                 endpoints=endpoints,
                 tls_available=self.tls_available,
-                hostname=self.hostname
+                hostname=self.hostname,
             )
         return endpoints
 
@@ -680,7 +684,9 @@ class Coordinator(ops.Object):
                 # address: address of the coordinator
                 # path: location used in the nginx config for proxying worker metric
                 targets = [f"{self.hostname}:{self._proxy_worker_telemetry_port}"]
-                metrics_path = worker_telemetry.PROXY_WORKER_TELEMETRY_PATHS["worker_metrics"].format(
+                metrics_path = worker_telemetry.PROXY_WORKER_TELEMETRY_PATHS[
+                    "worker_metrics"
+                ].format(
                     unit=worker_topology["unit"].replace("/", "-"),
                 )
             else:
@@ -810,10 +816,7 @@ class Coordinator(ops.Object):
 
         if proxy_worker_telemetry_port := self._proxy_worker_telemetry_port:
             return worker_telemetry.proxy_loki_endpoints_by_unit(
-                relations,
-                self.tls_available,
-                self.hostname,
-                proxy_worker_telemetry_port
+                relations, self.tls_available, self.hostname, proxy_worker_telemetry_port
             )
 
         else:

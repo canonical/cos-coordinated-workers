@@ -1,9 +1,8 @@
 import dataclasses
-from typing import Callable, Dict, List, Optional, Set, Tuple, TypeAlias, Iterable, Union
+from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple, TypeAlias, Union
 from urllib.parse import urlparse
 
 import ops
-
 from charms.tempo_coordinator_k8s.v0.tracing import ReceiverProtocol
 
 from coordinated_workers.interfaces.cluster import RemoteWriteEndpoint
@@ -71,7 +70,7 @@ def configure_upstreams(
 
 
 def configure(
-    worker_telemetry_proxy_config: WorkerTelemetryProxyConfig,
+    tls_available: bool,
     nginx_config: NginxConfig,
     worker_topology: WorkerTopology,
     workload_tracing_protocols: List[ReceiverProtocol],
@@ -80,11 +79,12 @@ def configure(
     charm_tracing_receivers_urls: Dict[str, str],
     workload_tracing_receivers_urls: Dict[str, str],
     loki_endpoints_by_unit: Dict[str, str],
-        proxy_worker_telemetry_port:int
+    proxy_worker_telemetry_port: int,
 ):
     """Modify nginx configuration to proxy worker telemetry."""
     _validate_proxy_worker_telemetry_setup(workload_tracing_protocols)
     _setup_proxy_worker_telemetry(
+        tls_available=tls_available,
         nginx_config=nginx_config,
         worker_topology=worker_topology,
         worker_metrics_port=worker_metrics_port,
@@ -92,7 +92,7 @@ def configure(
         charm_tracing_receivers_urls=charm_tracing_receivers_urls,
         workload_tracing_receivers_urls=workload_tracing_receivers_urls,
         loki_endpoints_by_unit=loki_endpoints_by_unit,
-        proxy_worker_telemetry_port=proxy_worker_telemetry_port
+        proxy_worker_telemetry_port=proxy_worker_telemetry_port,
     )
 
 
@@ -113,6 +113,7 @@ def _validate_proxy_worker_telemetry_setup(
 
 def _setup_proxy_worker_telemetry(
     nginx_config: NginxConfig,
+    tls_available: bool,
     worker_topology: WorkerTopology,
     worker_metrics_port: int,
     charm_tracing_receivers_urls: Dict[str, str],
@@ -134,6 +135,7 @@ def _setup_proxy_worker_telemetry(
             workload_tracing_receivers_urls=workload_tracing_receivers_urls,
             loki_endpoints_by_unit=loki_endpoints_by_unit,
             proxy_worker_telemetry_port=proxy_worker_telemetry_port,
+            tls_available=tls_available,
         )
         nginx_config.extend_upstream_configs(telemetry_upstreams)
         nginx_config.update_server_ports_to_locations(telemetry_locations, overwrite=False)
@@ -147,10 +149,11 @@ def _generate_worker_telemetry_nginx_config(
     workload_tracing_receivers_urls: Dict[str, str],
     loki_endpoints_by_unit: Dict[str, str],
     proxy_worker_telemetry_port: int,
+    tls_available: bool,
 ) -> Tuple[List[NginxUpstream], Dict[int, List[NginxLocationConfig]]]:
     """Generate nginx upstreams and locations for proxying worker telemetry via nginx."""
     upstreams_worker_metrics, locations_worker_metrics = _generate_worker_metrics_nginx_config(
-        worker_topology, worker_metrics_port=worker_metrics_port
+        worker_topology, worker_metrics_port=worker_metrics_port, tls_available=tls_available
     )
     upstreams_loki_endpoints, locations_loki_endpoints = _generate_loki_endpoints_nginx_config(
         loki_endpoints_by_unit=loki_endpoints_by_unit
@@ -205,9 +208,7 @@ def _generate_worker_metrics_nginx_config(
 
         locations.append(
             NginxLocationConfig(
-                path=PROXY_WORKER_TELEMETRY_PATHS["metrics"].format(
-                    unit=unit_name_sanitized
-                ),
+                path=PROXY_WORKER_TELEMETRY_PATHS["metrics"].format(unit=unit_name_sanitized),
                 backend=upstream_name,
                 backend_url="/metrics",
                 upstream_tls=tls_available,
@@ -242,9 +243,7 @@ def _generate_loki_endpoints_nginx_config(
 
         locations.append(
             NginxLocationConfig(
-                path=PROXY_WORKER_TELEMETRY_PATHS["logging"].format(
-                    unit=unit_name_sanitized
-                ),
+                path=PROXY_WORKER_TELEMETRY_PATHS["logging"].format(unit=unit_name_sanitized),
                 backend=upstream_name,
                 backend_url=parsed_address.path,
                 upstream_tls=parsed_address.scheme.endswith("s"),
@@ -284,9 +283,7 @@ def _generate_remote_write_endpoints_nginx_config(
 
         locations.append(
             NginxLocationConfig(
-                path=PROXY_WORKER_TELEMETRY_PATHS["remote-write"].format(
-                    unit=unit_name_sanitized
-                ),
+                path=PROXY_WORKER_TELEMETRY_PATHS["remote-write"].format(unit=unit_name_sanitized),
                 backend=upstream_name,
                 backend_url=parsed_address.path,
                 upstream_tls=parsed_address.scheme.endswith("s"),
@@ -366,19 +363,19 @@ def proxy_loki_endpoints_by_unit(
     for relation in logging_relations:
         for unit in relation.units:
             scheme = "https" if tls_available else "http"
-            worker_tlm_path= PROXY_WORKER_TELEMETRY_PATHS['logging']
-            sanitized_worker_tlm_path = worker_tlm_path.format(unit=unit.name.replace('/', '-'))
-            endpoints[unit.name] = f"{scheme}://{hostname}:{proxy_worker_telemetry_port}{sanitized_worker_tlm_path}"
+            worker_tlm_path = PROXY_WORKER_TELEMETRY_PATHS["logging"]
+            sanitized_worker_tlm_path = worker_tlm_path.format(unit=unit.name.replace("/", "-"))
+            endpoints[unit.name] = (
+                f"{scheme}://{hostname}:{proxy_worker_telemetry_port}{sanitized_worker_tlm_path}"
+            )
     return endpoints
 
 
-
-
 def remote_write_endpoints(
-        proxy_worker_telemetry_port:int,
-        endpoints:List[RemoteWriteEndpoint],
-        tls_available: bool,
-        hostname: str,
+    proxy_worker_telemetry_port: int,
+    endpoints: List[RemoteWriteEndpoint],
+    tls_available: bool,
+    hostname: str,
 ) -> Union[List[RemoteWriteEndpoint], None]:
     """Returns proxy remote write endpoints published to the cluster provider for metrics forwarding via the proxy.
 
@@ -391,17 +388,19 @@ def remote_write_endpoints(
         parsed_address = urlparse(remote_write_endpoint["url"])
         unit = parsed_address.hostname.split(".")[0]  # type: ignore
         scheme = "https" if tls_available else "http"
-        proxy_url = f"{scheme}://{hostname}:{proxy_worker_telemetry_port}{PROXY_WORKER_TELEMETRY_PATHS["remote-write"].format(unit=unit)}"
+        proxy_url = f"{scheme}://{hostname}:{proxy_worker_telemetry_port}{PROXY_WORKER_TELEMETRY_PATHS['remote-write'].format(unit=unit)}"
         proxied_endpoints.append(RemoteWriteEndpoint(url=proxy_url))
 
     return proxied_endpoints
 
 
-def tracing_receivers_urls(protocols:List[str],
-                         tls_available:bool, hostname:str,
-                         proxy_worker_telemetry_port:int,
-                            endpoint:str,
-                                 ) -> Dict[str, str]:
+def tracing_receivers_urls(
+    protocols: List[str],
+    tls_available: bool,
+    hostname: str,
+    proxy_worker_telemetry_port: int,
+    endpoint: str,
+) -> Dict[str, str]:
     """Returns proxy charm tracing receivers urls published to the cluster."""
     urls: Dict[str, str] = {}
 
