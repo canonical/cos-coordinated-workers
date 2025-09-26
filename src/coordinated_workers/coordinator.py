@@ -272,6 +272,7 @@ class Coordinator(ops.Object):
         self._endpoints = endpoints
         self._nginx_config = nginx_config
         self._roles_config = roles_config
+        self._workload_tracing_protocols = workload_tracing_protocols
         self._container_name = container_name
         self._resources_limit_options = resources_limit_options or {}
         self._catalogue_item = catalogue_item
@@ -349,26 +350,6 @@ class Coordinator(ops.Object):
                 worker_telemetry_proxy_config.http
                 if self.tls_available
                 else worker_telemetry_proxy_config.https
-            )
-            worker_telemetry.configure(
-                tls_available=self.tls_available,
-                nginx_config=self._nginx_config,
-                workload_tracing_protocols=workload_tracing_protocols or [],
-                worker_topology=self.cluster.gather_topology(),
-                worker_metrics_port=self._worker_metrics_port,
-                charm_tracing_receivers_urls=self._charm_tracing_receivers_urls,
-                workload_tracing_receivers_urls=self._workload_tracing_receivers_urls,
-                loki_endpoints_by_unit=self.loki_endpoints_by_unit,
-                remote_write_endpoints_getter=self._remote_write_endpoints_getter,
-                proxy_worker_telemetry_port=self._proxy_worker_telemetry_port,
-            )
-            worker_telemetry.configure_upstreams(
-                upstreams_to_addresses=self._upstreams_to_addresses,
-                addresses_by_unit=self.cluster.gather_addresses_by_unit(),
-                remote_write_endpoints_getter=self._remote_write_endpoints_getter,
-                charm_tracing_receivers_urls=self._charm_tracing_receivers_urls,
-                workload_tracing_receivers_urls=self._workload_tracing_receivers_urls,
-                loki_endpoints_by_unit=self.loki_endpoints_by_unit,
             )
 
         # NOTE: setup nginx after tracing requirers as it uses logging and tracing endpoints
@@ -448,6 +429,7 @@ class Coordinator(ops.Object):
         self._setup_charm_tracing()
 
         # reconcile workloads
+        self._reconcile_worker_telemetry() # keep this above nginx.reconcile() since it modifies the nginx config
         self.nginx.reconcile()
         self.nginx_exporter.reconcile()
 
@@ -945,3 +927,25 @@ class Coordinator(ops.Object):
                 url=endpoint + "/v1/traces",
                 ca=self.tls_config.ca_cert if self.tls_config else None,
             )
+
+    def _reconcile_worker_telemetry(self):
+        worker_telemetry.configure(
+            tls_available=self.tls_available,
+            nginx_config=self._nginx_config,
+            workload_tracing_protocols=self._workload_tracing_protocols or [],
+            worker_topology=self.cluster.gather_topology(),
+            worker_metrics_port=self._worker_metrics_port,
+            charm_tracing_receivers_urls=self._charm_tracing_receivers_urls,
+            workload_tracing_receivers_urls=self._workload_tracing_receivers_urls,
+            loki_endpoints_by_unit=self.loki_endpoints_by_unit,
+            remote_write_endpoints_getter=self._remote_write_endpoints_getter,
+            proxy_worker_telemetry_port=self._proxy_worker_telemetry_port,
+        )
+        worker_telemetry.configure_upstreams(
+            upstreams_to_addresses=self._upstreams_to_addresses,
+            addresses_by_unit=self.cluster.gather_addresses_by_unit(),
+            remote_write_endpoints_getter=self._remote_write_endpoints_getter,
+            charm_tracing_receivers_urls=self._charm_tracing_receivers_urls,
+            workload_tracing_receivers_urls=self._workload_tracing_receivers_urls,
+            loki_endpoints_by_unit=self.loki_endpoints_by_unit,
+        )
