@@ -239,7 +239,6 @@ class Coordinator(ops.Object):
         remote_write_endpoints: Optional[Callable[[], List[RemoteWriteEndpoint]]] = None,
         workload_tracing_protocols: Optional[List[ReceiverProtocol]] = None,
         catalogue_item: Optional[CatalogueItem] = None,
-        proxy_worker_telemetry: Optional[bool] = False,
         proxy_worker_telemetry_port: Optional[Callable[[bool], int]] = None,
     ):
         """Constructor for a Coordinator object.
@@ -270,8 +269,7 @@ class Coordinator(ops.Object):
             workload_tracing_protocols: A list of protocols that the worker intends to send
                 workload traces with.
             catalogue_item: A catalogue application entry to be sent to catalogue.
-            proxy_worker_telemetry: If True, enables routing worker metrics, logs and traces through nginx proxy.
-            proxy_worker_telemetry_port: A function generating the HTTP port through which all worker telemetry traffic will be proxied when proxy_worker_telemetry is enabled. The function should take a boolean input which will indicate if TLS is enabled.
+            proxy_worker_telemetry_port (optional): A function generating the HTTP port through which all worker telemetry traffic will be proxied when proxy_worker_telemetry is enabled. The function should take a boolean input which will indicate if TLS is enabled. If set, this enables routing worker metrics, logs and traces through nginx proxy.
 
         Raises:
         ValueError:
@@ -304,9 +302,9 @@ class Coordinator(ops.Object):
         )
         self._remote_write_endpoints_getter = remote_write_endpoints
         self._workers_config_getter = partial(workers_config, self)
-        self._proxy_worker_telemetry = proxy_worker_telemetry
         self._proxy_worker_telemetry_port: Union[int, None] = None
         self._proxy_worker_telemetry_port_getter = proxy_worker_telemetry_port
+        self._proxy_worker_telemetry = True if self._proxy_worker_telemetry_port_getter else False
         # check if the worker telemetry can be validly proxied, if not log it as an error
         self._validate_proxy_worker_telemetry_setup(workload_tracing_protocols)  # type: ignore
 
@@ -363,7 +361,9 @@ class Coordinator(ops.Object):
 
         # NOTE: setup nginx after tracing requirers as uses logging and tracing endpoints for config building
         if self._proxy_worker_telemetry_port_getter:
-            self._proxy_worker_telemetry_port = self._proxy_worker_telemetry_port_getter(self.tls_available)
+            self._proxy_worker_telemetry_port = self._proxy_worker_telemetry_port_getter(
+                self.tls_available
+            )
         self._upstreams_to_addresses = self.cluster.gather_addresses_by_role()
         if self._proxy_worker_telemetry:
             self._setup_proxy_worker_telemetry()
@@ -521,13 +521,6 @@ class Coordinator(ops.Object):
         """Unit's hostname."""
         return socket.getfqdn()
 
-    # private internal property as the charms seem to use the static method for reasons unknown.
-    @property
-    def _app_hostname(self) -> str:
-        """Application-level FQDN."""
-        return self.app_hostname(self.hostname, self._charm.app.name, self._charm.model.name)
-
-    # why is this a staticmethod while it could a beautiful property???
     @staticmethod
     def app_hostname(hostname: str, app_name: str, model_name: str) -> str:
         """The FQDN of the k8s service associated with this application.
@@ -720,7 +713,7 @@ class Coordinator(ops.Object):
             sans_dns=frozenset(
                 (
                     self.hostname,
-                    self._app_hostname,
+                    self.app_hostname(self.hostname, self._charm.app.name, self._charm.model.name),
                     *self.cluster.gather_addresses(),
                 )
             ),
@@ -981,12 +974,6 @@ class Coordinator(ops.Object):
         urls: Dict[str, str] = {}
 
         for protocol in self._charm_tracing_receivers_urls:
-            # parsed_hostname = urlparse(address).hostname
-            # if (
-            #     parsed_hostname == self.hostname or parsed_hostname == self._app_hostname
-            # ):  # we are tracing ourselves. no need to proxy
-            #     urls.update({protocol: address})
-            #     continue
             scheme = "https" if self.tls_available else "http"
             proxy_url = f"{scheme}://{self.hostname}:{self._proxy_worker_telemetry_port}{PROXY_WORKER_TELEMETRY_PATHS['charm_tracing_receivers_urls'].format(protocol=protocol)}"
             urls.update({protocol: proxy_url})
@@ -999,12 +986,6 @@ class Coordinator(ops.Object):
         urls: Dict[str, str] = {}
 
         for protocol in self._workload_tracing_receivers_urls:
-            # parsed_hostname = urlparse(address).hostname
-            # if (
-            #     parsed_hostname == self.hostname or parsed_hostname == self._app_hostname
-            # ):  # we are tracing ourselves. no need to proxy
-            #     urls.update({protocol: address})
-            #     continue
             scheme = "https" if self.tls_available else "http"
             proxy_url = f"{scheme}://{self.hostname}:{self._proxy_worker_telemetry_port}{PROXY_WORKER_TELEMETRY_PATHS['workload_tracing_receivers_urls'].format(protocol=protocol)}"
             urls.update({protocol: proxy_url})
@@ -1019,13 +1000,6 @@ class Coordinator(ops.Object):
         # return true if proxying for worker telemetry is not enabled
         if not self._proxy_worker_telemetry:
             return
-        # log error if no port for proxying worker telemetry is provided
-        # NOTE: should we gracefully disable proxying?
-        if not self._proxy_worker_telemetry_port_getter:
-            logger.error(
-                "Proxying worker telemetry via the coordinator failed."
-                "Port for proxying worker telemetry not defined."
-            )
         # if no workload protocol is defined, let the TracingEndpointRequirer handle this
         if not workload_tracing_protocols:
             return
@@ -1079,10 +1053,6 @@ class Coordinator(ops.Object):
         for tracing_type, receivers_urls in tracing_configs:
             for protocol, address in receivers_urls.items():
                 p = urlparse(address)
-                # if (
-                #     p.hostname == self.hostname or p.hostname == self._app_hostname
-                # ):  # we are tracing ourselves. ignore
-                #     continue
                 upstream_name = (
                     f"{PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX}-{tracing_type}-{protocol}"
                 )
@@ -1258,12 +1228,6 @@ class Coordinator(ops.Object):
         for tracing_type, receivers_urls, path_template in tracing_types:
             for protocol, address in receivers_urls.items():
                 parsed_address = urlparse(address)
-                # No need to proxy when we trace ourselves.
-                # if (
-                #     parsed_address.hostname == self.hostname
-                #     or parsed_address.hostname == self._app_hostname
-                # ):
-                #     continue
                 upstream_name = (
                     f"{PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX}-{tracing_type}-{protocol}"
                 )
