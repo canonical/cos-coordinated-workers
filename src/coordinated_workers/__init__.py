@@ -11,6 +11,7 @@ __all__ = [
     "NginxConfig",
     "NginxPrometheusExporter",
     "Worker",
+    "NginxTracingConfig",
 ]
 
 current_package = __package__
@@ -37,3 +38,4 @@ NginxConfig = _LazyModule(".nginx")
 Nginx = _LazyModule(".nginx")
 NginxPrometheusExporter = _LazyModule(".nginx")
 Worker = _LazyModule(".worker")
+NginxTracingConfig = _LazyModule(".nginx")
