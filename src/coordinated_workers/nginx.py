@@ -155,7 +155,7 @@ import logging
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Literal, Optional, Set, TypedDict, cast
+from typing import Any, Dict, List, Literal, Optional, Set, TypedDict, cast
 
 import crossplane  # type: ignore
 from opentelemetry import trace
@@ -270,6 +270,15 @@ class NginxUpstream:
     """
 
 
+@dataclass
+class NginxTracingConfig:
+    """Configuration for OTel tracing in Nginx."""
+
+    endpoint: str
+    service_name: str
+    resource_attributes: Dict[str, str] = field(default_factory=lambda: {})
+
+
 class NginxConfig:
     """Responsible for building the Nginx configuration used by the coordinators."""
 
@@ -281,6 +290,7 @@ class NginxConfig:
     _supported_tls_versions = ["TLSv1", "TLSv1.1", "TLSv1.2", "TLSv1.3"]
     _ssl_ciphers = ["HIGH:!aNULL:!MD5"]
     _proxy_connect_timeout = "5s"
+    otel_module_path = "/etc/nginx/modules/ngx_otel_module.so"
 
     def __init__(
         self,
@@ -328,6 +338,7 @@ class NginxConfig:
         upstreams_to_addresses: Dict[str, Set[str]],
         listen_tls: bool,
         root_path: Optional[str] = None,
+        tracing_config: Optional[NginxTracingConfig] = None,
     ) -> str:
         """Render the Nginx configuration as a string.
 
@@ -335,8 +346,12 @@ class NginxConfig:
             upstreams_to_addresses: A dictionary mapping each upstream name to a set of addresses associated with that upstream.
             listen_tls: Whether Nginx should listen for incoming traffic over TLS.
             root_path: If provided, it is used as a location where static files will be served.
+            tracing_config: Enables tracing in Nginx and exports traces to the specified endpoint if provided.
+                Note: Tracing is only available if the Nginx binary has been built with the ngx_otel_module.
         """
-        full_config = self._prepare_config(upstreams_to_addresses, listen_tls, root_path)
+        full_config = self._prepare_config(
+            upstreams_to_addresses, listen_tls, root_path, tracing_config
+        )
         return crossplane.build(full_config)  # type: ignore
 
     def _prepare_config(
@@ -344,12 +359,18 @@ class NginxConfig:
         upstreams_to_addresses: Dict[str, Set[str]],
         listen_tls: bool,
         root_path: Optional[str] = None,
+        tracing_config: Optional[NginxTracingConfig] = None,
     ) -> List[Dict[str, Any]]:
         upstreams = self._upstreams(upstreams_to_addresses)
         # extract the upstream name
         backends = [upstream["args"][0] for upstream in upstreams]
         # build the complete configuration
         full_config = [
+            *(
+                [{"directive": "load_module", "args": [self.otel_module_path]}]
+                if tracing_config
+                else []
+            ),
             {"directive": "worker_processes", "args": [self._worker_processes]},
             {"directive": "error_log", "args": ["/dev/stderr", "error"]},
             {"directive": "pid", "args": [self._pid]},
@@ -363,6 +384,7 @@ class NginxConfig:
                 "directive": "http",
                 "args": [],
                 "block": [
+                    *self._tracing_block(tracing_config),
                     # upstreams (load balancing)
                     *upstreams,
                     # temp paths
@@ -658,12 +680,11 @@ class NginxConfig:
         return nginx_locations
 
     @staticmethod
-    def _extra_directives_block(extra_directives: Optional[Dict[str, List[str]]]) -> List[Optional[Dict[str, Any]]]:
+    def _extra_directives_block(
+        extra_directives: Optional[Dict[str, List[str]]],
+    ) -> List[Optional[Dict[str, Any]]]:
         if extra_directives:
-            return [
-                {"directive": key, "args": val}
-                for key, val in extra_directives.items()
-            ]
+            return [{"directive": key, "args": val} for key, val in extra_directives.items()]
         return []
 
     @staticmethod
@@ -721,6 +742,29 @@ class NginxConfig:
             args.append("ssl")
         return args
 
+    def _tracing_block(self, tracing_config: Optional[NginxTracingConfig]) -> List[Dict[str, Any]]:
+        return (
+            [
+                {"directive": "otel_trace", "args": ["on"]},
+                # propagate the trace context headers
+                {"directive": "otel_trace_context", "args": ["propagate"]},
+                {
+                    "directive": "otel_exporter",
+                    "args": [],
+                    "block": [{"directive": "endpoint", "args": [tracing_config.endpoint]}],
+                },
+                {"directive": "otel_service_name", "args": [tracing_config.service_name]},
+                *(
+                    [
+                        {"directive": "otel_resource_attr", "args": [attr_key, attr_val]}
+                        for attr_key, attr_val in tracing_config.resource_attributes.items()
+                    ]
+                ),
+            ]
+            if tracing_config
+            else []
+        )
+
 
 class Nginx:
     """Helper class to manage the nginx workload."""
@@ -731,14 +775,10 @@ class Nginx:
     def __init__(
         self,
         charm: CharmBase,
-        config_getter: Callable[[bool], str],
-        tls_config_getter: Callable[[], Optional[TLSConfig]],
         options: Optional[NginxMappingOverrides] = None,
         container_name: str = "nginx",
     ):
         self._charm = charm
-        self._config_getter = config_getter
-        self._tls_config_getter = tls_config_getter
         self._container_name = container_name
         self._container = self._charm.unit.get_container(container_name)
         self.options.update(options or {})
@@ -820,14 +860,18 @@ class Nginx:
 
         return current_config != new_config
 
-    def reconcile(self):
+    def reconcile(
+        self,
+        nginx_config: str,
+        tls_config: Optional[TLSConfig] = None,
+    ):
         """Configure pebble layer and restart if necessary."""
         if self._container.can_connect():
-            self._reconcile_tls_config()
-            self._reconcile_nginx_config()
+            self._reconcile_tls_config(tls_config)
+            self._reconcile_nginx_config(nginx_config)
 
-    def _reconcile_tls_config(self):
-        if tls_config := self._tls_config_getter():
+    def _reconcile_tls_config(self, tls_config: Optional[TLSConfig] = None):
+        if tls_config:
             self._configure_tls(
                 server_cert=tls_config.server_cert,
                 ca_cert=tls_config.ca_cert,
@@ -836,12 +880,22 @@ class Nginx:
         else:
             self._delete_certificates()
 
-    def _reconcile_nginx_config(self):
-        new_config = self._config_getter(self.are_certificates_on_disk)
-        should_restart = self._has_config_changed(new_config)
-        self._container.push(self.config_path, new_config, make_dirs=True)  # type: ignore
+    def _reconcile_nginx_config(self, nginx_config: str):
+        should_restart = self._has_config_changed(nginx_config)
+        self._container.push(self.config_path, nginx_config, make_dirs=True)  # type: ignore
         self._container.add_layer("nginx", self.layer, combine=True)
-        self._container.autostart()
+        try:
+            self._container.autostart()
+        except pebble.ChangeError:
+            # check if we're trying to load an external nginx module, but it doesn't exist in the nginx image
+            if "ngx_otel_module" in nginx_config and not self._container.exists(
+                NginxConfig.otel_module_path
+            ):
+                logger.exception(
+                    "Failed to enable tracing for nginx. The nginx image is missing the ngx_otel_module."
+                )
+            # otherwise, it's an unexpected error and we should raise it as is
+            raise
 
         if should_restart:
             logger.info("new nginx config: restarting the service")
