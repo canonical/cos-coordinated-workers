@@ -198,8 +198,6 @@ def test_nginx_with_extra_startup_params_pebble_plan():
         charm = mgr.charm
         nginx = Nginx(
             charm=charm,
-            config_getter=lambda: "foo_string",
-            tls_config_getter=None,
             extra_startup_args=extra_startup_params,
             container_name=container_name,
         )
