@@ -21,7 +21,8 @@ from typing import (
     Optional,
     Sequence,
     Set,
-    TypedDict, cast,
+    TypedDict,
+    cast,
 )
 from urllib.parse import urlparse
 
