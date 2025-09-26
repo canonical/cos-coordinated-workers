@@ -38,5 +38,8 @@ http {
             try_files $uri /index.html;
             autoindex on;
         }
+        location /stub_status {
+            stub_status;
+        }
     }
 }

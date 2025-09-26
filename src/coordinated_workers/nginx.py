@@ -658,12 +658,11 @@ class NginxConfig:
         return nginx_locations
 
     @staticmethod
-    def _extra_directives_block(extra_directives: Optional[Dict[str, List[str]]]) -> List[Optional[Dict[str, Any]]]:
+    def _extra_directives_block(
+        extra_directives: Optional[Dict[str, List[str]]],
+    ) -> List[Optional[Dict[str, Any]]]:
         if extra_directives:
-            return [
-                {"directive": key, "args": val}
-                for key, val in extra_directives.items()
-            ]
+            return [{"directive": key, "args": val} for key, val in extra_directives.items()]
         return []
 
     @staticmethod
@@ -733,12 +732,28 @@ class Nginx:
         charm: CharmBase,
         config_getter: Callable[[bool], str],
         tls_config_getter: Callable[[], Optional[TLSConfig]],
+        extra_startup_args: Optional[List[str]] = None,
         options: Optional[NginxMappingOverrides] = None,
         container_name: str = "nginx",
     ):
+        """Construct Nginx workload.
+
+        Args:
+            charm: a `CharmBase` object that manages this `Nginx` object. Typically, this is
+                `self` in the instantiating class.
+            config_getter: Function returning Nginx's configuration.
+            tls_config_getter: Function returning Nginx's TLS configuration.
+            extra_startup_args: List of arbitrary Nginx startup flags. This can be, for instance,
+                used to enable additional Nginx modules (i.e. "--with-http_stub_status_module").
+                Arguments in this list are not validated, and it's up to the user to make sure
+                that Nginx is capable of using provided arguments.
+            options: Non-default config options for Nginx.
+            container_name: Nginx container name. Defaults to `nginx`.
+        """
         self._charm = charm
         self._config_getter = config_getter
         self._tls_config_getter = tls_config_getter
+        self._extra_startup_args = extra_startup_args or []
         self._container_name = container_name
         self._container = self._charm.unit.get_container(container_name)
         self.options.update(options or {})
@@ -851,6 +866,7 @@ class Nginx:
     @property
     def layer(self) -> pebble.Layer:
         """Return the Pebble layer for Nginx."""
+        startup_command = ["nginx", "-g", "'daemon off;'"] + self._extra_startup_args
         return pebble.Layer(
             {
                 "summary": "nginx layer",
@@ -859,7 +875,7 @@ class Nginx:
                     self._container_name: {
                         "override": "replace",
                         "summary": "nginx",
-                        "command": "nginx -g 'daemon off;'",
+                        "command": " ".join(startup_command),
                         "startup": "enabled",
                     }
                 },

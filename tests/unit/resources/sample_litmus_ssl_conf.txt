@@ -65,5 +65,8 @@ http {
             proxy_ssl_certificate /etc/tls/tls.crt;
             proxy_ssl_certificate_key /etc/tls/tls.key;
         }
+        location /stub_status {
+            stub_status;
+        }
     }
 }

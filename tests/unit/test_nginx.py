@@ -161,6 +161,51 @@ def test_nginx_pebble_plan(container_name):
         assert nginx.layer == expected_layer
 
 
+def test_nginx_with_extra_startup_params_pebble_plan():
+    container_name = "whatever"
+    extra_startup_params = ["--with-http_stub_status_module", "--something-else"]
+    expected_layer = {
+        "summary": "nginx layer",
+        "description": "pebble config layer for Nginx",
+        "services": {
+            container_name: {
+                "override": "replace",
+                "summary": "nginx",
+                "command": f"nginx -g 'daemon off;' {' '.join(extra_startup_params)}",
+                "startup": "enabled",
+            }
+        },
+    }
+
+    # GIVEN any charm with a container
+    ctx = testing.Context(
+        ops.CharmBase, meta={"name": "foo", "containers": {container_name: {"type": "oci-image"}}}
+    )
+
+    # WHEN we process any event
+    with ctx(
+        ctx.on.update_status(),
+        state=testing.State(
+            containers={
+                testing.Container(
+                    container_name,
+                    can_connect=True,
+                )
+            },
+        ),
+    ) as mgr:
+        charm = mgr.charm
+        nginx = Nginx(
+            charm=charm,
+            config_getter=lambda: "foo_string",
+            tls_config_getter=None,
+            extra_startup_args=extra_startup_params,
+            container_name=container_name,
+        )
+        # THEN the generated pebble layer has the container_name set as the service name
+        assert nginx.layer == expected_layer
+
+
 @contextmanager
 def mock_resolv_conf(contents: str):
     with tempfile.NamedTemporaryFile() as tf:
@@ -285,7 +330,10 @@ def test_generate_nginx_config_with_extra_location_directives():
 
 
 def test_location_skipped_if_no_matching_upstream():
-    upstream_configs, server_ports_to_locations = ([], _get_server_ports_to_locations("litmus_ssl"))
+    upstream_configs, server_ports_to_locations = (
+        [],
+        _get_server_ports_to_locations("litmus_ssl"),
+    )
 
     addrs_by_role = {
         role: {"worker-address"}
@@ -300,7 +348,9 @@ def test_location_skipped_if_no_matching_upstream():
             enable_status_page=False,
         )
         generated_config = nginx.get_config(addrs_by_role, False, root_path="/dist")
-        sample_config_path = Path(__file__).parent / "resources" / "sample_litmus_missing_upstreams_conf.txt"
+        sample_config_path = (
+            Path(__file__).parent / "resources" / "sample_litmus_missing_upstreams_conf.txt"
+        )
         assert sample_config_path.read_text() == generated_config
 
 
@@ -404,6 +454,7 @@ server_ports_to_locations = {
                 path="/auth", backend="auth", rewrite=["^/auth(/.*)$", "$1", "break"]
             ),
             NginxLocationConfig(path="/api", backend="backend"),
+            NginxLocationConfig(path="/stub_status", extra_directives={"stub_status": []}),
         ]
     },
     "litmus_ssl": {
@@ -437,6 +488,7 @@ server_ports_to_locations = {
                     "proxy_ssl_certificate_key": ["/etc/tls/tls.key"],
                 },
             ),
+            NginxLocationConfig(path="/stub_status", extra_directives={"stub_status": []}),
         ]
     },
 }
