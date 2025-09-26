@@ -184,6 +184,8 @@ _EndpointMapping = TypedDict(
         "receive-datasource": Optional[str],
         "catalogue": Optional[str],
         "service-mesh": Optional[str],
+        "service-mesh-cross-model-mesh-provides": Optional[str],
+        "service-mesh-cross-model-mesh-requires": Optional[str],
     },
     total=True,
 )
@@ -369,9 +371,36 @@ class Coordinator(ops.Object):
             else None
         )
 
-        self._mesh = (
-            ServiceMeshConsumer(self._charm) if self._endpoints.get("service-mesh") else None
-        )
+        if all(
+            (
+                mesh_relation_name := self._endpoints.get("service-mesh"),
+                mesh_cmr_provides_name := self._endpoints.get(
+                    "service-mesh-cross-model-mesh-provides"
+                ),
+                mesh_cmr_requires_name := self._endpoints.get(
+                    "service-mesh-cross-model-mesh-requires"
+                ),
+            )
+        ):
+            self._mesh = ServiceMeshConsumer(
+                self._charm,
+                mesh_relation_name=mesh_relation_name,
+                cross_model_mesh_provides_name=mesh_cmr_provides_name,
+                cross_model_mesh_requires_name=mesh_cmr_requires_name,
+            )
+        elif any(
+            (
+                self._endpoints.get("service-mesh"),
+                self._endpoints.get("service-mesh-cross-model-mesh-provides"),
+                self._endpoints.get("service-mesh-cross-model-mesh-requires"),
+            )
+        ):
+            raise ValueError(
+                "If any of 'service-mesh', 'service-mesh-cross-model-mesh-provides' or "
+                "'service-mesh-cross-model-mesh-requires' endpoints are provided, all of them must be."
+            )
+        else:
+            self._mesh = None
 
         ## Observers
         # We always listen to collect-status
@@ -682,6 +711,19 @@ class Coordinator(ops.Object):
             ),
         )
 
+    @property
+    def _coordinated_worker_solution_labels(self) -> Dict[str, str]:
+        """Labels to be applied to all pods in this coordinated-worker solution."""
+        return {"app.kubernetes.io/part-of": f"{self._charm.app.name}"}
+
+    @property
+    def _worker_labels(self) -> Dict[str, str]:
+        """Labels to be applied to worker pods."""
+        labels = self._coordinated_worker_solution_labels
+        if mesh_labels := self._mesh.labels():
+            labels.update(mesh_labels)
+        return labels
+
     ##################
     # EVENT HANDLERS #
     ##################
@@ -783,6 +825,7 @@ class Coordinator(ops.Object):
                 else None
             ),
             s3_tls_ca_chain=self.s3_connection_info.ca_cert,
+            pod_labels=self._worker_labels,
         )
 
     def _consolidate_workers_alert_rules(self):

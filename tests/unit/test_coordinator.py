@@ -141,11 +141,14 @@ def coordinator_charm(request):
                 "my-workload-tracing": {"interface": "tracing", "limit": 1},
                 "my-s3": {"interface": "s3"},
                 "my-ds-exchange-require": {"interface": "grafana_datasource_exchange"},
+                "my-service-mesh": {"interface": "service_mesh", "limit": 1},
+                "my-service-mesh-cross-model-mesh-requires": {"interface": "cross_model_mesh"},
             },
             "provides": {
                 "my-dashboards": {"interface": "grafana_dashboard"},
                 "my-metrics": {"interface": "prometheus_scrape"},
                 "my-ds-exchange-provide": {"interface": "grafana_datasource_exchange"},
+                "my-service-mesh-cross-model-mesh-provides": {"interface": "cross_model_mesh"},
             },
             "containers": {
                 "nginx": {"type": "oci-image"},
@@ -189,6 +192,9 @@ def coordinator_charm(request):
                     "send-datasource": "my-ds-exchange-provide",
                     "receive-datasource": "my-ds-exchange-require",
                     "catalogue": None,
+                    "service-mesh": "my-service-mesh",
+                    "service-mesh-cross-model-mesh-provides": "my-service-mesh-cross-model-mesh-provides",
+                    "service-mesh-cross-model-mesh-requires": "my-service-mesh-cross-model-mesh-requires",
                 },
                 nginx_config=NginxConfig("localhost", {}, {}),
                 workers_config=lambda coordinator: f"workers configuration for {coordinator._charm.meta.name}",
@@ -791,3 +797,57 @@ def test_rendered_alert_rules(
         sum(len(group["rules"]) for group in alert_rules["groups"])
         == total_worker_rules_no + coordinator_rules_no
     )
+
+
+def test_coordinator_passes_service_mesh_labels_to_workers(
+    coordinator_state: testing.State, coordinator_charm: ops.CharmBase
+):
+    """Test that the Coordinator passes service mesh labels to the Workers via the Cluster relation."""
+    # GIVEN a coordinator_charm
+    ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
+
+    # AND a coordinator_state that is valid and includes a populated service mesh relation
+    expected_labels = {"label1": "value1", "label2": "value2"}
+    service_mesh_relation = testing.Relation(
+        endpoint="my-service-mesh",
+        interface="service_mesh",
+        remote_app_data={
+            "labels": json.dumps(expected_labels),
+        },
+    )
+    relations_with_service_mesh = [*coordinator_state.relations, service_mesh_relation]
+    state_with_service_mesh = dataclasses.replace(
+        coordinator_state, relations=relations_with_service_mesh
+    )
+    state_with_service_mesh = dataclasses.replace(state_with_service_mesh, leader=True)
+
+    # WHEN we process any event
+    state_out = ctx.run(ctx.on.update_status(), state=state_with_service_mesh)
+    # THEN the service mesh labels are correctly distributed to the workers via the Cluster relation
+    cluster = state_out.get_relations("my-cluster")
+    for relation in cluster:
+        labels = json.loads(relation.local_app_data.get("pod_labels", "{}"))
+        for key, value in expected_labels.items():
+            assert labels[key] == value
+
+
+def test_coordinator_passes_solution_labels_to_worker(
+    coordinator_state: testing.State, coordinator_charm: ops.CharmBase
+):
+    """Test that the Coordinator passes the solution-level labels to the Workers via the Cluster relation."""
+    # GIVEN a coordinator_charm
+    ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
+    expected_labels = {"app.kubernetes.io/part-of": coordinator_charm.META["name"]}
+
+    # AND a coordinator_state that is valid and complete with this unit being the leader
+    state = coordinator_state
+    state = dataclasses.replace(state, leader=True)
+
+    # WHEN we process any event
+    state_out = ctx.run(ctx.on.update_status(), state=state)
+    # THEN the solution-level labels are correctly distributed to the workers via the Cluster relation
+    cluster = state_out.get_relations("my-cluster")
+    for relation in cluster:
+        labels = json.loads(relation.local_app_data.get("pod_labels", "{}"))
+        for key, value in expected_labels.items():
+            assert labels[key] == value
