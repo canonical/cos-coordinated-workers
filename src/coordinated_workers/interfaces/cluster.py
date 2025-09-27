@@ -132,6 +132,9 @@ class ClusterProviderAppData(cosl.interfaces.utils.DatabagModel):
     privkey_secret_id: Optional[str] = None
     s3_tls_ca_chain: Optional[str] = None
 
+    ### other
+    pod_labels: Optional[Dict[str, str]] = None
+
 
 class TLSData(NamedTuple):
     """Section of the cluster data that concerns TLS information."""
@@ -233,6 +236,7 @@ class ClusterProvider(Object):
         charm_tracing_receivers: Optional[Dict[str, str]] = None,
         workload_tracing_receivers: Optional[Dict[str, str]] = None,
         remote_write_endpoints: Optional[List[RemoteWriteEndpoint]] = None,
+        pod_labels: Optional[Dict[str, str]] = None,
     ) -> None:
         """Publish the config to all related worker clusters."""
         for relation in self._relations:
@@ -256,6 +260,7 @@ class ClusterProvider(Object):
                     remote_write_endpoints=remote_write_endpoints,
                     s3_tls_ca_chain=s3_tls_ca_chain,
                     worker_ports=_worker_ports,
+                    pod_labels=pod_labels,
                 )
                 local_app_databag.dump(relation.data[self.model.app])
 
@@ -561,3 +566,10 @@ class ClusterRequirer(Object):
         if data:
             return data.remote_write_endpoints or []
         return []
+
+    def get_pod_labels(self) -> Dict[str, str]:
+        """Fetch the additional labels for the worker pods from the coordinator databag."""
+        data = self._get_data_from_coordinator()
+        if data:
+            return data.pod_labels or {}
+        return {}
