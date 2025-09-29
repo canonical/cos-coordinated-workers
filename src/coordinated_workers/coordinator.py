@@ -226,7 +226,7 @@ class Coordinator(ops.Object):
         remote_write_endpoints: Optional[Callable[[], List[RemoteWriteEndpoint]]] = None,
         workload_tracing_protocols: Optional[List[ReceiverProtocol]] = None,
         catalogue_item: Optional[CatalogueItem] = None,
-        worker_telemetry_proxy_config: WorkerTelemetryProxyConfig = None,
+        worker_telemetry_proxy_config: Optional[WorkerTelemetryProxyConfig] = None,
     ):
         """Constructor for a Coordinator object.
 
@@ -475,7 +475,7 @@ class Coordinator(ops.Object):
         return self._tracing_receivers_urls(self.workload_tracing, "workload-tracing")
 
     @property
-    def _remote_write_endpoints(self):
+    def remote_write_endpoints(self):
         """Returns the remote write endpoints based on if its available and if proxying telemetry is enabled."""
         if not self._remote_write_endpoints_getter:
             return None
@@ -841,7 +841,7 @@ class Coordinator(ops.Object):
             ),
             charm_tracing_receivers=self._charm_tracing_receivers_urls,
             workload_tracing_receivers=self._workload_tracing_receivers_urls,
-            remote_write_endpoints=self._remote_write_endpoints,
+            remote_write_endpoints=self.remote_write_endpoints,
             s3_tls_ca_chain=self.s3_connection_info.ca_cert,
         )
 

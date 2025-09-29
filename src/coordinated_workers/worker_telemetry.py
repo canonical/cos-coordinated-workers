@@ -4,7 +4,7 @@
 """Helper functions to enable the coordinator to proxy worker's telemetry through it."""
 
 import dataclasses
-from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple, TypeAlias, Union
+from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple, Union
 from urllib.parse import urlparse
 
 import ops
@@ -13,8 +13,8 @@ from charms.tempo_coordinator_k8s.v0.tracing import ReceiverProtocol
 from coordinated_workers.interfaces.cluster import RemoteWriteEndpoint
 from coordinated_workers.nginx import NginxConfig, NginxLocationConfig, NginxUpstream
 
-WorkerTopology: TypeAlias = List[Dict[str, str]]
-RemoteWriteEndpointGetter: TypeAlias = Optional[Callable[[], List[RemoteWriteEndpoint]]]
+WorkerTopology = List[Dict[str, str]]
+RemoteWriteEndpointGetter = Optional[Callable[[], List[RemoteWriteEndpoint]]]
 
 
 # Paths for proxied worker telemetry urlparse
@@ -84,7 +84,7 @@ def configure_upstreams(
     if remote_write_endpoints_getter:
         for endpoint in remote_write_endpoints_getter():
             p = urlparse(endpoint["url"])
-            remote_write_unit = p.hostname.split(".")[0]
+            remote_write_unit = p.hostname.split(".")[0]  # type: ignore
             upstreams_to_addresses[remote_write_unit] = {p.hostname}  # type: ignore
 
     # tracing upstream to address mapper (both charm and workload)
@@ -265,9 +265,9 @@ def _generate_nginx_config_from_spec(
             location_kwargs["modifier"] = spec.location_modifier
 
         if spec.location_rewrite:
-            location_kwargs["rewrite"] = spec.location_rewrite
+            location_kwargs["rewrite"] = spec.location_rewrite  # type: ignore
 
-        locations.append(NginxLocationConfig(**location_kwargs))
+        locations.append(NginxLocationConfig(**location_kwargs))  # type: ignore
 
     return upstreams, locations
 
@@ -312,13 +312,13 @@ def _generate_remote_write_endpoints_nginx_config(
 
     for remote_write_endpoint in remote_write_endpoints:
         parsed_address = urlparse(remote_write_endpoint["url"])
-        unit_name_sanitized = parsed_address.hostname.split(".")[0]
+        unit_name_sanitized = parsed_address.hostname.split(".")[0]  # type: ignore
         upstream_name = f"{PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX}-{unit_name_sanitized}"
 
         specs.append(
             _WorkerTelemetryNginxConfigSpec(
                 upstream_name=upstream_name,
-                upstream_port=parsed_address.port,
+                upstream_port=parsed_address.port,  # type: ignore
                 upstream_lookup_key=unit_name_sanitized,
                 location_path=PROXY_WORKER_TELEMETRY_PATHS["remote-write"].format(
                     unit=unit_name_sanitized
@@ -333,7 +333,7 @@ def _generate_remote_write_endpoints_nginx_config(
 
 
 def _generate_loki_endpoints_nginx_config(
-    loki_endpoints_by_unit,
+    loki_endpoints_by_unit: Dict[str, str],
 ) -> Tuple[List[NginxUpstream], List[NginxLocationConfig]]:
     """Generate nginx upstreams and locations for loki endpoints routing."""
     specs: List[_WorkerTelemetryNginxConfigSpec] = []
@@ -346,7 +346,7 @@ def _generate_loki_endpoints_nginx_config(
         specs.append(
             _WorkerTelemetryNginxConfigSpec(
                 upstream_name=upstream_name,
-                upstream_port=parsed_address.port,
+                upstream_port=parsed_address.port,  # type: ignore
                 upstream_lookup_key=unit_name,
                 location_path=PROXY_WORKER_TELEMETRY_PATHS["logging"].format(
                     unit=unit_name_sanitized
@@ -385,7 +385,7 @@ def _generate_tracing_urls_nginx_config(
             specs.append(
                 _WorkerTelemetryNginxConfigSpec(
                     upstream_name=upstream_name,
-                    upstream_port=parsed_address.port,
+                    upstream_port=parsed_address.port,  # type: ignore
                     upstream_lookup_key=upstream_name,
                     location_path=location_path,
                     location_backend_url=parsed_address.path,
@@ -416,7 +416,7 @@ def proxy_loki_endpoints_by_unit(
         tls_available (bool): Is TLS enabled
         logging_relations (list): List of actual non-proxied remote write endpoints available to the cluster
     """
-    endpoints = {}
+    endpoints: Dict[str, str] = {}
     for relation in logging_relations:
         for unit in relation.units:
             scheme = "https" if tls_available else "http"
