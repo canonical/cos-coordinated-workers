@@ -62,6 +62,7 @@ def configure_upstreams(
     """Updates upstream names to addresses mapper to include the required servers/clients that send/receive worker telemetry.
 
     This function upates the `upstreams_to_addresses` object inplace to include the upstream logging, tracing, and remote_write endpoints with corresponding upstream names.
+    The endpoints used in this mapping are usptream endpoints that actually receive the telemetry.
 
     Args:
         upstreams_to_addresses (dict): The upstreams_to_addresses to update with the telemetry upstream information

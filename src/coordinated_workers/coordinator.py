@@ -447,13 +447,16 @@ class Coordinator(ops.Object):
     ######################
 
     def _tracing_receivers_urls(
-        self, requirer: TracingEndpointRequirer, _type: str
+        self,
+        requirer: TracingEndpointRequirer,
+        _type: str,
+        ignore_proxy: bool = False,
     ) -> Dict[str, str]:
         """Returns the trace receiving urls per requested protocol."""
         endpoints = requirer.get_all_endpoints()  # type: ignore
         receivers = endpoints.receivers if endpoints else ()
 
-        if proxy_worker_telemetry_port := self._proxy_worker_telemetry_port:
+        if (proxy_worker_telemetry_port := self._proxy_worker_telemetry_port) and not ignore_proxy:
             return worker_telemetry.proxy_tracing_receivers_urls(
                 hostname=self.hostname,
                 proxy_worker_telemetry_port=proxy_worker_telemetry_port,
@@ -466,17 +469,57 @@ class Coordinator(ops.Object):
 
     @property
     def _charm_tracing_receivers_urls(self) -> Dict[str, str]:
-        """Returns the charm tracing enabled receivers with their corresponding endpoints."""
+        """Returns the charm tracing enabled receivers per tracing protocol with their corresponding endpoints to be published into the cluster data.
+
+        When worker telemetry proxy is enabled and when not self tracing, returns the proxy url for sending traces.
+
+        Returns:
+            A dictionary of tracing protocols and the respective tracing receiver urls.
+            {
+                "otlp_http": "http://tempo.tempo.svc.cluster.local:4318",
+            }
+
+            Or when worker telemetry proxy is enabled,
+            {
+                "otlp_http": "http://tempo-0.tempo-endpoints.tempo.svc.cluster.local:3300/proxy/charm-tracing/otlp_http/",
+            }
+        """
         return self._tracing_receivers_urls(self.charm_tracing, "charm-tracing")
 
     @property
     def _workload_tracing_receivers_urls(self) -> Dict[str, str]:
-        """Returns the workload tracing enabled receivers with their corresponding endpoints."""
+        """Returns the workload tracing enabled receivers with their corresponding endpoints to be published into the cluster data.
+
+        When worker telemetry proxy is enabled and when not self tracing, returns the proxy url for sending traces.
+
+        Returns:
+            A dictionary of tracing protocols and the respective tracing receiver urls.
+            {
+                "otlp_http": "http://tempo.tempo.svc.cluster.local:4318",
+            }
+
+            Or when worker telemetry proxy is enabled,
+            {
+                "otlp_http": "http://tempo-0.tempo-endpoints.tempo.svc.cluster.local:3300/proxy/workload-tracing/otlp_http/",
+            }
+        """
         return self._tracing_receivers_urls(self.workload_tracing, "workload-tracing")
 
     @property
     def remote_write_endpoints(self):
-        """Returns the remote write endpoints based on if its available and if proxying telemetry is enabled."""
+        """Returns the remote write endpoints based on if its available and if proxying telemetry is enabled to be published into the cluster data.
+
+        Returns:
+            A list of remote write endpoints:
+            [
+                http://prometheus-0.prometheus-endpoints.tempo.svc.cluster.local:9090/api/v1/write,
+            ]
+
+            Or when the worker telemetry proxy is enabled,
+            [
+                http://tempo-0.tempo-endpoints.tempo.svc.cluster.local:3300/proxy/remote-write/prometheus-0/write,
+            ]
+        """
         if not self._remote_write_endpoints_getter:
             return None
 
@@ -491,8 +534,8 @@ class Coordinator(ops.Object):
         return endpoints
 
     @property
-    def loki_endpoints_by_unit(self) -> Dict[str, str]:
-        """Loki endpoints from relation data in the format needed for Pebble log forwarding.
+    def _upstream_loki_endpoints_by_unit(self) -> Dict[str, str]:
+        """Loki endpoints from the relation data in the format needed for Pebble log forwarding.
 
         Returns:
             A dictionary of remote units and the respective Loki endpoint.
@@ -502,6 +545,37 @@ class Coordinator(ops.Object):
             }
         """
         endpoints: Dict[str, str] = {}
+        relations: List[ops.Relation] = self.model.relations.get(self._endpoints["logging"], [])
+        for relation in relations:
+            for unit in relation.units:
+                unit_databag = relation.data.get(unit, {})
+                if "endpoint" not in unit_databag:
+                    continue
+                endpoint = unit_databag["endpoint"]
+                deserialized_endpoint = json.loads(endpoint)
+                url = deserialized_endpoint["url"]
+                endpoints[unit.name] = url
+        return endpoints
+
+    @property
+    def loki_endpoints_by_unit(self) -> Dict[str, str]:
+        """Loki endpoints in the format needed for Pebble log forwarding.
+
+        When worker telemetry proxy is enabled, the proxy url is returned. If not the upstream loki addresses are returned.
+
+        Returns:
+            A dictionary of remote units and the respective Loki endpoint.
+            {
+                "loki/0": "http://loki:3100/loki/api/v1/push",
+                "another-loki/0": "http://another-loki:3100/loki/api/v1/push",
+            }
+
+            Or when worker telemetry proxy is enabled,
+            {
+                "loki/0": "http://tempo-0.temo-endpoints.tempo.svc.cluster.local:3300/proxy/loki/loki-0/push",
+                "another-loki/0": "http://tempo-0.temo-endpoints.tempo.svc.cluster.local:3300/proxy/loki/another-loki-0/push",
+            }
+        """
         relations: List[ops.Relation] = self.model.relations.get(self._endpoints["logging"], [])
 
         if proxy_worker_telemetry_port := self._proxy_worker_telemetry_port:
@@ -513,17 +587,7 @@ class Coordinator(ops.Object):
             )
 
         else:
-            for relation in relations:
-                for unit in relation.units:
-                    unit_databag = relation.data.get(unit, {})
-                    if "endpoint" not in unit_databag:
-                        continue
-                    endpoint = unit_databag["endpoint"]
-                    deserialized_endpoint = json.loads(endpoint)
-                    url = deserialized_endpoint["url"]
-                    endpoints[unit.name] = url
-
-        return endpoints
+            return self._upstream_loki_endpoints_by_unit
 
     @property
     def is_coherent(self) -> bool:
@@ -937,15 +1001,20 @@ class Coordinator(ops.Object):
         if not self._proxy_worker_telemetry_port:
             return
 
+        # NOTE: use actual upstream telemetry addresses here! Or you will be proxying the proxy addresses.
         worker_telemetry.configure(
             tls_available=self.tls_available,
             nginx_config=self._nginx_config,
             workload_tracing_protocols=self._workload_tracing_protocols or [],
             worker_topology=self.cluster.gather_topology(),
             worker_metrics_port=self._worker_metrics_port,
-            charm_tracing_receivers_urls=self._charm_tracing_receivers_urls,
-            workload_tracing_receivers_urls=self._workload_tracing_receivers_urls,
-            loki_endpoints_by_unit=self.loki_endpoints_by_unit,
+            charm_tracing_receivers_urls=self._tracing_receivers_urls(
+                self.charm_tracing, "charm-tracing", ignore_proxy=True
+            ),
+            workload_tracing_receivers_urls=self._tracing_receivers_urls(
+                self.workload_tracing, "workload-tracing", ignore_proxy=True
+            ),
+            loki_endpoints_by_unit=self._upstream_loki_endpoints_by_unit,
             remote_write_endpoints_getter=self._remote_write_endpoints_getter,
             proxy_worker_telemetry_port=self._proxy_worker_telemetry_port,
         )
@@ -953,7 +1022,11 @@ class Coordinator(ops.Object):
             upstreams_to_addresses=self._upstreams_to_addresses,
             addresses_by_unit=self.cluster.gather_addresses_by_unit(),
             remote_write_endpoints_getter=self._remote_write_endpoints_getter,
-            charm_tracing_receivers_urls=self._charm_tracing_receivers_urls,
-            workload_tracing_receivers_urls=self._workload_tracing_receivers_urls,
-            loki_endpoints_by_unit=self.loki_endpoints_by_unit,
+            charm_tracing_receivers_urls=self._tracing_receivers_urls(
+                self.charm_tracing, "charm-tracing", ignore_proxy=True
+            ),
+            workload_tracing_receivers_urls=self._tracing_receivers_urls(
+                self.workload_tracing, "workload-tracing", ignore_proxy=True
+            ),
+            loki_endpoints_by_unit=self._upstream_loki_endpoints_by_unit,
         )
