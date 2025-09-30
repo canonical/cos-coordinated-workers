@@ -10,6 +10,7 @@ import pytest
 from charms.catalogue_k8s.v1.catalogue import CatalogueItem
 from cosl.interfaces.utils import DataValidationError
 from ops import RelationChangedEvent, testing
+from ops.testing import Exec
 
 from coordinated_workers.coordinator import (
     ClusterRolesConfig,
@@ -121,7 +122,11 @@ def coordinator_state():
 
     return testing.State(
         containers={
-            testing.Container("nginx", can_connect=True),
+            testing.Container(
+                "nginx",
+                can_connect=True,
+                execs={Exec(["update-ca-certificates", "--fresh"], return_code=0)},
+            ),
             testing.Container("nginx-prometheus-exporter", can_connect=True),
         },
         relations=list(requires_relations.values()) + list(provides_relations.values()),

@@ -170,7 +170,7 @@ NGINX_DIR = "/etc/nginx"
 NGINX_CONFIG = f"{NGINX_DIR}/nginx.conf"
 KEY_PATH = f"{NGINX_DIR}/certs/server.key"
 CERT_PATH = f"{NGINX_DIR}/certs/server.cert"
-CA_CERT_PATH = "/usr/local/share/ca-certificates/ca.cert"
+CA_CERT_PATH = "/usr/local/share/ca-certificates/ca.crt"
 
 _NginxMapping = TypedDict(
     "_NginxMapping", {"nginx_port": int, "nginx_exporter_port": int}, total=True
@@ -827,8 +827,7 @@ class Nginx:
             self._container.push(CERT_PATH, server_cert, make_dirs=True)
             self._container.push(CA_CERT_PATH, ca_cert, make_dirs=True)
 
-            # TODO: uncomment when/if the nginx image contains the ca-certificates package
-            # self._container.exec(["update-ca-certificates", "--fresh"])
+            self._container.exec(["update-ca-certificates", "--fresh"])
 
     def _delete_certificates(self) -> None:
         """Delete the certificate files from disk and run update-ca-certificates."""
@@ -841,8 +840,7 @@ class Nginx:
                 if self._container.exists(path):
                     self._container.remove_path(path, recursive=True)
 
-            # TODO: uncomment when/if the nginx image contains the ca-certificates package
-            # self._container.exec(["update-ca-certificates", "--fresh"])
+            self._container.exec(["update-ca-certificates", "--fresh"])
 
     def _has_config_changed(self, new_config: str) -> bool:
         """Return True if the passed config differs from the one on disk."""

@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import ops
 import pytest
 from ops import pebble, testing
+from ops.testing import Exec
 
 from coordinated_workers.nginx import (
     CA_CERT_PATH,
@@ -76,7 +77,14 @@ def test_certs_deleted(certificate_mounts: dict, nginx_context: testing.Context)
     with ctx(
         ctx.on.update_status(),
         state=testing.State(
-            containers={testing.Container("nginx", can_connect=True, mounts=certificate_mounts)}
+            containers={
+                testing.Container(
+                    "nginx",
+                    can_connect=True,
+                    mounts=certificate_mounts,
+                    execs={Exec(["update-ca-certificates", "--fresh"], return_code=0)},
+                )
+            }
         ),
     ) as mgr:
         charm = mgr.charm
@@ -190,6 +198,7 @@ def test_nginx_pebble_checks(tls):
                 testing.Container(
                     "nginx",
                     can_connect=True,
+                    execs={Exec(["update-ca-certificates", "--fresh"], return_code=0)},
                 )
             },
         ),
