@@ -151,6 +151,7 @@ Any charm can instantiate `NginxConfig` to generate its own Nginx configuration 
 
 """
 
+import copy
 import logging
 import subprocess
 from dataclasses import dataclass, field
@@ -316,6 +317,16 @@ class NginxConfig:
         self._enable_status_page = enable_status_page
         self._dns_IP_address = self._get_dns_ip_address()
         self._ipv6_enabled = is_ipv6_enabled()
+
+    def copy(self) -> 'NginxConfig':
+        """Return a deep copy of this NginxConfig."""
+        return NginxConfig(
+            server_name=self._server_name,
+            upstream_configs=copy.deepcopy(self._upstream_configs),
+            server_ports_to_locations=copy.deepcopy(self._server_ports_to_locations),
+            enable_health_check=self._enable_health_check,
+            enable_status_page=self._enable_status_page,
+        )
 
     def extend_upstream_configs(self, upstream_configs: List[NginxUpstream]):
         """Add upstreams to existing configuration."""
