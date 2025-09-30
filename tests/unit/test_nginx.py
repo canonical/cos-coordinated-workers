@@ -162,6 +162,47 @@ def test_nginx_pebble_plan(container_name):
         assert nginx.layer == expected_layer
 
 
+@pytest.mark.parametrize("tls", (False, True))
+def test_nginx_pebble_checks(tls):
+    check_endpoint = f"http{'s' if tls else ''}://1.2.3.4/health"
+    expected_check_layer = {
+        "alive": {
+            "override": "replace",
+            "startup": "enabled",
+            "threshold": 3,
+            "http": {
+                "url": check_endpoint,
+            },
+        },
+    }
+
+    # GIVEN any charm with a container
+    ctx = testing.Context(
+        ops.CharmBase, meta={"name": "foo", "containers": {"nginx": {"type": "oci-image"}}}
+    )
+
+    # WHEN we process any event
+    with ctx(
+        ctx.on.update_status(),
+        state=testing.State(
+            containers={
+                testing.Container(
+                    "nginx",
+                    can_connect=True,
+                )
+            },
+        ),
+    ) as mgr:
+        charm = mgr.charm
+        # AND we pass a liveness check endpoint
+        nginx = Nginx(charm, liveness_check_endpoint_getter=lambda _: check_endpoint)
+        nginx.reconcile("mock nginx config")
+        # THEN the generated pebble layer has the expected pebble check
+        out = mgr.run()
+        actual_checks = out.get_container("nginx").layers["nginx"].checks
+        assert actual_checks == expected_check_layer
+
+
 @contextmanager
 def mock_resolv_conf(contents: str):
     with tempfile.NamedTemporaryFile() as tf:

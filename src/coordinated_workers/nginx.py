@@ -155,7 +155,7 @@ import logging
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Set, TypedDict, cast
+from typing import Any, Callable, Dict, List, Literal, Optional, Set, TypedDict, cast
 
 import crossplane  # type: ignore
 from opentelemetry import trace
@@ -777,11 +777,13 @@ class Nginx:
         charm: CharmBase,
         options: Optional[NginxMappingOverrides] = None,
         container_name: str = "nginx",
+        liveness_check_endpoint_getter: Optional[Callable[[bool], str]] = None,
     ):
         self._charm = charm
         self._container_name = container_name
         self._container = self._charm.unit.get_container(container_name)
         self.options.update(options or {})
+        self._liveness_check_endpoint_getter = liveness_check_endpoint_getter
 
     @property
     def are_certificates_on_disk(self) -> bool:
@@ -881,9 +883,11 @@ class Nginx:
             self._delete_certificates()
 
     def _reconcile_nginx_config(self, nginx_config: str):
+        layer = self.layer
         should_restart = self._has_config_changed(nginx_config)
         self._container.push(self.config_path, nginx_config, make_dirs=True)  # type: ignore
-        self._container.add_layer("nginx", self.layer, combine=True)
+        self._add_liveness_check(layer)
+        self._container.add_layer("nginx", layer, combine=True)
         try:
             self._container.autostart()
         except pebble.ChangeError:
@@ -896,7 +900,6 @@ class Nginx:
                 )
             # otherwise, it's an unexpected error and we should raise it as is
             raise
-
         if should_restart:
             logger.info("new nginx config: restarting the service")
             # Reload the nginx config without restarting the service
@@ -918,6 +921,22 @@ class Nginx:
                     }
                 },
             }
+        )
+
+    def _add_liveness_check(self, layer: pebble.Layer):
+        if not self._liveness_check_endpoint_getter:
+            return
+
+        layer.checks["alive"] = pebble.Check(
+            "alive",
+            {
+                "override": "replace",
+                "startup": "enabled",
+                "threshold": 3,
+                "http": {
+                    "url": self._liveness_check_endpoint_getter(self.are_certificates_on_disk)
+                },
+            },
         )
 
 
