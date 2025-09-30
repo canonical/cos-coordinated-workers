@@ -348,9 +348,9 @@ class Coordinator(ops.Object):
         self._proxy_worker_telemetry_port: Optional[int] = None
         if worker_telemetry_proxy_config:
             self._proxy_worker_telemetry_port = (
-                worker_telemetry_proxy_config.http
+                worker_telemetry_proxy_config.https
                 if self.tls_available
-                else worker_telemetry_proxy_config.https
+                else worker_telemetry_proxy_config.http
             )
 
         # NOTE: setup nginx after tracing requirers as it uses logging and tracing endpoints
