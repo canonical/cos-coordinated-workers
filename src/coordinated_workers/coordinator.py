@@ -458,7 +458,9 @@ class Coordinator(ops.Object):
 
         if (proxy_worker_telemetry_port := self._proxy_worker_telemetry_port) and not ignore_proxy:
             return worker_telemetry.proxy_tracing_receivers_urls(
-                hostname=self.hostname,
+                hostname=self.app_hostname(
+                    self.hostname, self._charm.app.name, self._charm.model.name
+                ),  # type: ignore
                 proxy_worker_telemetry_port=proxy_worker_telemetry_port,
                 tls_available=self.tls_available,
                 tracing_target_type=_type,
@@ -526,7 +528,9 @@ class Coordinator(ops.Object):
         endpoints = self._remote_write_endpoints_getter()
         if proxy_worker_telemetry_port := self._proxy_worker_telemetry_port:
             return worker_telemetry.proxy_remote_write_endpoints(
-                hostname=self.hostname,
+                hostname=self.app_hostname(
+                    self.hostname, self._charm.app.name, self._charm.model.name
+                ),  # type: ignore
                 proxy_worker_telemetry_port=proxy_worker_telemetry_port,
                 tls_available=self.tls_available,
                 endpoints=endpoints,
@@ -580,7 +584,9 @@ class Coordinator(ops.Object):
 
         if proxy_worker_telemetry_port := self._proxy_worker_telemetry_port:
             return worker_telemetry.proxy_loki_endpoints_by_unit(  # type: ignore
-                hostname=self.hostname,
+                hostname=self.app_hostname(
+                    self.hostname, self._charm.app.name, self._charm.model.name
+                ),  # type: ignore
                 proxy_worker_telemetry_port=proxy_worker_telemetry_port,
                 tls_available=self.tls_available,
                 logging_relations=relations,
@@ -768,7 +774,9 @@ class Coordinator(ops.Object):
                 # address: address of the coordinator
                 # path: location used in the nginx config for proxying worker metric
 
-                targets = [f"{self.hostname}:{self._proxy_worker_telemetry_port}"]
+                targets = [
+                    f"{self.app_hostname(self.hostname, self._charm.app.name, self._charm.model.name)}:{self._proxy_worker_telemetry_port}"
+                ]  # type: ignore
                 metrics_path = worker_telemetry.PROXY_WORKER_TELEMETRY_PATHS["metrics"].format(
                     unit=worker_topology["unit"].replace("/", "-"),
                 )
