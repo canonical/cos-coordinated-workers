@@ -32,6 +32,7 @@ import ops_tracing
 import pydantic
 import yaml
 from cosl.interfaces.datasource_exchange import DatasourceExchange
+from lightkube import Client
 from opentelemetry import trace
 from ops import StatusBase
 
@@ -72,6 +73,7 @@ from charms.tls_certificates_interface.v4.tls_certificates import (
     CertificateRequestAttributes,
     TLSCertificatesRequiresV4,
 )
+from charms.istio_beacon_k8s.v0.service_mesh import reconcile_charm_labels
 from cosl.reconciler import all_events, observe_events
 from lightkube.models.core_v1 import ResourceRequirements
 
@@ -440,6 +442,9 @@ class Coordinator(ops.Object):
             logger.debug("Resource patch not ready yet. Skipping cluster update step.")
             return
 
+        # reconcile the custom lables added to the application pods.
+        self._update_app_pod_labels()
+
         # certificates must be synced before we reconcile the workloads; otherwise changes in the certs may go unnoticed.
         self._certificates.sync()
         # keep this on top right after certificates sync
@@ -768,6 +773,16 @@ class Coordinator(ops.Object):
 
         # self is not included in relation.units
         return relation.units
+
+    def _update_app_pod_labels(self) -> None:
+        """Update any custom pod labels we require."""
+        reconcile_charm_labels(
+            client=Client(namespace=self._charm.model.name),
+            app_name=self._charm.app.name,
+            namespace=self._charm.model.name,
+            label_configmap_name=f"{self._charm.app.name}-pod-labels",
+            labels=self._coordinated_worker_solution_labels,
+        )
 
     @property
     def loki_endpoints_by_unit(self) -> Dict[str, str]:
