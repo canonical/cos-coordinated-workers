@@ -64,24 +64,28 @@ def patch_all(tmp_path: Path):
 
 
 @pytest.fixture(autouse=True)
-def mock_worker_lightkube_client(request):
-    """Global mock for the Worker's lightkube client to avoid lightkube calls."""
+def mock_lightkube_client(request):
+    """Global mock for lightkube client to avoid lightkube calls in both Worker and Coordinator."""
     # Skip this fixture if the test has explicitly disabled it.
-    # To use this feature in a test, mark it with @pytest.mark.disable_worker_lightkube_client_autouse
-    if "disable_worker_lightkube_client_autouse" in request.keywords:
+    # To use this feature in a test, mark it with @pytest.mark.disable_lightkube_client_autouse
+    if "disable_lightkube_client_autouse" in request.keywords:
         yield
     else:
-        with patch("coordinated_workers.worker.Client") as mocked:
-            yield mocked
+        with ExitStack() as stack:
+            worker_mock = stack.enter_context(patch("coordinated_workers.worker.Client"))
+            coordinator_mock = stack.enter_context(patch("coordinated_workers.coordinator.Client"))
+            yield {"worker": worker_mock, "coordinator": coordinator_mock}
 
 
 @pytest.fixture(autouse=True)
-def mock_worker_reconcile_charm_labels(request):
-    """Global mock for the Worker's reconcile_charm_labels to avoid lightkube calls."""
+def mock_reconcile_charm_labels(request):
+    """Global mock for reconcile_charm_labels to avoid lightkube calls in both Worker and Coordinator."""
     # Skip this fixture if the test has explicitly disabled it.
-    # To use this feature in a test, mark it with @pytest.mark.disable_worker_reconcile_charm_labels_autouse
-    if "disable_worker_reconcile_charm_labels_autouse" in request.keywords:
+    # To use this feature in a test, mark it with @pytest.mark.disable_reconcile_charm_labels_autouse
+    if "disable_reconcile_charm_labels_autouse" in request.keywords:
         yield
     else:
-        with patch("coordinated_workers.worker.reconcile_charm_labels") as mocked:
-            yield mocked
+        with ExitStack() as stack:
+            worker_mock = stack.enter_context(patch("coordinated_workers.worker.reconcile_charm_labels"))
+            coordinator_mock = stack.enter_context(patch("coordinated_workers.coordinator.reconcile_charm_labels"))
+            yield {"worker": worker_mock, "coordinator": coordinator_mock}
