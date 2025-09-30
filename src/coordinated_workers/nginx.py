@@ -883,11 +883,9 @@ class Nginx:
             self._delete_certificates()
 
     def _reconcile_nginx_config(self, nginx_config: str):
-        layer = self.layer
         should_restart = self._has_config_changed(nginx_config)
         self._container.push(self.config_path, nginx_config, make_dirs=True)  # type: ignore
-        self._add_liveness_check(layer)
-        self._container.add_layer("nginx", layer, combine=True)
+        self._container.add_layer("nginx", self.layer, combine=True)
         try:
             self._container.autostart()
         except pebble.ChangeError:
@@ -912,32 +910,39 @@ class Nginx:
             {
                 "summary": "nginx layer",
                 "description": "pebble config layer for Nginx",
-                "services": {
-                    self._container_name: {
-                        "override": "replace",
-                        "summary": "nginx",
-                        "command": "nginx -g 'daemon off;'",
-                        "startup": "enabled",
-                    }
-                },
+                "services": {self._container_name: self._service_layer},
+                "checks": {self._container_name: self._check_layer}
+                if self._liveness_check_endpoint_getter
+                else {},
             }
         )
 
-    def _add_liveness_check(self, layer: pebble.Layer):
-        if not self._liveness_check_endpoint_getter:
-            return
+    @property
+    def _service_layer(self) -> pebble.ServiceDict:
+        svc: pebble.ServiceDict = {
+            "override": "replace",
+            "summary": "nginx",
+            "command": "nginx -g 'daemon off;'",
+            "startup": "enabled",
+        }
+        if self._liveness_check_endpoint_getter:
+            # we've observed that nginx sometimes doesn't get reloaded after a config change.
+            # we can rely on the pebble health check: if the check fails,
+            # pebble will automatically restart the nginx service.
+            svc["on-check-failure"] = {self._container_name: "restart"}
+        return svc
 
-        layer.checks["alive"] = pebble.Check(
-            "alive",
-            {
-                "override": "replace",
-                "startup": "enabled",
-                "threshold": 3,
-                "http": {
-                    "url": self._liveness_check_endpoint_getter(self.are_certificates_on_disk)
-                },
-            },
-        )
+    @property
+    def _check_layer(self) -> pebble.CheckDict:
+        if not self._liveness_check_endpoint_getter:
+            return {}
+
+        return {
+            "override": "replace",
+            "startup": "enabled",
+            "threshold": 3,
+            "http": {"url": self._liveness_check_endpoint_getter(self.are_certificates_on_disk)},
+        }
 
 
 class NginxPrometheusExporter:

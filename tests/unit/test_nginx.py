@@ -166,7 +166,7 @@ def test_nginx_pebble_plan(container_name):
 def test_nginx_pebble_checks(tls):
     check_endpoint = f"http{'s' if tls else ''}://1.2.3.4/health"
     expected_check_layer = {
-        "alive": {
+        "nginx": {
             "override": "replace",
             "startup": "enabled",
             "threshold": 3,
@@ -175,6 +175,7 @@ def test_nginx_pebble_checks(tls):
             },
         },
     }
+    expected_partial_service_layer = {"nginx": "restart"}
 
     # GIVEN any charm with a container
     ctx = testing.Context(
@@ -199,8 +200,12 @@ def test_nginx_pebble_checks(tls):
         nginx.reconcile("mock nginx config")
         # THEN the generated pebble layer has the expected pebble check
         out = mgr.run()
-        actual_checks = out.get_container("nginx").layers["nginx"].checks
+        layer = out.get_container("nginx").layers["nginx"]
+        actual_services = layer.services
+        actual_checks = layer.checks
         assert actual_checks == expected_check_layer
+        # AND the pebble layer service has a restart on check-failure
+        assert actual_services["nginx"].on_check_failure == expected_partial_service_layer
 
 
 @contextmanager
