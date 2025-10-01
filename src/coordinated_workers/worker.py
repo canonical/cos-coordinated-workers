@@ -490,7 +490,7 @@ class Worker(ops.Object):
             logger.debug("Resource patch not ready yet. Skipping reconciliation step.")
             return
 
-        self._update_app_pod_labels()
+        self._reconcile_charm_labels()
 
         self._update_cluster_relation()
         self._setup_charm_tracing()
@@ -566,14 +566,14 @@ class Worker(ops.Object):
             return
         self._container.stop(*container_services)
 
-    def _update_app_pod_labels(self) -> None:
-        """Update any custom pod labels we require as directed by the coordinator charm."""
+    def _reconcile_charm_labels(self) -> None:
+        """Update any custom labels applied to the charm pods as directed by the coordinator charm."""
         reconcile_charm_labels(
             client=Client(namespace=self._charm.model.name),
             app_name=self._charm.app.name,
             namespace=self._charm.model.name,
             label_configmap_name=f"{self._charm.app.name}-pod-labels",
-            labels=self.cluster.get_pod_labels(),
+            labels=self.cluster.get_worker_labels(),
         )
 
     def _update_cluster_relation(self) -> None:

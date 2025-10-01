@@ -385,9 +385,9 @@ class Coordinator(ops.Object):
         ):
             self._mesh = ServiceMeshConsumer(  # type: ignore
                 self._charm,
-                mesh_relation_name=str(mesh_relation_name),
-                cross_model_mesh_provides_name=str(provide_cmr_mesh_name),
-                cross_model_mesh_requires_name=str(require_cmr_mesh_name),
+                mesh_relation_name=cast(str, mesh_relation_name),
+                cross_model_mesh_provides_name=cast(str, provide_cmr_mesh_name),
+                cross_model_mesh_requires_name=cast(str, require_cmr_mesh_name),
             )
         elif any(
             (
@@ -445,7 +445,7 @@ class Coordinator(ops.Object):
             return
 
         # reconcile the custom lables added to the application pods.
-        self._update_app_pod_labels()
+        self._reconcile_charm_labels()
 
         # certificates must be synced before we reconcile the workloads; otherwise changes in the certs may go unnoticed.
         self._certificates.sync()
@@ -716,16 +716,15 @@ class Coordinator(ops.Object):
         )
 
     @property
-    def _coordinated_worker_solution_labels(self) -> Dict[str, str]:
-        """Labels to be applied to all pods in this coordinated-worker solution."""
+    def _coordinated_workers_solution_labels(self) -> Dict[str, str]:
+        """Labels to be applied to all pods in this coordinated-workers solution."""
         return {"app.kubernetes.io/part-of": f"{self._charm.app.name}"}
 
     @property
     def _worker_labels(self) -> Dict[str, str]:
         """Labels to be applied to worker pods."""
-        labels = self._coordinated_worker_solution_labels
-        if self._mesh and (mesh_labels := self._mesh.labels()):  # type: ignore
-            mesh_labels = cast(Dict[str, str], mesh_labels)
+        labels = self._coordinated_workers_solution_labels
+        if self._mesh and (mesh_labels := cast(Dict[str, str], self._mesh.labels())):  # type: ignore
             labels.update(mesh_labels)
         return labels
 
@@ -776,14 +775,14 @@ class Coordinator(ops.Object):
         # self is not included in relation.units
         return relation.units
 
-    def _update_app_pod_labels(self) -> None:
+    def _reconcile_charm_labels(self) -> None:
         """Update any custom pod labels we require."""
         reconcile_charm_labels(
             client=Client(namespace=self._charm.model.name),
             app_name=self._charm.app.name,
             namespace=self._charm.model.name,
             label_configmap_name=f"{self._charm.app.name}-pod-labels",
-            labels=self._coordinated_worker_solution_labels,
+            labels=self._coordinated_workers_solution_labels,
         )
 
     @property

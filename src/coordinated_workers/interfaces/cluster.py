@@ -132,8 +132,8 @@ class ClusterProviderAppData(cosl.interfaces.utils.DatabagModel):
     privkey_secret_id: Optional[str] = None
     s3_tls_ca_chain: Optional[str] = None
 
-    ### other
-    pod_labels: Optional[Dict[str, str]] = None
+    ### mesh
+    worker_labels: Optional[Dict[str, str]] = None
 
 
 class TLSData(NamedTuple):
@@ -567,9 +567,9 @@ class ClusterRequirer(Object):
             return data.remote_write_endpoints or []
         return []
 
-    def get_pod_labels(self) -> Dict[str, str]:
+    def get_worker_labels(self) -> Dict[str, str]:
         """Fetch the additional labels for the worker pods from the coordinator databag."""
         data = self._get_data_from_coordinator()
         if data:
-            return data.pod_labels or {}
+            return data.worker_labels or {}
         return {}
