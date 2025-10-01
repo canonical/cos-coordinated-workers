@@ -908,16 +908,16 @@ class Nginx:
             {
                 "summary": "nginx layer",
                 "description": "pebble config layer for Nginx",
-                "services": {self._container_name: self._service_layer},
-                "checks": {self._container_name: self._check_layer}
+                "services": {self._container_name: self._service_dict},
+                "checks": {f"{self._container_name}-up": self._check_dict}
                 if self._liveness_check_endpoint_getter
                 else {},
             }
         )
 
     @property
-    def _service_layer(self) -> pebble.ServiceDict:
-        svc: pebble.ServiceDict = {
+    def _service_dict(self) -> pebble.ServiceDict:
+        service_dict: pebble.ServiceDict = {
             "override": "replace",
             "summary": "nginx",
             "command": "nginx -g 'daemon off;'",
@@ -925,13 +925,15 @@ class Nginx:
         }
         if self._liveness_check_endpoint_getter:
             # we've observed that nginx sometimes doesn't get reloaded after a config change.
-            # we can rely on the pebble health check: if the check fails,
+            # Probably a race condition if we change the config too quickly, while the workers are
+            # already reloading because of a previous config change.
+            # To counteract this, we rely on the pebble health check: if this check fails,
             # pebble will automatically restart the nginx service.
-            svc["on-check-failure"] = {self._container_name: "restart"}
-        return svc
+            service_dict["on-check-failure"] = {self._container_name: "restart"}
+        return service_dict
 
     @property
-    def _check_layer(self) -> pebble.CheckDict:
+    def _check_dict(self) -> pebble.CheckDict:
         if not self._liveness_check_endpoint_getter:
             return {}
 

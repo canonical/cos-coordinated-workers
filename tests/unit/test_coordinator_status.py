@@ -111,14 +111,12 @@ def worker():
 
 
 @pytest.fixture()
-def base_state(s3, worker):
+def base_state(s3, worker, nginx_container, nginx_prometheus_exporter_container):
     return testing.State(
         leader=True,
         containers={
-            testing.Container(
-                "nginx", execs={Exec(["update-ca-certificates", "--fresh"], return_code=0)}
-            ),
-            testing.Container("nginx-prometheus-exporter"),
+            nginx_container,
+            nginx_prometheus_exporter_container,
         },
         relations={worker, s3},
     )

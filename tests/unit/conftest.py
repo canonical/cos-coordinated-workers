@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 import pytest
 import tenacity
+from ops.testing import Container, Exec
 
 
 @pytest.fixture(autouse=True)
@@ -61,3 +62,20 @@ def patch_all(tmp_path: Path):
         )
 
         yield
+
+
+@pytest.fixture
+def nginx_container():
+    return Container(
+        "nginx",
+        can_connect=True,
+        execs={Exec(["update-ca-certificates", "--fresh"], return_code=0)},
+    )
+
+
+@pytest.fixture
+def nginx_prometheus_exporter_container():
+    return Container(
+        "nginx-prometheus-exporter",
+        can_connect=True,
+    )

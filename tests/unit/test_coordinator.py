@@ -10,7 +10,6 @@ import pytest
 from charms.catalogue_k8s.v1.catalogue import CatalogueItem
 from cosl.interfaces.utils import DataValidationError
 from ops import RelationChangedEvent, testing
-from ops.testing import Exec
 
 from coordinated_workers.coordinator import (
     ClusterRolesConfig,
@@ -31,7 +30,7 @@ MOCK_TLS_CONFIG = TLSConfig(MOCK_CERTS_DATA, MOCK_CERTS_DATA, MOCK_CERTS_DATA)
 
 
 @pytest.fixture
-def coordinator_state():
+def coordinator_state(nginx_container, nginx_prometheus_exporter_container):
     requires_relations = {
         endpoint: testing.Relation(endpoint=endpoint, interface=interface["interface"])
         for endpoint, interface in {
@@ -122,12 +121,8 @@ def coordinator_state():
 
     return testing.State(
         containers={
-            testing.Container(
-                "nginx",
-                can_connect=True,
-                execs={Exec(["update-ca-certificates", "--fresh"], return_code=0)},
-            ),
-            testing.Container("nginx-prometheus-exporter", can_connect=True),
+            nginx_container,
+            nginx_prometheus_exporter_container,
         },
         relations=list(requires_relations.values()) + list(provides_relations.values()),
     )
@@ -459,7 +454,9 @@ def test_charm_tracing_configured(
         testing.CharmEvents.config_changed(),
     ),
 )
-def test_invalid_databag_content(coordinator_charm: ops.CharmBase, event):
+def test_invalid_databag_content(
+    coordinator_charm: ops.CharmBase, event, nginx_container, nginx_prometheus_exporter_container
+):
     # Test Invalid relations databag for ClusterProvider.gather_addresses_by_role
 
     # GIVEN a coordinator charm with a cluster relation and invalid remote databag contents
@@ -497,8 +494,8 @@ def test_invalid_databag_content(coordinator_charm: ops.CharmBase, event):
 
     invalid_databag_state = testing.State(
         containers={
-            testing.Container("nginx", can_connect=True),
-            testing.Container("nginx-prometheus-exporter", can_connect=True),
+            nginx_container,
+            nginx_prometheus_exporter_container,
         },
         relations=list(requires_relations.values()) + list(provides_relations.values()),
     )

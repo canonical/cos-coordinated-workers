@@ -1,6 +1,7 @@
 import logging
 import tempfile
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 from typing import Dict, List, Tuple
 from unittest.mock import MagicMock, patch
@@ -8,7 +9,6 @@ from unittest.mock import MagicMock, patch
 import ops
 import pytest
 from ops import pebble, testing
-from ops.testing import Exec
 
 from coordinated_workers.nginx import (
     CA_CERT_PATH,
@@ -49,16 +49,14 @@ def nginx_context():
     )
 
 
-def test_certs_on_disk(certificate_mounts: dict, nginx_context: testing.Context):
+def test_certs_on_disk(certificate_mounts: dict, nginx_context: testing.Context, nginx_container):
     # GIVEN any charm with a container
     ctx = nginx_context
 
     # WHEN we process any event
     with ctx(
         ctx.on.update_status(),
-        state=testing.State(
-            containers={testing.Container("nginx", can_connect=True, mounts=certificate_mounts)}
-        ),
+        state=testing.State(containers={replace(nginx_container, mounts=certificate_mounts)}),
     ) as mgr:
         charm = mgr.charm
         nginx = Nginx(charm)
@@ -67,7 +65,7 @@ def test_certs_on_disk(certificate_mounts: dict, nginx_context: testing.Context)
         assert nginx.are_certificates_on_disk
 
 
-def test_certs_deleted(certificate_mounts: dict, nginx_context: testing.Context):
+def test_certs_deleted(certificate_mounts: dict, nginx_context: testing.Context, nginx_container):
     # Test deleting the certificates.
 
     # GIVEN any charm with a container
@@ -78,12 +76,7 @@ def test_certs_deleted(certificate_mounts: dict, nginx_context: testing.Context)
         ctx.on.update_status(),
         state=testing.State(
             containers={
-                testing.Container(
-                    "nginx",
-                    can_connect=True,
-                    mounts=certificate_mounts,
-                    execs={Exec(["update-ca-certificates", "--fresh"], return_code=0)},
-                )
+                replace(nginx_container, mounts=certificate_mounts),
             }
         ),
     ) as mgr:
@@ -97,7 +90,7 @@ def test_certs_deleted(certificate_mounts: dict, nginx_context: testing.Context)
         assert not nginx.are_certificates_on_disk
 
 
-def test_has_config_changed(nginx_context: testing.Context):
+def test_has_config_changed(nginx_context: testing.Context, nginx_container):
     # Test changing the nginx config and catching the change.
 
     # GIVEN any charm with a container and a nginx config file
@@ -112,9 +105,8 @@ def test_has_config_changed(nginx_context: testing.Context):
         ctx.on.update_status(),
         state=testing.State(
             containers={
-                testing.Container(
-                    "nginx",
-                    can_connect=True,
+                replace(
+                    nginx_container,
                     mounts={
                         "config": testing.Mount(location=NGINX_CONFIG, source=test_config.name)
                     },
@@ -171,10 +163,10 @@ def test_nginx_pebble_plan(container_name):
 
 
 @pytest.mark.parametrize("tls", (False, True))
-def test_nginx_pebble_checks(tls):
+def test_nginx_pebble_checks(tls, nginx_container):
     check_endpoint = f"http{'s' if tls else ''}://1.2.3.4/health"
     expected_check_layer = {
-        "nginx": {
+        "nginx-up": {
             "override": "replace",
             "startup": "enabled",
             "threshold": 3,
@@ -195,11 +187,7 @@ def test_nginx_pebble_checks(tls):
         ctx.on.update_status(),
         state=testing.State(
             containers={
-                testing.Container(
-                    "nginx",
-                    can_connect=True,
-                    execs={Exec(["update-ca-certificates", "--fresh"], return_code=0)},
-                )
+                nginx_container,
             },
         ),
     ) as mgr:
