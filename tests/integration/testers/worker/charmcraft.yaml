@@ -1,0 +1,46 @@
+# Copyright 2025 Canonical Ltd.
+# See LICENSE file for licensing details.
+name: worker-tester
+description: tester charm for the Worker
+summary: tester charm for the Worker
+type: charm
+platforms:
+  ubuntu@24.04:amd64:
+
+config:
+  options:
+    role-a:
+      type: boolean
+      default: false
+      description: |
+        Configure the application to run with this role
+
+    role-b:
+      type: boolean
+      default: false
+      description: |
+        Configure the application to run with this role
+
+
+requires:
+  cluster:
+    interface: cluster
+    description: |
+      Coordinator's relation to Worker
+
+containers:
+  echoserver:
+    resource: echo-server-image
+
+resources:
+  echo-server-image:
+    type: oci-image
+    description: OCI image for echo-server
+    upstream-source: jmalloc/echo-server:v0.3.7
+
+parts:
+  charm:
+    plugin: uv
+    source: .
+    build-packages: [git] # handy for git+ dependencies during development
+    build-snaps: [astral-uv]

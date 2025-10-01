@@ -172,3 +172,15 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# tester charm copies of this package's source or other files
+/tests/integration/testers/coordinator/src/coordinated_workers/
+/tests/integration/testers/coordinator/pyproject.toml
+/tests/integration/testers/coordinator/uv.lock
+/tests/integration/testers/worker/src/coordinated_workers/
+/tests/integration/testers/worker/pyproject.toml
+/tests/integration/testers/worker/uv.lock
+
+# tester charms should always include their libraries
+!/tests/integration/testers/coordinator/lib
+!/tests/integration/testers/worker/lib
