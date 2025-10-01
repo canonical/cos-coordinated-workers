@@ -236,7 +236,7 @@ class ClusterProvider(Object):
         charm_tracing_receivers: Optional[Dict[str, str]] = None,
         workload_tracing_receivers: Optional[Dict[str, str]] = None,
         remote_write_endpoints: Optional[List[RemoteWriteEndpoint]] = None,
-        pod_labels: Optional[Dict[str, str]] = None,
+        worker_labels: Optional[Dict[str, str]] = None,
     ) -> None:
         """Publish the config to all related worker clusters."""
         for relation in self._relations:
@@ -260,7 +260,7 @@ class ClusterProvider(Object):
                     remote_write_endpoints=remote_write_endpoints,
                     s3_tls_ca_chain=s3_tls_ca_chain,
                     worker_ports=_worker_ports,
-                    pod_labels=pod_labels,
+                    worker_labels=worker_labels,
                 )
                 local_app_databag.dump(relation.data[self.model.app])
 

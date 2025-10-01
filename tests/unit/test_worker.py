@@ -1107,7 +1107,7 @@ def test_get_workload_tracing_receivers(remote_databag, expected):
     (
         (
             {
-                "pod_labels": json.dumps({"label1": "value1", "label2": "value2"}),
+                "worker_labels": json.dumps({"label1": "value1", "label2": "value2"}),
                 "worker_config": json.dumps("test"),
             },
             {"label1": "value1", "label2": "value2"},

@@ -839,7 +839,7 @@ class Coordinator(ops.Object):
                 else None
             ),
             s3_tls_ca_chain=self.s3_connection_info.ca_cert,
-            pod_labels=self._worker_labels,
+            worker_labels=self._worker_labels,
         )
 
     def _consolidate_workers_alert_rules(self):

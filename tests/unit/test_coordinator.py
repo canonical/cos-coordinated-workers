@@ -826,7 +826,7 @@ def test_coordinator_passes_service_mesh_labels_to_workers(
     # THEN the service mesh labels are correctly distributed to the workers via the Cluster relation
     cluster = state_out.get_relations("my-cluster")
     for relation in cluster:
-        labels = json.loads(relation.local_app_data.get("pod_labels", "{}"))
+        labels = json.loads(relation.local_app_data.get("worker_labels", "{}"))
         for key, value in expected_labels.items():
             assert labels[key] == value
 
@@ -848,6 +848,6 @@ def test_coordinator_passes_solution_labels_to_worker(
     # THEN the solution-level labels are correctly distributed to the workers via the Cluster relation
     cluster = state_out.get_relations("my-cluster")
     for relation in cluster:
-        labels = json.loads(relation.local_app_data.get("pod_labels", "{}"))
+        labels = json.loads(relation.local_app_data.get("worker_labels", "{}"))
         for key, value in expected_labels.items():
             assert labels[key] == value
