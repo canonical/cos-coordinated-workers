@@ -1116,7 +1116,7 @@ def test_get_workload_tracing_receivers(remote_databag, expected):
 )
 # is_ready=False to disable most of the charm logic as we dont need it here
 @patch.object(Worker, "is_ready", new=lambda _: False)
-def test_worker_charm_labels(remote_databag, expected, mock_reconcile_charm_labels):
+def test_worker_charm_labels(remote_databag, expected, mock_worker_reconcile_charm_labels):
     """Assert the Worker correctly tries to reconcile the expected labels."""
     ctx = testing.Context(
         MyCharm,
@@ -1141,4 +1141,4 @@ def test_worker_charm_labels(remote_databag, expected, mock_reconcile_charm_labe
         testing.State(containers={container}, relations={relation}),
     )
 
-    assert mock_reconcile_charm_labels["worker"].call_args.kwargs["labels"] == expected
+    assert mock_worker_reconcile_charm_labels.call_args.kwargs["labels"] == expected
