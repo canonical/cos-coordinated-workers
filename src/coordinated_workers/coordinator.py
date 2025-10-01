@@ -32,6 +32,7 @@ import ops_tracing
 import pydantic
 import yaml
 from cosl.interfaces.datasource_exchange import DatasourceExchange
+from lightkube import Client
 from opentelemetry import trace
 from ops import StatusBase
 
@@ -60,7 +61,10 @@ check_libs_installed(
 from charms.catalogue_k8s.v1.catalogue import CatalogueConsumer, CatalogueItem
 from charms.data_platform_libs.v0.s3 import S3Requirer
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
-from charms.istio_beacon_k8s.v0.service_mesh import ServiceMeshConsumer
+from charms.istio_beacon_k8s.v0.service_mesh import (  # type: ignore
+    ServiceMeshConsumer,  # type: ignore
+    reconcile_charm_labels,  # type: ignore
+)
 from charms.loki_k8s.v1.loki_push_api import LogForwarder, LokiPushApiConsumer
 from charms.observability_libs.v0.kubernetes_compute_resources_patch import (
     KubernetesComputeResourcesPatch,
@@ -379,7 +383,7 @@ class Coordinator(ops.Object):
                 require_cmr_mesh_name := self._endpoints.get("service-mesh-require-cmr-mesh"),
             )
         ):
-            self._mesh = ServiceMeshConsumer(
+            self._mesh = ServiceMeshConsumer(  # type: ignore
                 self._charm,
                 mesh_relation_name=str(mesh_relation_name),
                 cross_model_mesh_provides_name=str(provide_cmr_mesh_name),
@@ -439,6 +443,9 @@ class Coordinator(ops.Object):
         if self.resources_patch and not self.resources_patch.is_ready():
             logger.debug("Resource patch not ready yet. Skipping cluster update step.")
             return
+
+        # reconcile the custom lables added to the application pods.
+        self._update_app_pod_labels()
 
         # certificates must be synced before we reconcile the workloads; otherwise changes in the certs may go unnoticed.
         self._certificates.sync()
@@ -768,6 +775,16 @@ class Coordinator(ops.Object):
 
         # self is not included in relation.units
         return relation.units
+
+    def _update_app_pod_labels(self) -> None:
+        """Update any custom pod labels we require."""
+        reconcile_charm_labels(
+            client=Client(namespace=self._charm.model.name),
+            app_name=self._charm.app.name,
+            namespace=self._charm.model.name,
+            label_configmap_name=f"{self._charm.app.name}-pod-labels",
+            labels=self._coordinated_worker_solution_labels,
+        )
 
     @property
     def loki_endpoints_by_unit(self) -> Dict[str, str]:
