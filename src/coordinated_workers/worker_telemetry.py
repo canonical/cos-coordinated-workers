@@ -61,8 +61,8 @@ def configure_upstreams(
 ) -> None:
     """Updates upstream names to addresses mapper to include the required servers/clients that send/receive worker telemetry.
 
-    This function upates the `upstreams_to_addresses` object inplace to include the upstream logging, tracing, and remote_write endpoints with corresponding upstream names.
-    The endpoints used in this mapping are usptream endpoints that actually receive the telemetry.
+    This function updates the `upstreams_to_addresses` object inplace to include the upstream logging, tracing, and remote_write endpoints with corresponding upstream names.
+    The endpoints used in this mapping are upstream endpoints that actually receive the telemetry.
 
     Args:
         upstreams_to_addresses (dict): The upstreams_to_addresses to update with the telemetry upstream information
@@ -115,7 +115,7 @@ def configure(
 ) -> None:
     """Modify nginx configuration to proxy worker telemetry via the coordinator.
 
-    This function updates the `nginx_config` object inplace to include the required nginx confgiurations that will route the telemetry data from the workers via the coordinator.
+    This function updates the `nginx_config` object inplace to include the required nginx configurations that will route the telemetry data from the workers via the coordinator.
 
     Args:
         tls_available (bool): If TLS is enabled.

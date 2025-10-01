@@ -270,7 +270,7 @@ class Coordinator(ops.Object):
         self._external_url = external_url
         self._worker_metrics_port = worker_metrics_port
         self._endpoints = endpoints
-        # the charm owned nginx config is prserved and deep copied for patching with worker telemetry config (if enabled)
+        # the charm owned nginx config is preserved and deep copied for patching with worker telemetry config (if enabled)
         self._nginx_config = nginx_config.copy()
         self._roles_config = roles_config
         self._workload_tracing_protocols = workload_tracing_protocols
@@ -1004,8 +1004,8 @@ class Coordinator(ops.Object):
 
         # NOTE: use actual upstream telemetry addresses here! Or you will be proxying the proxy addresses.
         worker_telemetry.configure(
-            tls_available=self.tls_available,
             nginx_config=self._nginx_config,
+            tls_available=self.tls_available,
             workload_tracing_protocols=self._workload_tracing_protocols or [],
             worker_topology=self.cluster.gather_topology(),
             worker_metrics_port=self._worker_metrics_port,
