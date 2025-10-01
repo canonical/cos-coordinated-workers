@@ -20,6 +20,7 @@ import ops_tracing
 import tenacity
 import yaml
 from cosl import JujuTopology
+from lightkube import Client
 from ops import MaintenanceStatus, StatusBase
 from ops.model import ActiveStatus, BlockedStatus, ModelError, WaitingStatus
 from ops.pebble import Check, Layer, PathError, Plan, ProtocolError
@@ -30,8 +31,10 @@ from coordinated_workers.interfaces.cluster import ClusterRequirer, TLSData
 check_libs_installed(
     "charms.loki_k8s.v1.loki_push_api",
     "charms.observability_libs.v0.kubernetes_compute_resources_patch",
+    "charms.istio_beacon_k8s.v0.service_mesh",
 )
 
+from charms.istio_beacon_k8s.v0.service_mesh import reconcile_charm_labels  # type: ignore
 from charms.loki_k8s.v1.loki_push_api import _PebbleLogClient  # type: ignore
 from charms.observability_libs.v0.kubernetes_compute_resources_patch import (
     KubernetesComputeResourcesPatch,
@@ -487,6 +490,8 @@ class Worker(ops.Object):
             logger.debug("Resource patch not ready yet. Skipping reconciliation step.")
             return
 
+        self._reconcile_charm_labels()
+
         self._update_cluster_relation()
         self._setup_charm_tracing()
 
@@ -560,6 +565,16 @@ class Worker(ops.Object):
             logger.warning("nothing to stop: no services found in plan")
             return
         self._container.stop(*container_services)
+
+    def _reconcile_charm_labels(self) -> None:
+        """Update any custom labels applied to the charm pods as directed by the coordinator charm."""
+        reconcile_charm_labels(
+            client=Client(namespace=self._charm.model.name),
+            app_name=self._charm.app.name,
+            namespace=self._charm.model.name,
+            label_configmap_name=f"{self._charm.app.name}-pod-labels",
+            labels=self.cluster.get_worker_labels(),
+        )
 
     def _update_cluster_relation(self) -> None:
         """Publish all the worker information to relation data."""

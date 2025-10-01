@@ -22,6 +22,7 @@ from typing import (
     Sequence,
     Set,
     TypedDict,
+    cast,
 )
 from urllib.parse import urlparse
 
@@ -31,6 +32,7 @@ import ops_tracing
 import pydantic
 import yaml
 from cosl.interfaces.datasource_exchange import DatasourceExchange
+from lightkube import Client
 from opentelemetry import trace
 from ops import StatusBase
 
@@ -59,7 +61,10 @@ check_libs_installed(
 from charms.catalogue_k8s.v1.catalogue import CatalogueConsumer, CatalogueItem
 from charms.data_platform_libs.v0.s3 import S3Requirer
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
-from charms.istio_beacon_k8s.v0.service_mesh import ServiceMeshConsumer
+from charms.istio_beacon_k8s.v0.service_mesh import (  # type: ignore
+    ServiceMeshConsumer,  # type: ignore
+    reconcile_charm_labels,  # type: ignore
+)
 from charms.loki_k8s.v1.loki_push_api import LogForwarder, LokiPushApiConsumer
 from charms.observability_libs.v0.kubernetes_compute_resources_patch import (
     KubernetesComputeResourcesPatch,
@@ -184,6 +189,8 @@ _EndpointMapping = TypedDict(
         "receive-datasource": Optional[str],
         "catalogue": Optional[str],
         "service-mesh": Optional[str],
+        "service-mesh-provide-cmr-mesh": Optional[str],
+        "service-mesh-require-cmr-mesh": Optional[str],
     },
     total=True,
 )
@@ -369,9 +376,32 @@ class Coordinator(ops.Object):
             else None
         )
 
-        self._mesh = (
-            ServiceMeshConsumer(self._charm) if self._endpoints.get("service-mesh") else None
-        )
+        if all(
+            (
+                mesh_relation_name := self._endpoints.get("service-mesh"),
+                provide_cmr_mesh_name := self._endpoints.get("service-mesh-provide-cmr-mesh"),
+                require_cmr_mesh_name := self._endpoints.get("service-mesh-require-cmr-mesh"),
+            )
+        ):
+            self._mesh = ServiceMeshConsumer(  # type: ignore
+                self._charm,
+                mesh_relation_name=cast(str, mesh_relation_name),
+                cross_model_mesh_provides_name=cast(str, provide_cmr_mesh_name),
+                cross_model_mesh_requires_name=cast(str, require_cmr_mesh_name),
+            )
+        elif any(
+            (
+                self._endpoints.get("service-mesh"),
+                self._endpoints.get("service-mesh-provide-cmr-mesh"),
+                self._endpoints.get("service-mesh-require-cmr-mesh"),
+            )
+        ):
+            raise ValueError(
+                "If any of 'service-mesh', 'service-mesh-provide-cmr-mesh' or "
+                "'service-mesh-require-cmr-mesh' endpoints are provided, all of them must be."
+            )
+        else:
+            self._mesh = None
 
         ## Observers
         # We always listen to collect-status
@@ -413,6 +443,9 @@ class Coordinator(ops.Object):
         if self.resources_patch and not self.resources_patch.is_ready():
             logger.debug("Resource patch not ready yet. Skipping cluster update step.")
             return
+
+        # reconcile the custom lables added to the application pods.
+        self._reconcile_charm_labels()
 
         # certificates must be synced before we reconcile the workloads; otherwise changes in the certs may go unnoticed.
         self._certificates.sync()
@@ -682,6 +715,19 @@ class Coordinator(ops.Object):
             ),
         )
 
+    @property
+    def _coordinated_workers_solution_labels(self) -> Dict[str, str]:
+        """Labels to be applied to all pods in this coordinated-workers solution."""
+        return {"app.kubernetes.io/part-of": f"{self._charm.app.name}"}
+
+    @property
+    def _worker_labels(self) -> Dict[str, str]:
+        """Labels to be applied to worker pods."""
+        labels = self._coordinated_workers_solution_labels
+        if self._mesh and (mesh_labels := cast(Dict[str, str], self._mesh.labels())):  # type: ignore
+            labels.update(mesh_labels)
+        return labels
+
     ##################
     # EVENT HANDLERS #
     ##################
@@ -728,6 +774,16 @@ class Coordinator(ops.Object):
 
         # self is not included in relation.units
         return relation.units
+
+    def _reconcile_charm_labels(self) -> None:
+        """Update any custom pod labels we require."""
+        reconcile_charm_labels(
+            client=Client(namespace=self._charm.model.name),
+            app_name=self._charm.app.name,
+            namespace=self._charm.model.name,
+            label_configmap_name=f"{self._charm.app.name}-pod-labels",
+            labels=self._coordinated_workers_solution_labels,
+        )
 
     @property
     def loki_endpoints_by_unit(self) -> Dict[str, str]:
@@ -783,6 +839,7 @@ class Coordinator(ops.Object):
                 else None
             ),
             s3_tls_ca_chain=self.s3_connection_info.ca_cert,
+            worker_labels=self._worker_labels,
         )
 
     def _consolidate_workers_alert_rules(self):

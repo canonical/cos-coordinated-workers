@@ -49,6 +49,8 @@ class CoordinatorTester(CharmBase):
                 "receive-datasource": "receive-datasource",
                 "catalogue": "catalogue",
                 "service-mesh": "service-mesh",
+                "service-mesh-provide-cmr-mesh": "provide-cmr-mesh",
+                "service-mesh-require-cmr-mesh": "require-cmr-mesh",
             },
             nginx_config=NginxConfig(
                 server_name=self._internal_app_hostname,

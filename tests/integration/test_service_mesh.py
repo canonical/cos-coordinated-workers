@@ -69,5 +69,16 @@ def test_configure_service_mesh(juju: Juju):
 
     # Assert that the Coordinator relation to service mesh worked correctly by checking for expected service mesh labels
     lightkube_client = lightkube.Client()
-    coordinator_pod = lightkube_client.get(Pod, f"{COORDINATOR_NAME}-0", namespace=juju.model)
-    assert coordinator_pod.metadata.labels["istio.io/dataplane-mode"] == "ambient"
+    for app in (COORDINATOR_NAME, WORKER_A_NAME, WORKER_B_NAME):
+        pod_name = f"{app}-0"
+        pod = lightkube_client.get(Pod, pod_name, namespace=juju.model)
+
+        # Assert coordinated worker solution labels
+        assert pod.metadata.labels["app.kubernetes.io/part-of"] == COORDINATOR_NAME, (
+            f"Pod {pod_name} missing coordinated worker solution label"
+        )
+
+        # Assert mesh labels
+        assert pod.metadata.labels["istio.io/dataplane-mode"] == "ambient", (
+            f"Pod {pod_name} missing istio label"
+        )
