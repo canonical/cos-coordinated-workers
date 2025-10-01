@@ -86,6 +86,10 @@ def mock_reconcile_charm_labels(request):
         yield
     else:
         with ExitStack() as stack:
-            worker_mock = stack.enter_context(patch("coordinated_workers.worker.reconcile_charm_labels"))
-            coordinator_mock = stack.enter_context(patch("coordinated_workers.coordinator.reconcile_charm_labels"))
+            worker_mock = stack.enter_context(
+                patch("coordinated_workers.worker.reconcile_charm_labels")
+            )
+            coordinator_mock = stack.enter_context(
+                patch("coordinated_workers.coordinator.reconcile_charm_labels")
+            )
             yield {"worker": worker_mock, "coordinator": coordinator_mock}
