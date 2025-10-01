@@ -1,6 +1,7 @@
 import logging
 import tempfile
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 from typing import Dict, List, Tuple
 from unittest.mock import MagicMock, patch
@@ -48,16 +49,14 @@ def nginx_context():
     )
 
 
-def test_certs_on_disk(certificate_mounts: dict, nginx_context: testing.Context):
+def test_certs_on_disk(certificate_mounts: dict, nginx_context: testing.Context, nginx_container):
     # GIVEN any charm with a container
     ctx = nginx_context
 
     # WHEN we process any event
     with ctx(
         ctx.on.update_status(),
-        state=testing.State(
-            containers={testing.Container("nginx", can_connect=True, mounts=certificate_mounts)}
-        ),
+        state=testing.State(containers={replace(nginx_container, mounts=certificate_mounts)}),
     ) as mgr:
         charm = mgr.charm
         nginx = Nginx(charm)
@@ -66,7 +65,7 @@ def test_certs_on_disk(certificate_mounts: dict, nginx_context: testing.Context)
         assert nginx.are_certificates_on_disk
 
 
-def test_certs_deleted(certificate_mounts: dict, nginx_context: testing.Context):
+def test_certs_deleted(certificate_mounts: dict, nginx_context: testing.Context, nginx_container):
     # Test deleting the certificates.
 
     # GIVEN any charm with a container
@@ -76,7 +75,9 @@ def test_certs_deleted(certificate_mounts: dict, nginx_context: testing.Context)
     with ctx(
         ctx.on.update_status(),
         state=testing.State(
-            containers={testing.Container("nginx", can_connect=True, mounts=certificate_mounts)}
+            containers={
+                replace(nginx_container, mounts=certificate_mounts),
+            }
         ),
     ) as mgr:
         charm = mgr.charm
@@ -89,7 +90,7 @@ def test_certs_deleted(certificate_mounts: dict, nginx_context: testing.Context)
         assert not nginx.are_certificates_on_disk
 
 
-def test_has_config_changed(nginx_context: testing.Context):
+def test_has_config_changed(nginx_context: testing.Context, nginx_container):
     # Test changing the nginx config and catching the change.
 
     # GIVEN any charm with a container and a nginx config file
@@ -104,9 +105,8 @@ def test_has_config_changed(nginx_context: testing.Context):
         ctx.on.update_status(),
         state=testing.State(
             containers={
-                testing.Container(
-                    "nginx",
-                    can_connect=True,
+                replace(
+                    nginx_container,
                     mounts={
                         "config": testing.Mount(location=NGINX_CONFIG, source=test_config.name)
                     },
@@ -160,6 +160,39 @@ def test_nginx_pebble_plan(container_name):
         nginx = Nginx(charm, container_name=container_name)
         # THEN the generated pebble layer has the container_name set as the service name
         assert nginx.layer == expected_layer
+
+
+@pytest.mark.parametrize("tls", (False, True))
+def test_nginx_pebble_checks(tls, nginx_container):
+    check_endpoint = f"http{'s' if tls else ''}://1.2.3.4/health"
+    expected_partial_service_dict = {"nginx-up": "restart"}
+
+    # GIVEN any charm with a container
+    ctx = testing.Context(
+        ops.CharmBase, meta={"name": "foo", "containers": {"nginx": {"type": "oci-image"}}}
+    )
+
+    # WHEN we process any event
+    with ctx(
+        ctx.on.update_status(),
+        state=testing.State(
+            containers={
+                nginx_container,
+            },
+        ),
+    ) as mgr:
+        charm = mgr.charm
+        # AND we pass a liveness check endpoint
+        nginx = Nginx(charm, liveness_check_endpoint_getter=lambda _: check_endpoint)
+        nginx.reconcile("mock nginx config")
+        # THEN the generated pebble layer has the expected pebble check
+        out = mgr.run()
+        layer = out.get_container("nginx").layers["nginx"]
+        actual_services = layer.services
+        actual_checks = layer.checks
+        assert actual_checks["nginx-up"].http == {"url": check_endpoint}
+        # AND the pebble layer service has a restart on check-failure
+        assert actual_services["nginx"].on_check_failure == expected_partial_service_dict
 
 
 @contextmanager

@@ -155,7 +155,7 @@ import logging
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Set, TypedDict, cast
+from typing import Any, Callable, Dict, List, Literal, Optional, Set, TypedDict, cast
 
 import crossplane  # type: ignore
 from opentelemetry import trace
@@ -170,7 +170,7 @@ NGINX_DIR = "/etc/nginx"
 NGINX_CONFIG = f"{NGINX_DIR}/nginx.conf"
 KEY_PATH = f"{NGINX_DIR}/certs/server.key"
 CERT_PATH = f"{NGINX_DIR}/certs/server.cert"
-CA_CERT_PATH = "/usr/local/share/ca-certificates/ca.cert"
+CA_CERT_PATH = "/usr/local/share/ca-certificates/ca.crt"
 
 _NginxMapping = TypedDict(
     "_NginxMapping", {"nginx_port": int, "nginx_exporter_port": int}, total=True
@@ -777,11 +777,14 @@ class Nginx:
         charm: CharmBase,
         options: Optional[NginxMappingOverrides] = None,
         container_name: str = "nginx",
+        liveness_check_endpoint_getter: Optional[Callable[[bool], str]] = None,
     ):
         self._charm = charm
         self._container_name = container_name
         self._container = self._charm.unit.get_container(container_name)
         self.options.update(options or {})
+        self._liveness_check_endpoint_getter = liveness_check_endpoint_getter
+        self._liveness_check_name = f"{self._container_name}-up"
 
     @property
     def are_certificates_on_disk(self) -> bool:
@@ -825,8 +828,7 @@ class Nginx:
             self._container.push(CERT_PATH, server_cert, make_dirs=True)
             self._container.push(CA_CERT_PATH, ca_cert, make_dirs=True)
 
-            # TODO: uncomment when/if the nginx image contains the ca-certificates package
-            # self._container.exec(["update-ca-certificates", "--fresh"])
+            self._container.exec(["update-ca-certificates", "--fresh"])
 
     def _delete_certificates(self) -> None:
         """Delete the certificate files from disk and run update-ca-certificates."""
@@ -839,8 +841,7 @@ class Nginx:
                 if self._container.exists(path):
                     self._container.remove_path(path, recursive=True)
 
-            # TODO: uncomment when/if the nginx image contains the ca-certificates package
-            # self._container.exec(["update-ca-certificates", "--fresh"])
+            self._container.exec(["update-ca-certificates", "--fresh"])
 
     def _has_config_changed(self, new_config: str) -> bool:
         """Return True if the passed config differs from the one on disk."""
@@ -896,7 +897,6 @@ class Nginx:
                 )
             # otherwise, it's an unexpected error and we should raise it as is
             raise
-
         if should_restart:
             logger.info("new nginx config: restarting the service")
             # Reload the nginx config without restarting the service
@@ -909,16 +909,41 @@ class Nginx:
             {
                 "summary": "nginx layer",
                 "description": "pebble config layer for Nginx",
-                "services": {
-                    self._container_name: {
-                        "override": "replace",
-                        "summary": "nginx",
-                        "command": "nginx -g 'daemon off;'",
-                        "startup": "enabled",
-                    }
-                },
+                "services": {self._container_name: self._service_dict},
+                "checks": {self._liveness_check_name: self._check_dict}
+                if self._liveness_check_endpoint_getter
+                else {},
             }
         )
+
+    @property
+    def _service_dict(self) -> pebble.ServiceDict:
+        service_dict: pebble.ServiceDict = {
+            "override": "replace",
+            "summary": "nginx",
+            "command": "nginx -g 'daemon off;'",
+            "startup": "enabled",
+        }
+        if self._liveness_check_endpoint_getter:
+            # we've observed that nginx sometimes doesn't get reloaded after a config change.
+            # Probably a race condition if we change the config too quickly, while the workers are
+            # already reloading because of a previous config change.
+            # To counteract this, we rely on the pebble health check: if this check fails,
+            # pebble will automatically restart the nginx service.
+            service_dict["on-check-failure"] = {self._liveness_check_name: "restart"}
+        return service_dict
+
+    @property
+    def _check_dict(self) -> pebble.CheckDict:
+        if not self._liveness_check_endpoint_getter:
+            return {}
+
+        return {
+            "override": "replace",
+            "startup": "enabled",
+            "threshold": 3,
+            "http": {"url": self._liveness_check_endpoint_getter(self.are_certificates_on_disk)},
+        }
 
 
 class NginxPrometheusExporter:
