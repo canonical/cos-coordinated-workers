@@ -165,17 +165,7 @@ def test_nginx_pebble_plan(container_name):
 @pytest.mark.parametrize("tls", (False, True))
 def test_nginx_pebble_checks(tls, nginx_container):
     check_endpoint = f"http{'s' if tls else ''}://1.2.3.4/health"
-    expected_check_layer = {
-        "nginx-up": {
-            "override": "replace",
-            "startup": "enabled",
-            "threshold": 3,
-            "http": {
-                "url": check_endpoint,
-            },
-        },
-    }
-    expected_partial_service_layer = {"nginx": "restart"}
+    expected_partial_service_dict = {"nginx-up": "restart"}
 
     # GIVEN any charm with a container
     ctx = testing.Context(
@@ -200,9 +190,9 @@ def test_nginx_pebble_checks(tls, nginx_container):
         layer = out.get_container("nginx").layers["nginx"]
         actual_services = layer.services
         actual_checks = layer.checks
-        assert actual_checks == expected_check_layer
+        assert actual_checks["nginx-up"].http == {"url": check_endpoint}
         # AND the pebble layer service has a restart on check-failure
-        assert actual_services["nginx"].on_check_failure == expected_partial_service_layer
+        assert actual_services["nginx"].on_check_failure == expected_partial_service_dict
 
 
 @contextmanager

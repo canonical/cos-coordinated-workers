@@ -784,6 +784,7 @@ class Nginx:
         self._container = self._charm.unit.get_container(container_name)
         self.options.update(options or {})
         self._liveness_check_endpoint_getter = liveness_check_endpoint_getter
+        self._liveness_check_name = f"{self._container_name}-up"
 
     @property
     def are_certificates_on_disk(self) -> bool:
@@ -909,7 +910,7 @@ class Nginx:
                 "summary": "nginx layer",
                 "description": "pebble config layer for Nginx",
                 "services": {self._container_name: self._service_dict},
-                "checks": {f"{self._container_name}-up": self._check_dict}
+                "checks": {self._liveness_check_name: self._check_dict}
                 if self._liveness_check_endpoint_getter
                 else {},
             }
@@ -929,7 +930,7 @@ class Nginx:
             # already reloading because of a previous config change.
             # To counteract this, we rely on the pebble health check: if this check fails,
             # pebble will automatically restart the nginx service.
-            service_dict["on-check-failure"] = {self._container_name: "restart"}
+            service_dict["on-check-failure"] = {self._liveness_check_name: "restart"}
         return service_dict
 
     @property
