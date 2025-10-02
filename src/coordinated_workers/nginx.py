@@ -827,9 +827,8 @@ class Nginx:
             self._container.push(KEY_PATH, private_key, make_dirs=True)
             self._container.push(CERT_PATH, server_cert, make_dirs=True)
             self._container.push(CA_CERT_PATH, ca_cert, make_dirs=True)
-            logger.info("running update-ca-certificates")
-
-            self._container.exec(["update-ca-certificates", "--fresh", "--verbose"]).wait()
+            logger.debug("running update-ca-certificates")
+            self._container.exec(["update-ca-certificates", "--fresh"]).wait()
 
     def _delete_certificates(self) -> None:
         """Delete the certificate files from disk and run update-ca-certificates."""
@@ -841,8 +840,8 @@ class Nginx:
             for path in (CERT_PATH, KEY_PATH, CA_CERT_PATH):
                 if self._container.exists(path):
                     self._container.remove_path(path, recursive=True)
-            logger.info("running update-ca-certificates")
-            self._container.exec(["update-ca-certificates", "--fresh", "--verbose"]).wait()
+            logger.debug("running update-ca-certificates")
+            self._container.exec(["update-ca-certificates", "--fresh"]).wait()
 
     def _has_config_changed(self, new_config: str) -> bool:
         """Return True if the passed config differs from the one on disk."""
@@ -901,7 +900,7 @@ class Nginx:
         if should_restart:
             logger.info("new nginx config: restarting the service")
             # Reload the nginx config without restarting the service
-            self._container.exec(["nginx", "-s", "reload"])
+            self._container.exec(["nginx", "-s", "reload"]).wait()
 
     @property
     def layer(self) -> pebble.Layer:
