@@ -813,6 +813,7 @@ def test_coordinator_passes_service_mesh_labels_to_workers(
         interface="service_mesh",
         remote_app_data={
             "labels": json.dumps(expected_labels),
+            "mesh_type": json.dumps("istio"),
         },
     )
     relations_with_service_mesh = [*coordinator_state.relations, service_mesh_relation]
