@@ -318,7 +318,7 @@ class NginxConfig:
         self._dns_IP_address = self._get_dns_ip_address()
         self._ipv6_enabled = is_ipv6_enabled()
 
-    def copy(self) -> 'NginxConfig':
+    def copy(self) -> "NginxConfig":
         """Return a deep copy of this NginxConfig."""
         return NginxConfig(
             server_name=self._server_name,
