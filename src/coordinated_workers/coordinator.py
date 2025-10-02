@@ -256,7 +256,8 @@ class Coordinator(ops.Object):
             workload_tracing_protocols: A list of protocols that the worker intends to send
                 workload traces with.
             catalogue_item: A catalogue application entry to be sent to catalogue.
-            worker_telemetry_proxy_config: HTTP and HTTPS ports through which to route worker metrics.
+            worker_telemetry_proxy_config: Configuration including HTTP and HTTPS ports for proxying workers telemetry data via coordinator.
+                Passing a valid configuration value also enables the worker telemetry proxying.
 
         Raises:
         ValueError:
