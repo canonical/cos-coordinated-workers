@@ -196,7 +196,7 @@ def coordinator_charm(request):
                     "service-mesh-provide-cmr-mesh": "my-service-mesh-provide-cmr-mesh",
                     "service-mesh-require-cmr-mesh": "my-service-mesh-require-cmr-mesh",
                 },
-                nginx_config=NginxConfig("localhost", {}, {}),
+                nginx_config=NginxConfig("localhost", [], {}),
                 workers_config=lambda coordinator: f"workers configuration for {coordinator._charm.meta.name}",
                 worker_ports=self._worker_ports,
                 # nginx_options: Optional[NginxMappingOverrides] = None,
@@ -663,7 +663,7 @@ def test_catalogue_integration(coordinator_state: testing.State):
                     "receive-datasource": "my-ds-exchange-require",
                     "catalogue": "my-catalogue",
                 },
-                nginx_config=NginxConfig("localhost", {}, {}),
+                nginx_config=NginxConfig("localhost", [], {}),
                 workers_config=lambda coordinator: f"workers configuration for {coordinator._charm.meta.name}",
                 worker_ports=self._worker_ports,
                 catalogue_item=CatalogueItem("foo", "bar", "baz", "qux"),
@@ -813,6 +813,7 @@ def test_coordinator_passes_service_mesh_labels_to_workers(
         interface="service_mesh",
         remote_app_data={
             "labels": json.dumps(expected_labels),
+            "mesh_type": json.dumps("istio"),
         },
     )
     relations_with_service_mesh = [*coordinator_state.relations, service_mesh_relation]

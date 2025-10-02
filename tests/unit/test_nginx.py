@@ -201,7 +201,7 @@ def test_generate_nginx_config(tls, workload):
 
     addrs_by_role = {
         role: {"worker-address"}
-        for role in (upstream.worker_role for upstream in upstream_configs)
+        for role in (upstream.address_lookup_key for upstream in upstream_configs)
     }
     with mock_resolv_conf(f"foo bar\nnameserver {sample_dns_ip}"):
         nginx = NginxConfig(
@@ -225,7 +225,7 @@ def test_generate_nginx_config_with_root_path():
 
     addrs_by_role = {
         role: {"worker-address"}
-        for role in (upstream.worker_role for upstream in upstream_configs)
+        for role in (upstream.address_lookup_key for upstream in upstream_configs)
     }
     with mock_resolv_conf(f"foo bar\nnameserver {sample_dns_ip}"):
         nginx = NginxConfig(
@@ -269,7 +269,7 @@ def test_generate_nginx_config_with_extra_location_directives():
 
     addrs_by_role = {
         role: {"worker-address"}
-        for role in (upstream.worker_role for upstream in upstream_configs)
+        for role in (upstream.address_lookup_key for upstream in upstream_configs)
     }
     with mock_resolv_conf(f"foo bar\nnameserver {sample_dns_ip}"):
         nginx = NginxConfig(
@@ -308,7 +308,7 @@ upstream_configs = {
         NginxUpstream("write", 3100, "write"),
         NginxUpstream("all", 3100, "all"),
         NginxUpstream("backend", 3100, "backend"),
-        NginxUpstream("worker", 3100, "worker", ignore_worker_role=True),
+        NginxUpstream("worker", 3100, "worker", ignore_address_lookup=True),
     ],
     "litmus": [
         NginxUpstream("auth", 3000, "auth"),
