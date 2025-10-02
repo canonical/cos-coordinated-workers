@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "coordinated-workers"
-version = "2.0.21"
+version = "2.0.22"
 authors = [
     { name = "michaeldmitry", email = "33381599+michaeldmitry@users.noreply.github.com" },
 ]
