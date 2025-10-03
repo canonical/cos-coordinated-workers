@@ -69,7 +69,8 @@ def bundle(bundles, *args, worker_charm: str, recommended_deployment: Dict[str, 
             )
 
     if errors:
-        raise RuntimeError(f"Errors found: {'\n'.join(errors)}", errors)
+        joined_errors = '\n'.join(errors)
+        raise RuntimeError(f"Errors found: {joined_errors}", errors)
 
 
 def show_unit(bundles, *args, **kwargs):
