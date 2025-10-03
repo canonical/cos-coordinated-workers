@@ -64,6 +64,7 @@ show_missing = true
 # Linting tools configuration
 [tool.ruff]
 line-length = 99
+include = ["src", "probes", "tests"]
 extend-exclude = ["__pycache__", "*.egg_info"]
 
 [tool.ruff.lint]
