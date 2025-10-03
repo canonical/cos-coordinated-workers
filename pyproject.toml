@@ -41,6 +41,7 @@ dev = [
     # LINTING
     "pyright",
     "ruff",
+    "juju-doctor"
 ]
 [project.urls]
 "Homepage" = "https://github.com/canonical/cos-coordinated-workers"
@@ -97,7 +98,7 @@ classmethod-decorators = ["classmethod", "pydantic.validator"]
 [tool.pyright]
 include = ["src"]
 
-extraPaths = ["lib", "src/coordinated_workers"]
+extraPaths = ["lib", "src/coordinated_workers", "probes"]
 pythonVersion = "3.8"
 pythonPlatform = "All"
 typeCheckingMode = "strict"
