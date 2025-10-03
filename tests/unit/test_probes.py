@@ -66,6 +66,29 @@ def test_bundle_all_roles():
     check_bundle(bundle_yaml)
 
 
+def test_bundle_all_only():
+    bundle_yaml = yaml.safe_load((RESOURCES / "bundle-reference.yaml").read_text())
+    all_worker = bundle_yaml["applications"].pop("tempo-worker-querier")
+    # replace all applications with a single scale-3 ALL worker
+    all_worker["scale"] = 3
+    all_worker["options"] = {"role-all": True}
+
+    bundle_yaml["applications"] = {"tempo-worker-all": all_worker}
+    check_bundle(bundle_yaml)
+
+
+def test_bundle_all_but_too_few():
+    bundle_yaml = yaml.safe_load((RESOURCES / "bundle-reference.yaml").read_text())
+    all_worker = bundle_yaml["applications"].pop("tempo-worker-querier")
+    # replace all applications with a single scale-2 ALL worker
+    all_worker["scale"] = 2
+    all_worker["options"] = {"role-all": True}
+
+    bundle_yaml["applications"] = {"tempo-worker-all": all_worker}
+    with pytest.raises(RuntimeError):
+        check_bundle(bundle_yaml)
+
+
 def test_ruleset():
     # this is the most end-to-end test we have: verify that the reusable probe works when
     # used with an actual bundle and a tempo-like ruleset.
