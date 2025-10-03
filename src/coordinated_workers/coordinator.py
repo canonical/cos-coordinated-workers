@@ -62,9 +62,13 @@ check_libs_installed(
 from charms.catalogue_k8s.v1.catalogue import CatalogueConsumer, CatalogueItem
 from charms.data_platform_libs.v0.s3 import S3Requirer
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
-from charms.istio_beacon_k8s.v0.service_mesh import (  # type: ignore
-    ServiceMeshConsumer,  # type: ignore
-    reconcile_charm_labels,  # type: ignore
+from charms.istio_beacon_k8s.v0.service_mesh import (
+    AppPolicy,
+    Endpoint,
+    Method,
+    ServiceMeshConsumer,
+    UnitPolicy,
+    reconcile_charm_labels,
 )
 from charms.loki_k8s.v1.loki_push_api import LogForwarder, LokiPushApiConsumer
 from charms.observability_libs.v0.kubernetes_compute_resources_patch import (
@@ -266,7 +270,8 @@ class Coordinator(ops.Object):
             workload_tracing_protocols: A list of protocols that the worker intends to send
                 workload traces with.
             catalogue_item: A catalogue application entry to be sent to catalogue.
-            worker_telemetry_proxy_config: HTTP and HTTPS ports through which to route worker metrics.
+            worker_telemetry_proxy_config: WorkerTelemetryProxyConfig defining the port exposed by Coordinator for
+                                           proxying worker telemetry.
 
         Raises:
         ValueError:
@@ -405,6 +410,25 @@ class Coordinator(ops.Object):
                 mesh_relation_name=cast(str, mesh_relation_name),
                 cross_model_mesh_provides_name=cast(str, provide_cmr_mesh_name),
                 cross_model_mesh_requires_name=cast(str, require_cmr_mesh_name),
+                policies=[
+                    # AppPolicy for metrics-endpoint allows scrapers to scrape through Coordinator's proxy to the
+                    # workers
+                    AppPolicy(
+                        relation="metrics-endpoint",
+                        endpoints=[
+                            Endpoint(
+                                ports=[self._proxy_worker_telemetry_port],
+                                methods=[Method.get],
+                                paths=["/proxy/worker/{*}/metrics"],
+                            )
+                        ],
+                    ),
+                    # UnitPolicy for metrics-endpoint allows scrapers to scrape Coordinator's nginx pod
+                    UnitPolicy(
+                        relation="metrics-endpoint",
+                        ports=[self.nginx_exporter.exporter_port],
+                    )
+                ],
             )
         elif any(
             (

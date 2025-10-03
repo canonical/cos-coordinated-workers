@@ -6,7 +6,6 @@
 import logging
 
 import ops
-from coordinator_config import ROLES_CONFIG
 from ops.charm import CharmBase, CollectStatusEvent
 from ops.main import main
 
@@ -16,6 +15,8 @@ from coordinated_workers.nginx import (
     NginxLocationConfig,
     NginxUpstream,
 )
+from coordinated_workers.worker_telemetry import WorkerTelemetryProxyConfig
+from coordinator_config import ROLES_CONFIG
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,7 @@ class CoordinatorTester(CharmBase):
 
     def __init__(self, framework):
         super().__init__(framework)
+        self._port = 8080
 
         self._nginx_container = self.unit.get_container("nginx")
 
@@ -35,7 +37,8 @@ class CoordinatorTester(CharmBase):
             charm=self,
             roles_config=ROLES_CONFIG,
             external_url=self._internal_app_hostname,
-            worker_metrics_port=2345,
+            # port that the worker app exposes, not this coordinator's port
+            worker_metrics_port=8080,
             endpoints={
                 "certificates": "certificates",
                 "cluster": "cluster",
@@ -74,9 +77,13 @@ class CoordinatorTester(CharmBase):
             worker_ports=None,
             workload_tracing_protocols=["otlp_http"],
             catalogue_item=None,
+            # The port this coordinator exposes for worker telemetry proxying
+            worker_telemetry_proxy_config=WorkerTelemetryProxyConfig(
+                http=self._port,
+                https=self._port,
+            ),
         )
 
-        self._port = 8080
         self.unit.set_ports(self._port)
 
     def _on_collect_status(self, e: CollectStatusEvent) -> None:

@@ -11,7 +11,7 @@ from ops.pebble import Layer
 
 from coordinated_workers.worker import Worker
 
-container_name = "echoserver"
+container_name = "server"
 
 
 class WorkerCharm(CharmBase):
@@ -41,11 +41,10 @@ class WorkerCharm(CharmBase):
                 "description": "pebble config layer for echo server",
                 "services": {
                     container_name: {
+                        # prometheus-example-app is hardcoded to listen to port 8080
                         "override": "replace",
-                        "command": "/bin/echo-server",
+                        "command": "/bin/prometheus-example-app",
                         "startup": "enabled",
-                        # TODO: Set this from Cluster?
-                        "environment": {"PORT": 8080},
                     },
                 },
             }

@@ -1,7 +1,10 @@
 """Test the coordinated-worker deploys correctly to a service mesh."""
 
+import logging
+
 import lightkube
 import pytest
+import tenacity
 from helpers import PackedCharm, deploy_coordinated_worker_solution
 from jubilant import Juju, all_active
 from lightkube.resources.core_v1 import Pod
@@ -70,15 +73,27 @@ def test_configure_service_mesh(juju: Juju):
     # Assert that the Coordinator relation to service mesh worked correctly by checking for expected service mesh labels
     lightkube_client = lightkube.Client()
     for app in (COORDINATOR_NAME, WORKER_A_NAME, WORKER_B_NAME):
-        pod_name = f"{app}-0"
-        pod = lightkube_client.get(Pod, pod_name, namespace=juju.model)
+        for attempt in tenacity.Retrying(
+            stop=tenacity.stop_after_delay(30),
+            wait=tenacity.wait_fixed(5),
+            # if you don't succeed raise the last caught exception when you're done
+            reraise=True,
+        ):
+            with attempt:
+                pod_name = f"{app}-0"
+                logging.info(
+                    f"attempt #{attempt.retry_state.attempt_number} to assert expected service mesh labels on {pod_name}",
+                )
 
-        # Assert coordinated worker solution labels
-        assert pod.metadata.labels["app.kubernetes.io/part-of"] == COORDINATOR_NAME, (
-            f"Pod {pod_name} missing coordinated worker solution label"
-        )
+                pod = lightkube_client.get(Pod, pod_name, namespace=juju.model)
 
-        # Assert mesh labels
-        assert pod.metadata.labels["istio.io/dataplane-mode"] == "ambient", (
-            f"Pod {pod_name} missing istio label"
-        )
+                # Assert coordinated worker solution labels
+                assert pod.metadata.labels["app.kubernetes.io/part-of"] == COORDINATOR_NAME, (
+                    f"Pod {pod_name} missing coordinated worker solution label"
+                )
+
+                # Assert mesh labels
+                logging.info(f"Pod {pod_name} labels: {pod.metadata.labels}")
+                assert pod.metadata.labels.get("istio.io/dataplane-mode") == "ambient", (
+                    f"Pod {pod_name} missing istio label"
+                )
