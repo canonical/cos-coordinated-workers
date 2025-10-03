@@ -5,10 +5,7 @@
 """Generic juju-doctor probe to test coordinated-workers deployments for consistency."""
 
 from collections import Counter
-from pathlib import Path
-from typing import Dict, List, Any
-
-import yaml
+from typing import Any, Dict, List
 
 
 def status(bundles, *args, **kwargs):
@@ -16,7 +13,13 @@ def status(bundles, *args, **kwargs):
     assert True
 
 
-def bundle(bundles:Dict[str, dict[str, Any]], *args, worker_charm: str, recommended_deployment: Dict[str, int], **kwargs):
+def bundle(
+    bundles: Dict[str, dict[str, Any]],
+    *args,
+    worker_charm: str,
+    recommended_deployment: Dict[str, int],
+    **kwargs,
+):
     """Verify the juju export-bundle report."""
     errors: List[str] = []
 
@@ -68,7 +71,7 @@ def bundle(bundles:Dict[str, dict[str, Any]], *args, worker_charm: str, recommen
             )
 
     if errors:
-        joined_errors = '\n'.join(errors)
+        joined_errors = "\n".join(errors)
         raise RuntimeError(f"Errors found: {joined_errors}", errors)
 
 

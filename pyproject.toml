@@ -64,8 +64,7 @@ show_missing = true
 # Linting tools configuration
 [tool.ruff]
 line-length = 99
-include = ["src", "probes", "tests"]
-extend-exclude = ["__pycache__", "*.egg_info"]
+exclude = ["__pycache__", "*.egg_info", ".github", ".venv"]
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "C", "N", "D", "I001"]
