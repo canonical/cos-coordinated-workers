@@ -21,13 +21,11 @@ RECOMMENDED_DEPLOYMENT = {
 
 
 def check_bundle(bundle_yaml):
-    with tempfile.NamedTemporaryFile("w") as tf:
-        Path(tf.name).write_text(yaml.safe_dump(bundle_yaml))
-        bundle(
-            bundles=[tf.name],
-            worker_charm="tempo-worker-k8s",
-            recommended_deployment=RECOMMENDED_DEPLOYMENT,
-        )
+    bundle(
+        bundles={"test-bundle": bundle_yaml},
+        worker_charm="tempo-worker-k8s",
+        recommended_deployment=RECOMMENDED_DEPLOYMENT,
+    )
 
 
 def test_good_bundle():

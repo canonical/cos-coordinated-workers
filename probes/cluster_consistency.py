@@ -6,7 +6,7 @@
 
 from collections import Counter
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Any
 
 import yaml
 
@@ -16,14 +16,13 @@ def status(bundles, *args, **kwargs):
     assert True
 
 
-def bundle(bundles, *args, worker_charm: str, recommended_deployment: Dict[str, int], **kwargs):
+def bundle(bundles:Dict[str, dict[str, Any]], *args, worker_charm: str, recommended_deployment: Dict[str, int], **kwargs):
     """Verify the juju export-bundle report."""
     errors: List[str] = []
 
     n_all_roles = 0
     roles = Counter()
-    for bundle_path in bundles:
-        bndl = yaml.safe_load(Path(bundle_path).read_text())
+    for bndl in bundles.values():
         for app_name, app in bndl["applications"].items():
             charm = app["charm"]
             scale = app["scale"]
