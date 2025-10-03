@@ -11,7 +11,7 @@ authors = [
 description = "Shared abstractions to simplify the creation and management of charms following the coordinator-worker pattern."
 readme = "README.md"
 license = { file = "LICENSE" }
-requires-python = ">=3.8"
+requires-python = ">=3.12"
 dependencies = [
     "crossplane",
     "ops[tracing]",
