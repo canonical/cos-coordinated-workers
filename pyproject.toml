@@ -22,7 +22,7 @@ dependencies = [
     "cryptography",
 ]
 classifiers = [
-    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.12",
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Topic :: Utilities",
@@ -99,7 +99,7 @@ classmethod-decorators = ["classmethod", "pydantic.validator"]
 include = ["src"]
 
 extraPaths = ["lib", "src/coordinated_workers", "probes"]
-pythonVersion = "3.8"
+pythonVersion = "3.12"
 pythonPlatform = "All"
 typeCheckingMode = "strict"
 reportIncompatibleMethodOverride = false
