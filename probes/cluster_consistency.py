@@ -14,7 +14,7 @@ def status(bundles, *args, **kwargs):
 
 
 def bundle(
-    bundles: Dict[str, dict[str, Any]],
+    bundles: Dict[str, Dict[str, Any]],
     *args,
     worker_charm: str,
     recommended_deployment: Dict[str, int],
