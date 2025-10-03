@@ -29,14 +29,14 @@ requires:
       Coordinator's relation to Worker
 
 containers:
-  echoserver:
-    resource: echo-server-image
+  server:
+    resource: server-image
 
 resources:
-  echo-server-image:
+  server-image:
     type: oci-image
-    description: OCI image for echo-server
-    upstream-source: jmalloc/echo-server:v0.3.7
+    description: OCI image for example app that provides /metrics.  See https://github.com/brancz/prometheus-example-app
+    upstream-source: quay.io/brancz/prometheus-example-app@sha256:10025acb391cbbc23e0db3d041df02edae53f7c1723fdf485e69d43d3ce2cef9
 
 parts:
   charm:
