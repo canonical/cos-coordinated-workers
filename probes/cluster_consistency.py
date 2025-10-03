@@ -7,10 +7,7 @@
 from collections import Counter
 from typing import Any, Dict, List
 
-
-def status(bundles, *args, **kwargs):
-    """Verify the juju status report."""
-    assert True
+import yaml
 
 
 def bundle(
@@ -20,7 +17,15 @@ def bundle(
     recommended_deployment: Dict[str, int],
     **kwargs,
 ):
-    """Verify the juju export-bundle report."""
+    """Bundle assertion for coordinated workers recommended scale.
+
+    >>> bundle({"recommended": example_recommended_bundle()}, worker_charm="tempo-worker-k8s", recommended_deployment=example_recommended_deployment())  # doctest: +ELLIPSIS
+
+    >>> bundle({"degraded": example_degraded_bundle()}, worker_charm="tempo-worker-k8s", recommended_deployment=example_recommended_deployment())  # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+    ...
+    AssertionError: Errors found: tempo-worker-k8s ... should be scaled up by 2 ...
+    """  # noqa: E501
     errors: List[str] = []
 
     n_all_roles = 0
@@ -72,9 +77,128 @@ def bundle(
 
     if errors:
         joined_errors = "\n".join(errors)
-        raise RuntimeError(f"Errors found: {joined_errors}", errors)
+        raise AssertionError(f"Errors found: {joined_errors}")
 
 
-def show_unit(bundles, *args, **kwargs):
-    """Verify the juju show-unit report."""
-    assert True
+# ==========================
+# Helper functions
+# ==========================
+
+
+def example_recommended_bundle():
+    """This is a sample bundle for testing the cluster consistency for coordinated workers.
+
+    This output is based on a subset of the output of tempo
+    test-self-monitoring-distributed-tls model.
+    """
+    return yaml.safe_load("""
+bundle: kubernetes
+applications:
+  tempo:
+    charm: tempo-coordinator-k8s
+    scale: 1
+    constraints: arch=amd64
+  tempo-worker-compactor:
+    charm: tempo-worker-k8s
+    scale: 1
+    options:
+      role-all: false
+      role-compactor: true
+    constraints: arch=amd64
+  tempo-worker-distributor:
+    charm: tempo-worker-k8s
+    scale: 1
+    options:
+      role-all: false
+      role-distributor: true
+    constraints: arch=amd64
+  tempo-worker-ingester:
+    charm: tempo-worker-k8s
+    scale: 3
+    options:
+      role-all: false
+      role-ingester: true
+  tempo-worker-metrics-generator:
+    charm: tempo-worker-k8s
+    scale: 1
+    options:
+      role-all: false
+      role-metrics-generator: true
+  tempo-worker-querier:
+    charm: tempo-worker-k8s
+    scale: 1
+    options:
+      role-all: false
+      role-querier: true
+  tempo-worker-query-frontend:
+    charm: tempo-worker-k8s
+    scale: 1
+    options:
+      role-all: false
+      role-query-frontend: true
+""")
+
+
+def example_degraded_bundle():
+    """This is a sample bundle for testing the cluster consistency for coordinated workers.
+
+    This is intentionally failing.
+    """
+    return yaml.safe_load("""
+bundle: kubernetes
+applications:
+  tempo:
+    charm: tempo-coordinator-k8s
+    scale: 1
+    constraints: arch=amd64
+  tempo-worker-compactor:
+    charm: tempo-worker-k8s
+    scale: 1
+    options:
+      role-all: false
+      role-compactor: true
+    constraints: arch=amd64
+  tempo-worker-distributor:
+    charm: tempo-worker-k8s
+    scale: 1
+    options:
+      role-all: false
+      role-distributor: true
+    constraints: arch=amd64
+  tempo-worker-ingester:
+    charm: tempo-worker-k8s
+    scale: 1
+    options:
+      role-all: false
+      role-ingester: true
+  tempo-worker-metrics-generator:
+    charm: tempo-worker-k8s
+    scale: 1
+    options:
+      role-all: false
+      role-metrics-generator: true
+  tempo-worker-querier:
+    charm: tempo-worker-k8s
+    scale: 1
+    options:
+      role-all: false
+      role-querier: true
+  tempo-worker-query-frontend:
+    charm: tempo-worker-k8s
+    scale: 1
+    options:
+      role-all: false
+      role-query-frontend: true
+""")
+
+
+def example_recommended_deployment():
+    """Doctest input."""
+    return {
+        "querier": 1,
+        "query-frontend": 1,
+        "ingester": 3,
+        "distributor": 1,
+        "compactor": 1,
+        "metrics-generator": 1,
+    }
