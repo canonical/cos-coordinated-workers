@@ -29,7 +29,7 @@ jobs:
       - name: Set up Python 3.8
         uses: actions/setup-python@v5
         with:
-          python-version: 3.8
+          python-version: 3.13
       - name: Install dependencies
         run: |
           sudo snap install charmcraft --classic
@@ -47,7 +47,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: 3.8
+          python-version: 3.13
       - name: Install dependencies
         run: |
           sudo snap install charmcraft --classic
@@ -65,7 +65,7 @@ jobs:
       - name: Set up python
         uses: actions/setup-python@v5
         with:
-          python-version: 3.8
+          python-version: 3.13
       - name: Install dependencies
         run: |
           sudo snap install charmcraft --classic
