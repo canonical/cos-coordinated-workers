@@ -2,6 +2,7 @@
 # Copyright 2025 Canonical Ltd.
 # See LICENSE file for licensing details.
 """Coordinator Charm."""
+# ruff: noqa: I001
 
 import logging
 
@@ -16,6 +17,7 @@ from coordinated_workers.nginx import (
     NginxUpstream,
 )
 from coordinator_config import ROLES_CONFIG
+
 
 logger = logging.getLogger(__name__)
 
