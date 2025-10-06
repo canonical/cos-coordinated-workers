@@ -4,7 +4,13 @@ import logging
 from dataclasses import asdict, dataclass
 from typing import Optional
 
+import sh
 from jubilant import Juju, all_active, all_blocked
+from tenacity import (
+    retry,
+    stop_after_delay,
+    wait_exponential,
+)
 
 
 @dataclass
@@ -80,3 +86,38 @@ def deploy_s3_integrator(juju: Juju) -> str:
     )
     juju.wait(lambda status: all_active(status, s3_integrator.app))
     return s3_integrator.app
+
+
+@retry(
+    wait=wait_exponential(multiplier=1, min=1, max=10), stop=stop_after_delay(120), reraise=True
+)
+def assert_request_returns_http_code(
+    model: str, source_unit: str, target_url: str, method: str = "get", code: int = 200
+):
+    """Get the status code for a request from a source unit to a target URL on a given method.
+
+    Note that if the request fails (ex: python script raises an exception) the exit code will be returned.
+    """
+    logging.info(f"Checking {source_unit} -> {target_url} on {method}")
+    try:
+        resp = sh.juju.ssh(  # pyright: ignore
+            "-m",
+            model,
+            source_unit,
+            f'curl -X {method.upper()} -s -o /dev/null -w "%{{http_code}}" {target_url}',
+            _return_cmd=True,
+        )
+        returned_code = int(str(resp).strip())
+    except sh.ErrorReturnCode as e:
+        logging.warning(f"Got exit code {e.exit_code} executing sh.juju.ssh")
+        logging.warning(f"STDOUT: {e.stdout}")
+        logging.warning(f"STDERR: {e.stderr}")
+        returned_code = e.exit_code
+
+    logging.info(
+        f"Got {returned_code} for {source_unit} -> {target_url} on {method} - expected {code}"
+    )
+
+    assert returned_code == code, (
+        f"Expected {code} but got {returned_code} for {source_unit} -> {target_url} on {method}"
+    )

@@ -89,6 +89,7 @@ class DatabagAccessPermissionError(ClusterError):
 class _Topology(pydantic.BaseModel):
     """Juju topology information."""
 
+    model: str
     application: str
     unit: str
     charm_name: str
@@ -351,6 +352,7 @@ class ClusterProvider(Object):
                     continue
                 worker_topology = {
                     "address": unit_address,
+                    "model": worker_data.juju_topology.model,
                     "application": worker_data.juju_topology.application,
                     "unit": worker_data.juju_topology.unit,
                     "charm_name": worker_data.juju_topology.charm_name,
@@ -358,6 +360,13 @@ class ClusterProvider(Object):
                 data.append(worker_topology)
 
         return data
+
+    def gather_models(self) -> Set[str]:
+        """Gather the Juju models through which this coordinated-worker solution is distributed."""
+        models: Set[str] = {self._charm.model.name}  # type: ignore
+        for worker_unit in self.gather_topology():
+            models.add(worker_unit["model"])
+        return models
 
     def get_address_from_role(self, role: str) -> Optional[str]:
         """Get datasource address."""

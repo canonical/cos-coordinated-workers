@@ -6,7 +6,6 @@
 import logging
 
 import ops
-from coordinator_config import ROLES_CONFIG
 from ops.charm import CharmBase, CollectStatusEvent
 from ops.main import main
 
@@ -16,6 +15,7 @@ from coordinated_workers.nginx import (
     NginxLocationConfig,
     NginxUpstream,
 )
+from coordinator_config import ROLES_CONFIG
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +55,8 @@ class CoordinatorTester(CharmBase):
             nginx_config=NginxConfig(
                 server_name=self._internal_app_hostname,
                 upstream_configs=[
-                    NginxUpstream("worker-role-a", 8080, "role-a"),
-                    NginxUpstream("worker-role-b", 8080, "role-b"),
+                    NginxUpstream("worker-role-a", 8080, "a"),
+                    NginxUpstream("worker-role-b", 8080, "b"),
                 ],
                 server_ports_to_locations={
                     8080: [

@@ -1,9 +1,17 @@
 """Test the coordinated-worker deploys correctly to a service mesh."""
 
+import logging
+from dataclasses import asdict
+
 import lightkube
 import pytest
-from helpers import PackedCharm, deploy_coordinated_worker_solution
-from jubilant import Juju, all_active
+import tenacity
+from helpers import (
+    PackedCharm,
+    assert_request_returns_http_code,
+    deploy_coordinated_worker_solution,
+)
+from jubilant import Juju, all_active, all_blocked
 from lightkube.resources.core_v1 import Pod
 from pytest_jubilant.main import TempModelFactory
 
@@ -70,15 +78,101 @@ def test_configure_service_mesh(juju: Juju):
     # Assert that the Coordinator relation to service mesh worked correctly by checking for expected service mesh labels
     lightkube_client = lightkube.Client()
     for app in (COORDINATOR_NAME, WORKER_A_NAME, WORKER_B_NAME):
-        pod_name = f"{app}-0"
-        pod = lightkube_client.get(Pod, pod_name, namespace=juju.model)
+        for attempt in tenacity.Retrying(
+            stop=tenacity.stop_after_delay(40),
+            wait=tenacity.wait_fixed(5),
+            # if you don't succeed raise the last caught exception when you're done
+            reraise=True,
+        ):
+            with attempt:
+                pod_name = f"{app}-0"
+                logging.info(
+                    f"attempt #{attempt.retry_state.attempt_number} to assert expected service mesh labels on {pod_name}",
+                )
 
-        # Assert coordinated worker solution labels
-        assert pod.metadata.labels["app.kubernetes.io/part-of"] == COORDINATOR_NAME, (
-            f"Pod {pod_name} missing coordinated worker solution label"
-        )
+                pod = lightkube_client.get(Pod, pod_name, namespace=juju.model)
 
-        # Assert mesh labels
-        assert pod.metadata.labels["istio.io/dataplane-mode"] == "ambient", (
-            f"Pod {pod_name} missing istio label"
-        )
+                # Assert coordinated worker solution labels
+                assert pod.metadata.labels["app.kubernetes.io/part-of"] == COORDINATOR_NAME, (
+                    f"Pod {pod_name} missing coordinated worker solution label"
+                )
+
+                # Assert mesh labels
+                logging.info(f"Pod {pod_name} labels: {pod.metadata.labels}")
+                assert pod.metadata.labels.get("istio.io/dataplane-mode") == "ambient", (
+                    f"Pod {pod_name} missing istio label"
+                )
+
+
+def test_cluster_internal_mesh_policies(juju: Juju, worker_charm: PackedCharm):
+    """Test if the cluster internal mesh policies are applied correctly."""
+    # deploy a tester that is not in the service mesh for benchmarking.
+    out_of_mesh_app = "out-of-mesh-app"
+    juju.deploy(
+        **asdict(worker_charm),
+        app=out_of_mesh_app,
+        trust=True,
+    )
+    juju.wait(lambda status: all_blocked(status, out_of_mesh_app))
+
+    # coordinator can talk to both workers
+    assert_request_returns_http_code(
+        juju.model,
+        f"{COORDINATOR_NAME}/0",
+        f"http://{WORKER_A_NAME}-0.{WORKER_A_NAME}-endpoints.{juju.model}.svc.cluster.local:8080/foo",
+        code=200,
+    )
+    assert_request_returns_http_code(
+        juju.model,
+        f"{COORDINATOR_NAME}/0",
+        f"http://{WORKER_B_NAME}-0.{WORKER_B_NAME}-endpoints.{juju.model}.svc.cluster.local:8080/foo",
+        code=200,
+    )
+
+    # workers can talk to each other
+    assert_request_returns_http_code(
+        juju.model,
+        f"{WORKER_A_NAME}/0",
+        f"http://{WORKER_B_NAME}-0.{WORKER_B_NAME}-endpoints.{juju.model}.svc.cluster.local:8080/foo",
+        code=200,
+    )
+    assert_request_returns_http_code(
+        juju.model,
+        f"{WORKER_B_NAME}/0",
+        f"http://{WORKER_A_NAME}-0.{WORKER_A_NAME}-endpoints.{juju.model}.svc.cluster.local:8080/foo",
+        code=200,
+    )
+
+    # workers can talk to coordinator
+    assert_request_returns_http_code(
+        juju.model,
+        f"{WORKER_A_NAME}/0",
+        f"http://{COORDINATOR_NAME}-0.{COORDINATOR_NAME}-endpoints.{juju.model}.svc.cluster.local:8080/role-b/foo",  # basically pinging worker-b via the coordinator
+        code=200,
+    )
+    assert_request_returns_http_code(
+        juju.model,
+        f"{WORKER_B_NAME}/0",
+        f"http://{COORDINATOR_NAME}-0.{COORDINATOR_NAME}-endpoints.{juju.model}.svc.cluster.local:8080/role-a/foo",  # basically pinging worker-a via the coordinator
+        code=200,
+    )
+
+    # out-of-mesh app CANNOT talk to any cluster components (should be blocked by authorization policies)
+    assert_request_returns_http_code(
+        juju.model,
+        f"{out_of_mesh_app}/0",
+        f"http://{COORDINATOR_NAME}-0.{COORDINATOR_NAME}-endpoints.{juju.model}.svc.cluster.local:8080/foo",
+        code=1,
+    )
+    assert_request_returns_http_code(
+        juju.model,
+        f"{out_of_mesh_app}/0",
+        f"http://{WORKER_A_NAME}-0.{WORKER_A_NAME}-endpoints.{juju.model}.svc.cluster.local:8080/foo",
+        code=1,
+    )
+    assert_request_returns_http_code(
+        juju.model,
+        f"{out_of_mesh_app}/0",
+        f"http://{WORKER_B_NAME}-0.{WORKER_B_NAME}-endpoints.{juju.model}.svc.cluster.local:8080/foo",
+        code=1,
+    )

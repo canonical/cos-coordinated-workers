@@ -62,6 +62,10 @@ from charms.catalogue_k8s.v1.catalogue import CatalogueConsumer, CatalogueItem
 from charms.data_platform_libs.v0.s3 import S3Requirer
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.istio_beacon_k8s.v0.service_mesh import (  # type: ignore
+    MeshPolicy,
+    MeshType,
+    PolicyResourceManager,
+    PolicyTargetType,
     ServiceMeshConsumer,  # type: ignore
     reconcile_charm_labels,  # type: ignore
 )
@@ -458,6 +462,8 @@ class Coordinator(ops.Object):
 
         # reconcile relations
         self._reconcile_cluster_relations()
+        if self._mesh:
+            self._reconcile_mesh_policies()
         self._consolidate_alert_rules()
         self._scraping.set_scrape_job_spec()  # type: ignore
         self._worker_logging.reload_alerts()
@@ -784,6 +790,80 @@ class Coordinator(ops.Object):
             label_configmap_name=f"{self._charm.app.name}-pod-labels",
             labels=self._coordinated_workers_solution_labels,
         )
+
+    def _get_cluster_scoped_mesh_policy_for_all_cluster_models(
+        self, source_model: str, source_application: str
+    ) -> Dict[str, List[MeshPolicy]]:
+        """Return a mesh policy for a coordinator/worker to allow it to talk to all the other cluster units."""
+        cluster_models = self.cluster.gather_models()
+        mesh_policies: Dict[str, List[MeshPolicy]] = {}
+        for target_model in cluster_models:
+            mesh_policies[target_model] = [
+                MeshPolicy(
+                    source_namespace=source_model,
+                    source_app_name=source_application,
+                    target_namespace=target_model,
+                    target_selector_labels=self._coordinated_workers_solution_labels,
+                    target_type=PolicyTargetType.unit,
+                )
+            ]
+        return mesh_policies
+
+    def _get_cluster_scoped_mesh_policies_by_cluster_model(self) -> Dict[str, List[MeshPolicy]]:
+        """Return all the required cluster internal mesh policies per cluster model."""
+        mesh_policies_by_cluster_model: Dict[str, List[MeshPolicy]] = {}
+        worker_applications: Set[str] = set()
+        # Coordinator -> Everything in the cluster
+        mesh_policies_by_cluster_model = (
+            self._get_cluster_scoped_mesh_policy_for_all_cluster_models(
+                self._charm.model.name, self._charm.app.name
+            )
+        )
+        # Workers -> Everything in the cluster
+        for worker_unit in self.cluster.gather_topology():
+            worker_application = worker_unit["application"]
+            worker_model = worker_unit["model"]
+            # We only need one policy per application. Dont need to replicate the policy for every unit.
+            if worker_application in worker_applications:
+                continue
+            worker_policies = self._get_cluster_scoped_mesh_policy_for_all_cluster_models(
+                worker_model,
+                worker_application,
+            )
+            for model, policies in worker_policies.items():
+                if model in mesh_policies_by_cluster_model:
+                    mesh_policies_by_cluster_model[model].extend(policies)
+                else:
+                    mesh_policies_by_cluster_model[model] = policies
+            worker_applications.add(worker_application)
+        return mesh_policies_by_cluster_model
+
+    def _get_policy_resource_manager(
+        self, model: str, mesh_type: Optional[MeshType]
+    ) -> PolicyResourceManager:
+        """Return a PolicyResourceManager for the given model."""
+        return PolicyResourceManager(
+            charm=self._charm,  # type: ignore
+            lightkube_client=Client(namespace=model, field_manager=self._charm.app.name),  # type: ignore
+            mesh_type=mesh_type,  # type: ignore
+            labels={
+                "app.kubernetes.io/instance": f"{self._charm.app.name}-{model}",  # type: ignore
+                "kubernetes-resource-handler-scope": f"{self._charm.app.name}-cluster-internal",  # type: ignore
+            },
+            logger=logger,
+        )
+
+    def _reconcile_mesh_policies(self) -> None:
+        """Reconcile all the cluster internal mesh policies."""
+        mesh_type = self._mesh.mesh_type()  # type: ignore
+        for model, policies in self._get_cluster_scoped_mesh_policies_by_cluster_model().items():
+            prm = self._get_policy_resource_manager(model, mesh_type)
+            if mesh_type:
+                # if mesh_type exists, the charm is connected to a service mesh charm. reconcile the cluster interal policies.
+                prm.reconcile(policies)
+            else:
+                # if mesh_type does not exist, there is no mesh relation. silently purge all policies, if any.
+                prm.delete()
 
     @property
     def loki_endpoints_by_unit(self) -> Dict[str, str]:
