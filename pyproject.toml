@@ -11,7 +11,7 @@ authors = [
 description = "Shared abstractions to simplify the creation and management of charms following the coordinator-worker pattern."
 readme = "README.md"
 license = { file = "LICENSE" }
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 dependencies = [
     "crossplane",
     "ops[tracing]",
@@ -22,7 +22,7 @@ dependencies = [
     "cryptography",
 ]
 classifiers = [
-    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.10",
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Topic :: Utilities",
@@ -99,7 +99,7 @@ classmethod-decorators = ["classmethod", "pydantic.validator"]
 include = ["src"]
 
 extraPaths = ["lib", "src/coordinated_workers", "probes"]
-pythonVersion = "3.12"
+pythonVersion = "3.10"
 pythonPlatform = "All"
 typeCheckingMode = "strict"
 reportIncompatibleMethodOverride = false
