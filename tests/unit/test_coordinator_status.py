@@ -49,7 +49,7 @@ class MyCoordCharm(ops.CharmBase):
             nginx_config=NginxConfig("localhost", {}, {}),
             workers_config=lambda _: "worker config",
             resources_requests=lambda _: {"cpu": "50m", "memory": "100Mi"},
-            container_name="charm",
+            container_name="nginx",
         )
 
 
