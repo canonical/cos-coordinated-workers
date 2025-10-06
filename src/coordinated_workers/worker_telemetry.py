@@ -59,7 +59,7 @@ def configure_upstreams(
     workload_tracing_receivers_urls: Dict[str, str],
     loki_endpoints_by_unit: Dict[str, str],
 ) -> None:
-    """Updates upstream names to addresses mapper to include the required servers/clients that send/receive worker telemetry.
+    """Update upstream name to address mapper to include the required servers/clients that send/receive worker telemetry.
 
     This function updates the `upstreams_to_addresses` object inplace to include the upstream logging, tracing, and remote_write endpoints with corresponding upstream names.
     The endpoints used in this mapping are upstream endpoints that actually receive the telemetry.
@@ -169,7 +169,10 @@ def _setup_proxy_worker_telemetry(
     proxy_worker_telemetry_port: int,
     remote_write_endpoints_getter: RemoteWriteEndpointGetter,
 ) -> None:
-    """Extends nginx configuration with configurations required proxying worker telemetry to and from the workers via nginx."""
+    """Extend the nginx configuration with configurations required proxying worker telemetry.
+
+    The proxying is done for worker telemetry that is both pulled and pushed.
+    """
     # check if the worker telemetry can be validly proxied, if not log it as an error
 
     # Extend nginx config with worker metrics if enabled
@@ -198,7 +201,7 @@ def _generate_worker_telemetry_nginx_config(
     proxy_worker_telemetry_port: int,
     tls_available: bool,
 ) -> Tuple[List[NginxUpstream], Dict[int, List[NginxLocationConfig]]]:
-    """Generate nginx upstreams and locations for proxying worker telemetry via nginx."""
+    """Generate nginx upstreams and locations for proxying worker telemetry."""
     upstreams_worker_metrics, locations_worker_metrics = _generate_worker_metrics_nginx_config(
         worker_topology, worker_metrics_port=worker_metrics_port, tls_available=tls_available
     )
@@ -236,7 +239,7 @@ def _generate_worker_telemetry_nginx_config(
 def _generate_nginx_config_from_spec(
     specs: List[_WorkerTelemetryNginxConfigSpec],
 ) -> Tuple[List[NginxUpstream], List[NginxLocationConfig]]:
-    """Generate nginx upstreams and locations for worker telemetry proxying from the provided spec list."""
+    """Generate nginx upstreams and locations from the provided _WorkerTelemetryNginxConfigSpec list."""
     upstreams: List[NginxUpstream] = []
     locations: List[NginxLocationConfig] = []
     created_upstreams: Set[str] = set()
@@ -276,7 +279,7 @@ def _generate_nginx_config_from_spec(
 def _generate_worker_metrics_nginx_config(
     worker_topology: List[Dict[str, str]], tls_available: bool, worker_metrics_port: int
 ) -> Tuple[List[NginxUpstream], List[NginxLocationConfig]]:
-    """Generate nginx upstreams and locations for worker metrics routing."""
+    """Generate nginx config for proxying worker metrics via the coordinator."""
     specs: List[_WorkerTelemetryNginxConfigSpec] = []
 
     for worker in worker_topology:
@@ -304,7 +307,7 @@ def _generate_worker_metrics_nginx_config(
 def _generate_remote_write_endpoints_nginx_config(
     remote_write_endpoints_getter: RemoteWriteEndpointGetter,
 ) -> Tuple[List[NginxUpstream], List[NginxLocationConfig]]:
-    """Generate nginx upstreams and locations for remote write endpoints routing."""
+    """Generate the nginx config for proxying remote write endpoints via the coordinator."""
     if not remote_write_endpoints_getter:
         return [], []
 
@@ -336,7 +339,7 @@ def _generate_remote_write_endpoints_nginx_config(
 def _generate_loki_endpoints_nginx_config(
     loki_endpoints_by_unit: Dict[str, str],
 ) -> Tuple[List[NginxUpstream], List[NginxLocationConfig]]:
-    """Generate nginx upstreams and locations for loki endpoints routing."""
+    """Generate the nginx config for proxying loki endpoints via the coordinator."""
     specs: List[_WorkerTelemetryNginxConfigSpec] = []
 
     for unit_name, address in loki_endpoints_by_unit.items():
@@ -365,7 +368,7 @@ def _generate_tracing_urls_nginx_config(
     charm_tracing_receivers_urls: Dict[str, str],
     workload_tracing_receivers_urls: Dict[str, str],
 ) -> Tuple[List[NginxUpstream], List[NginxLocationConfig]]:
-    """Generate nginx upstreams and locations for routing charm and workload tracing."""
+    """Generate the nginx upstreams and locations for charm and workload tracing."""
     specs: List[_WorkerTelemetryNginxConfigSpec] = []
 
     tracing_configs = [
@@ -404,9 +407,7 @@ def proxy_loki_endpoints_by_unit(
     tls_available: bool,
     logging_relations: Iterable[ops.Relation],
 ) -> Dict[str, str]:
-    """Returns proxy loki endpoints per loki unit published to the cluster.
-
-    When worker telemetry proxying is enabled, the worker (if using remote-write for writing metrics) will forward the charm and worload logs to this proxy URL.
+    """Return the loki endpoints poroxied via the coordinator per loki unit.
 
     The proxy URL follows the following convention:
     {scheme}://{hostname}:{proxy_worker_telemetry_port}/proxy/loki/{loki_unit}/push
@@ -435,9 +436,7 @@ def proxy_remote_write_endpoints(
     tls_available: bool,
     endpoints: List[RemoteWriteEndpoint],
 ) -> Union[List[RemoteWriteEndpoint], None]:
-    """Returns proxy remote write endpoints published to the cluster.
-
-    When worker telemetry proxying is enabled, the worker (if using remote-write for writing metrics) will write the metrics using this proxy URL.
+    """Return the remote write endpoints proxied via the coordinator.
 
     The proxy URL follows the following convention:
     {scheme}://{hostname}:{proxy_worker_telemetry_port}/proxy/remote-write/{remote_write_unit}/write
@@ -467,9 +466,7 @@ def proxy_tracing_receivers_urls(
     tracing_target_type: str,
     protocols: List[str],  # should this be a literal instead?
 ) -> Dict[str, str]:
-    """Returns proxy tracing receivers urls per tracing protocol (otel_http, otel_grpc, etc.) published to the cluster.
-
-    When worker telemetry proxying is enabled, the worker's charm and workload forward their traces to this proxy URL.
+    """Return the tracing receivers urls proxied via the coordinator per tracing protocol (otel_http, otel_grpc, etc.).
 
     The proxy URL follows the following convention:
     {scheme}://{hostname}:{proxy_worker_telemetry_port}/proxy/{tracing_target_type}/{protocol}/

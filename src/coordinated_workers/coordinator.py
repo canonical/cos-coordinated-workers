@@ -454,7 +454,7 @@ class Coordinator(ops.Object):
         _type: str,
         ignore_proxy: bool = False,
     ) -> Dict[str, str]:
-        """Returns the trace receiving urls per requested protocol."""
+        """Return the trace receiving urls per requested protocol."""
         endpoints = requirer.get_all_endpoints()  # type: ignore
         receivers = endpoints.receivers if endpoints else ()
 
@@ -471,9 +471,9 @@ class Coordinator(ops.Object):
 
     @property
     def _charm_tracing_receivers_urls(self) -> Dict[str, str]:
-        """Returns the charm tracing enabled receivers per tracing protocol with their corresponding endpoints to be published into the cluster data.
+        """Return the charm tracing receiver urls per receiver protocol.
 
-        When worker telemetry proxy is enabled and when not self tracing, returns the proxy url for sending traces.
+        When worker telemetry proxy is enabled (when not self tracing), returns the coordinator's proxy url which maps to the upstream.
 
         Returns:
             A dictionary of tracing protocols and the respective tracing receiver urls.
@@ -490,9 +490,9 @@ class Coordinator(ops.Object):
 
     @property
     def _workload_tracing_receivers_urls(self) -> Dict[str, str]:
-        """Returns the workload tracing enabled receivers with their corresponding endpoints to be published into the cluster data.
+        """Return the workload tracing receiver urls per receiver protocol.
 
-        When worker telemetry proxy is enabled and when not self tracing, returns the proxy url for sending traces.
+        When worker telemetry proxy is enabled (when not self tracing), returns the coordinator's proxy url which maps to the upstream.
 
         Returns:
             A dictionary of tracing protocols and the respective tracing receiver urls.
@@ -508,8 +508,10 @@ class Coordinator(ops.Object):
         return self._tracing_receivers_urls(self.workload_tracing, "workload-tracing")
 
     @property
-    def remote_write_endpoints(self):
-        """Returns the remote write endpoints based on if its available and if proxying telemetry is enabled to be published into the cluster data.
+    def remote_write_endpoints(self) -> Optional[List[RemoteWriteEndpoint]]:
+        """Return the remote write endpoints.
+
+        When worker telemetry proxy is enabled, returns the coordinator's proxy url which maps to the upstream.
 
         Returns:
             A list of remote write endpoints:
@@ -537,7 +539,7 @@ class Coordinator(ops.Object):
 
     @property
     def _upstream_loki_endpoints_by_unit(self) -> Dict[str, str]:
-        """Loki endpoints from the relation data in the format needed for Pebble log forwarding.
+        """Return the Loki endpoints obtained from the `logging` relation per loki unit.
 
         Returns:
             A dictionary of remote units and the respective Loki endpoint.
@@ -561,9 +563,9 @@ class Coordinator(ops.Object):
 
     @property
     def loki_endpoints_by_unit(self) -> Dict[str, str]:
-        """Loki endpoints in the format needed for Pebble log forwarding.
+        """Return the Loki endpoints per loki unit.
 
-        When worker telemetry proxy is enabled, the proxy url is returned. If not the upstream loki addresses are returned.
+        When worker telemetry proxy is enabled, returns the coordinator's proxy url which maps to the upstream.
 
         Returns:
             A dictionary of remote units and the respective Loki endpoint.
@@ -1000,6 +1002,7 @@ class Coordinator(ops.Object):
             )
 
     def _reconcile_worker_telemetry(self):
+        """Update the nginx config to route all the worker telemetry via the coordinator."""
         if not self._proxy_worker_telemetry_port:
             return
 
