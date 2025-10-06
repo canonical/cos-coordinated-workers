@@ -900,9 +900,8 @@ def test_coordinator_creates_and_reconcilies_policy_resource_managers(
         coordinator._reconcile_mesh_policies()
 
         # THEN PolicyResourceManager is created and reconcile is called
-        # A unique PRM will be created for every model of the cluster. In this test, 1 for the coordinator and 1 for the workers.
-        assert mock_prm.call_count == 2
-        assert mock_prm.return_value.reconcile.call_count == 2
+        mock_prm.assert_called_once()
+        mock_prm.return_value.reconcile.assert_called_once()
 
 
 @patch("coordinated_workers.coordinator.PolicyResourceManager")

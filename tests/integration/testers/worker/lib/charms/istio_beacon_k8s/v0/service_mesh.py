@@ -167,11 +167,14 @@ from lightkube.models.meta_v1 import ObjectMeta
 from lightkube.resources.apps_v1 import StatefulSet
 from lightkube.resources.core_v1 import ConfigMap, Service
 from lightkube_extensions.batch import KubernetesResourceManager
-from lightkube_extensions.types import LightkubeResourcesList
+from lightkube_extensions.types import (
+    LightkubeResourcesList,
+    LightkubeResourceTypesSet,
+)
 from ops import CharmBase, Object, RelationMapping
 from pydantic import Field
 
-RESOURCE_TYPES = {
+RESOURCE_TYPES = {  # type: ignore
     "AuthorizationPolicy": create_namespaced_resource(
         "security.istio.io",
         "v1",
@@ -179,13 +182,13 @@ RESOURCE_TYPES = {
         "authorizationpolicies",
     ),
 }
-POLICY_RESOURCE_TYPES = {
+POLICY_RESOURCE_TYPES = {  # type: ignore
     "istio": {RESOURCE_TYPES["AuthorizationPolicy"]},
 }
 
 LIBID = "3f40cb7e3569454a92ac2541c5ca0a0c"  # Never change this
 LIBAPI = 0
-LIBPATCH = 12
+LIBPATCH = 14
 
 PYDEPS = [
     "lightkube",
@@ -560,7 +563,7 @@ class ServiceMeshProvider(Object):
         """Return the relation data that defines Policies requested by the related applications."""
         mesh_info = []
         for relation in self._charm.model.relations[self._relation_name]:
-            policies_data = json.loads(relation.data[relation.app]["policies"])
+            policies_data = json.loads(relation.data[relation.app].get("policies", "[]"))
             policies = [MeshPolicy.model_validate(policy) for policy in policies_data]
             mesh_info.extend(policies)
         return mesh_info
@@ -1014,7 +1017,6 @@ class PolicyResourceManager():
             policies = self._get_policies_i_manager()
             prm.reconcile(polcies)
     ````
-
     Args:
         charm (ops.CharmBase): The charm instantiating this object.
         lightkube_client (lightkube.Client): Lightkube Client to use for all k8s operations.
@@ -1046,14 +1048,15 @@ class PolicyResourceManager():
         self,
         charm: CharmBase,
         lightkube_client: Client,
-        mesh_type: MeshType,
+        mesh_type: Optional[MeshType] = None,
         labels: Optional[Dict] = None,
         logger: Optional[logging.Logger] = None,
     ):
         self._app_name = charm.app.name
         self._model_name = charm.model.name
         self._mesh_type = mesh_type
-        resource_types = POLICY_RESOURCE_TYPES[self._mesh_type]
+        resource_types = self._get_all_supported_policy_resource_types()
+
         if logger is None:
             self.log = logging.getLogger(__name__)
         else:
@@ -1065,10 +1068,20 @@ class PolicyResourceManager():
             logger=self.log,
         )
 
+    @staticmethod
+    def _get_all_supported_policy_resource_types() -> LightkubeResourceTypesSet:  # type: ignore
+        """Return all the resource types supported by the PRM class."""
+        return set(RESOURCE_TYPES.values())
+
     def _get_policy_resource_builder(self):
         if self._mesh_type == MeshType.istio:
             return _build_policy_resources_istio
-        raise ValueError(f"PolicyResourceManager instantiated wirh an unknown mesh type: {self._mesh_type.value}. Check Canonical Service Mesh documentation for currently supported mesh types.")
+        raise ValueError(f"PolicyResourceManager instantiated with an unknown mesh type: {self._mesh_type}. Check Canonical Service Mesh documentation for currently supported mesh types.")  # type: ignore
+
+    def _build_policy_resources(self, policies) -> LightkubeResourcesList:
+        """Build the Lightkube resources for the managed policies."""
+        policy_resource_builder = self._get_policy_resource_builder()
+        return policy_resource_builder(self._app_name, self._model_name, policies)  # type: ignore
 
     def reconcile(self,
         policies: List[MeshPolicy],
@@ -1095,9 +1108,11 @@ class PolicyResourceManager():
                    marked as managed by another field manager.
             ignore_missing: *(optional)* Avoid raising 404 errors on deletion (defaults to True)
         """
-        mesh_typed_policy_resources_builder = self._get_policy_resource_builder()
-        mesh_typed_policy_resources = mesh_typed_policy_resources_builder(self._app_name, self._model_name, policies)  # type: ignore
-        self._krm.reconcile(mesh_typed_policy_resources, force=force, ignore_missing=ignore_missing)  # type: ignore
+        if not policies:
+            self.delete(ignore_missing=ignore_missing)
+            return
+        policy_resources = self._build_policy_resources(policies)  # type: ignore
+        self._krm.reconcile(policy_resources, force=force, ignore_missing=ignore_missing)  # type: ignore
 
     def delete(self, ignore_missing=True):
         """Delete all the policy resources handled by this manager.
@@ -1107,4 +1122,12 @@ class PolicyResourceManager():
         Args:
             ignore_missing: *(optional)* Avoid raising 404 errors on deletion (defaults to True)
         """
-        self._krm.delete(ignore_missing=ignore_missing)
+        try:
+            self._krm.delete(ignore_missing=ignore_missing)
+        # FIXME: this is a workaround and should be handled by the upstream krm. Issue exists: https://github.com/canonical/lightkube-extensions/issues/4
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404 and ignore_missing:
+                # CRD doesn't exist, nothing to delete (only when ignore_missing=True)
+                self.log.info("CRD not found, skipping deletion")
+                return
+            raise

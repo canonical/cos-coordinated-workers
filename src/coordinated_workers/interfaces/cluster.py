@@ -361,6 +361,14 @@ class ClusterProvider(Object):
 
         return data
 
+    def gather_applications(self) -> List[Dict[str, str]]:
+        """Gather the Juju applications and the corresponding models that is part of this coordinated-worker solution."""
+        apps_dict = {
+            worker_unit["application"]: worker_unit["model"]
+            for worker_unit in self.gather_topology()
+        }
+        return [{"application": app, "model": model} for app, model in apps_dict.items()]
+
     def gather_models(self) -> Set[str]:
         """Gather the Juju models through which this coordinated-worker solution is distributed."""
         models: Set[str] = {self._charm.model.name}  # type: ignore
