@@ -790,10 +790,10 @@ class Coordinator(ops.Object):
             labels=self._coordinated_workers_solution_labels,
         )
 
-    def _get_cluster_scoped_mesh_policy(
+    def _get_mesh_policies_for_cluster_application(
         self, source_model: str, source_application: str
     ) -> List[MeshPolicy]:
-        """Return a mesh policy for a coordinator/worker to allow it to talk to all the other cluster units."""
+        """Return mesh policies that grant access for the specified cluster application to target all cluster units."""
         cluster_models = self.cluster.gather_models()
         mesh_policies: List[MeshPolicy] = []
         for target_model in cluster_models:
@@ -808,17 +808,17 @@ class Coordinator(ops.Object):
             )
         return mesh_policies
 
-    def _get_cluster_scoped_mesh_policies(self) -> List[MeshPolicy]:
-        """Return all the required cluster internal mesh policies per cluster model."""
+    def _get_cluster_internal_mesh_policies(self) -> List[MeshPolicy]:
+        """Return all the required cluster internal mesh policies."""
         mesh_policies: List[MeshPolicy] = []
         # Coordinator -> Everything in the cluster
-        mesh_policies = self._get_cluster_scoped_mesh_policy(
+        mesh_policies = self._get_mesh_policies_for_cluster_application(
             self._charm.model.name, self._charm.app.name
         )
         # Workers -> Everything in the cluster
         for worker_application in self.cluster.gather_applications():
             mesh_policies.extend(
-                self._get_cluster_scoped_mesh_policy(
+                self._get_mesh_policies_for_cluster_application(
                     worker_application["model"],
                     worker_application["application"],
                 )
@@ -829,9 +829,7 @@ class Coordinator(ops.Object):
         """Return a PolicyResourceManager for the given mesh_type."""
         return PolicyResourceManager(
             charm=self._charm,  # type: ignore
-            lightkube_client=Client(
-                namespace=self._charm.model.name, field_manager=self._charm.app.name
-            ),  # type: ignore
+            lightkube_client=Client(field_manager=self._charm.app.name),  # type: ignore
             mesh_type=mesh_type,  # type: ignore
             labels={
                 "app.kubernetes.io/instance": f"{self._charm.app.name}",  # type: ignore
@@ -846,7 +844,7 @@ class Coordinator(ops.Object):
             return
         mesh_type = self._mesh.mesh_type()  # type: ignore
         prm = self._get_policy_resource_manager(mesh_type)
-        policies = self._get_cluster_scoped_mesh_policies()
+        policies = self._get_cluster_internal_mesh_policies()
         if mesh_type:
             # if mesh_type exists, the charm is connected to a service mesh charm. reconcile the cluster interal policies.
             prm.reconcile(policies)
