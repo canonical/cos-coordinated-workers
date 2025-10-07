@@ -17,6 +17,11 @@ RECOMMENDED_DEPLOYMENT = {
     "compactor": 1,
     "metrics-generator": 1,
 }
+META_ROLES = {
+    "all": [
+        "querier", "query-frontend", "ingester", "distributor", "compactor", "metrics-generator"
+    ]
+}
 
 
 def check_bundle(bundle_yaml):
@@ -24,6 +29,7 @@ def check_bundle(bundle_yaml):
         bundles={"test-bundle": bundle_yaml},
         worker_charm="tempo-worker-k8s",
         recommended_deployment=RECOMMENDED_DEPLOYMENT,
+        meta_roles=META_ROLES
     )
 
 
@@ -84,6 +90,62 @@ def test_bundle_all_but_too_few():
     bundle_yaml["applications"] = {"tempo-worker-all": all_worker}
     with pytest.raises(RuntimeError):
         check_bundle(bundle_yaml)
+
+
+def test_bundle_meta_roles():
+    # one unit with "all" role, which means one per a,b,c role
+    # two units with "meta1" role, which means +two per a,b role
+    bndl = {
+        "applications":{
+            "foo": {
+                "charm": "mycharm",
+                "scale": 1,
+                "options": {} # implies: role-all=True
+            },
+            "bar": {
+                "scale": 2,
+                "charm": "mycharm",
+                "options": {"role-meta1": True, "role-all":False}
+            },
+        }}
+    # so we should be happy with this recommended deployment
+    bundle(
+        bundles={"test-bundle": bndl},  # type: ignore
+        worker_charm="mycharm",
+        recommended_deployment={"a": 3, "b": 3, "c": 1},
+        meta_roles={
+            "all": ["a", "b", "c"],
+            "meta1": ["a", "b"]
+        },
+    )
+
+def test_bundle_meta_roles_bad():
+    # one unit with "all" role, which means one per a,b,c role
+    # one unit with "meta1" role, which means +one per a,b role
+    bndl = {
+        "applications":{
+            "foo": {
+                "charm": "mycharm",
+                "scale": 1,
+                "options": {} # implies: role-all=True
+            },
+            "bar": {
+                "scale": 1,
+                "charm": "mycharm",
+                "options": {"role-meta1": True, "role-all":False}
+            },
+        }}
+    # so we should be sad with this recommended deployment (need one more a)
+    with pytest.raises(RuntimeError):
+        bundle(
+            bundles={"test-bundle": bndl},  # type: ignore
+            worker_charm="mycharm",
+            recommended_deployment={"a": 3, "b": 2, "c": 1},
+            meta_roles={
+                "all": ["a", "b", "c"],
+                "meta1": ["a", "b"]
+            },
+        )
 
 
 def test_ruleset():

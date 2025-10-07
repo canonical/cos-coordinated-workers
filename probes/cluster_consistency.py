@@ -5,7 +5,7 @@
 """Generic juju-doctor probe to test coordinated-workers deployments for consistency."""
 
 from collections import Counter
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Sequence
 
 
 def status(bundles, *args, **kwargs):
@@ -18,9 +18,31 @@ def bundle(
     *args,
     worker_charm: str,
     recommended_deployment: Dict[str, int],
+    meta_roles: Dict[str, Sequence[str]] = None,
     **kwargs,
 ):
-    """Verify the juju export-bundle report."""
+    """Verify the juju export-bundle report.
+
+    Example usage::
+
+        name: MyRuleSet - coordinated-workers deployment validator
+        probes:
+          - name: MyProbe
+            type: scriptlet
+            url: https://github.com/canonical/cos-coordinated-workers//probes/cluster_consistency.py
+            with:
+              - worker_charm: my-worker-k8s
+                recommended_deployment:
+                  querier: 1
+                  query-frontend: 1
+                  ingester: 3
+                  distributor: 1
+                  compactor: 1
+                  metrics-generator: 1
+                meta_roles:
+                  read: [querier, query-frontend, ingester]
+                  write: [distributor]
+    """
     errors: List[str] = []
 
     n_all_roles = 0
@@ -37,6 +59,7 @@ def bundle(
                 continue
             config = app.get("options", {})
             if not config:
+                # ASSUME: no config means the 'all' role is enabled (and no other is) as that is the default
                 # all role: counts as one of each
                 n_all_roles += scale
                 continue
@@ -51,8 +74,10 @@ def bundle(
                         )
                     role = option[len("role-") :]
 
-                    if role == "all":
-                        n_all_roles += scale
+                    # expand meta roles
+                    if meta_roles and role in meta_roles:
+                        for _role in meta_roles[role]:
+                            roles[_role] += scale
                     else:
                         roles[role] += scale
 
