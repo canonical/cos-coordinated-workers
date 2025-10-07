@@ -18,7 +18,7 @@ def charm():
         META = {
             "name": "foo-app",
             "requires": {
-                "my-correlation-endpoint": {"interface": "custom_endpoint"},
+                "my-custom-endpoint": {"interface": "custom_endpoint"},
             },
             "provides": {
                 "my-grafana-source": {"interface": "grafana_dashboard"},
@@ -34,11 +34,11 @@ def charm():
                 grafana_dsx_endpoint="my-ds-exchange-provide",
             )
 
-        def get_correlated_datasource(self, datasource_type="prometheus"):
+        def get_correlated_datasource(self, endpoint=None):
             return self._telemetry_correlation.find_correlated_datasource(
-                endpoint="my-correlation-endpoint",
-                datasource_type=datasource_type,
-                correlation_feature=datasource_type,
+                datasource_type="prometheus",
+                correlation_feature="traces-to-metrics",
+                endpoint=endpoint,
             )
 
     return MyCorrelationCharm
@@ -50,7 +50,7 @@ def context(charm):
 
 
 def _grafana_source_relation(
-    remote_name: str = "remote",
+    remote_name: str = "grafana1",
     datasource_uids: Dict[str, str] = {"tempo/0": "1234"},
     grafana_uid: str = "grafana_1",
 ):
@@ -77,31 +77,26 @@ def _grafana_datasource_exchange_relation(
     )
 
 
-def _correlation_endpoint_relation(
+def _custom_endpoint_relation(
     remote_name: str = "remote",
 ):
     return Relation(
-        "my-correlation-endpoint",
+        "my-custom-endpoint",
         remote_app_name=remote_name,
     )
 
 
 @pytest.mark.parametrize(
-    "has_dsx, has_grafana_source, has_correlation_endpoint",
+    "has_dsx, has_grafana_source",
     [
-        (True, True, False),
-        (True, False, True),
-        (False, True, True),
-        (True, False, False),
-        (False, True, False),
-        (False, False, True),
-        (False, False, False),
+        (True, False),
+        (False, True),
+        (False, False),
     ],
 )
 def test_no_matching_datasource_with_missing_rels(
-    has_grafana_source,
-    has_correlation_endpoint,
     has_dsx,
+    has_grafana_source,
     context,
 ):
     # GIVEN an incomplete list of relations that are mandatory for telemetry correlation
@@ -110,8 +105,6 @@ def test_no_matching_datasource_with_missing_rels(
         relations.append(_grafana_source_relation())
     if has_dsx:
         relations.append(_grafana_datasource_exchange_relation())
-    if has_correlation_endpoint:
-        relations.append(_correlation_endpoint_relation())
 
     state_in = State(
         relations=relations,
@@ -126,11 +119,16 @@ def test_no_matching_datasource_with_missing_rels(
         assert not correlated_datasource
 
 
-def test_no_matching_datasource_with_the_wrong_dsx(context):
-    # GIVEN a relation over correlation-endpoint to a remote app "remote"
-    relations = {_grafana_source_relation(), _correlation_endpoint_relation(remote_name="remote")}
-    # AND a relation over ds-exchange to a different remote app "remote2"
-    relations.add(_grafana_datasource_exchange_relation(remote_name="remote2"))
+def test_no_matching_datasource_with_the_wrong_ds_type(context):
+    # GIVEN a relation over grafana-source
+    # AND a relation over ds-exchange to a remote app with the wrong ds type
+
+    relations = {
+        _grafana_source_relation(),
+        _grafana_datasource_exchange_relation(
+            datasources=[{"type": "loki", "uid": "loki_1", "grafana_uid": "grafana_1"}]
+        ),
+    }
 
     state_in = State(relations=relations)
 
@@ -145,16 +143,13 @@ def test_no_matching_datasource_with_the_wrong_dsx(context):
 
 def test_no_matching_datasource_with_the_wrong_grafana(context):
     # GIVEN a relation over grafana-source to a remote app "grafana1"
+    # AND a relation over ds-exchange to a remote app that is connected to a different grafana "grafana2"
     relations = {
         _grafana_source_relation(grafana_uid="grafana1"),
-        _correlation_endpoint_relation(),
-    }
-    # AND a relation over ds-exchange to a remote app that is connected to a different grafana "grafana2"
-    relations.add(
         _grafana_datasource_exchange_relation(
             datasources=[{"type": "prometheus", "uid": "prometheus_1", "grafana_uid": "grafana2"}]
-        )
-    )
+        ),
+    }
 
     state_in = State(relations=relations)
 
@@ -167,13 +162,33 @@ def test_no_matching_datasource_with_the_wrong_grafana(context):
         assert not correlated_datasource
 
 
+def test_no_matching_datasource_with_endpoint(context):
+    # GIVEN a relation over grafana-source
+    # AND a relation over ds-exchange to a remote app "remote"
+    # AND a custom-endpoint relation to a different remote app "remote2"
+    relations = {
+        _grafana_source_relation(),
+        _grafana_datasource_exchange_relation(remote_name="remote"),
+        _custom_endpoint_relation(remote_name="remote2"),
+    }
+
+    state_in = State(relations=relations)
+
+    # WHEN we fire any event
+    with context(context.on.update_status(), state_in) as mgr:
+        mgr.run()
+        charm = mgr.charm
+        # AND we call find_correlated_datasource with an additional endpoint to filter datasources with
+        correlated_datasource = charm.get_correlated_datasource(endpoint="my-custom-endpoint")
+        # THEN no matching datasources are found
+        assert not correlated_datasource
+
+
 def test_matching_datasource_found(context):
     # GIVEN a relation over grafana-source
-    # AND a relation over correlation-endpoint to a remote
     # AND a relation over ds-exchange to the same remote that is connected to the same grafana as this charm
     relations = {
         _grafana_source_relation(),
-        _correlation_endpoint_relation(),
         _grafana_datasource_exchange_relation(),
     }
 
@@ -190,16 +205,36 @@ def test_matching_datasource_found(context):
         assert correlated_datasource.uid == "prometheus_1"
 
 
+def test_matching_datasource_found_with_endpoint(context):
+    # GIVEN a relation over grafana-source
+    # AND a relation over ds-exchange to the same remote that is connected to the same grafana as this charm
+    # AND a relation over custom-endpoint to the same remote that this charm is connected to over ds-exchange
+    relations = {
+        _grafana_source_relation(),
+        _grafana_datasource_exchange_relation(),
+        _custom_endpoint_relation(),
+    }
+
+    state_in = State(relations=relations)
+
+    # WHEN we fire any event
+    with context(context.on.update_status(), state_in) as mgr:
+        mgr.run()
+        charm = mgr.charm
+        # AND we call find_correlated_datasource with an additional endpoint to filter datasources with
+        correlated_datasource = charm.get_correlated_datasource(endpoint="my-custom-endpoint")
+        # THEN we find a matching datasource
+        assert correlated_datasource
+        # AND this datasource.uid matches the one we obtain from ds-exchange
+        assert correlated_datasource.uid == "prometheus_1"
+
+
 def test_multiple_matching_datasource_found(context):
     # GIVEN a relation over grafana-source
-    # AND a relation over correlation-endpoint to a remote "remote1"
-    # AND a relation over correlation-endpoint to another remote "remote2"
     # AND a relation over ds-exchange to "remote1" that is connected to the same grafana as this charm
     # AND a relation over ds-exchange to "remote2" that is connected to the same grafana as this charm
     relations = {
         _grafana_source_relation(),
-        _correlation_endpoint_relation(remote_name="remote1"),
-        _correlation_endpoint_relation(remote_name="remote2"),
         _grafana_datasource_exchange_relation(
             remote_name="remote1",
             datasources=[
