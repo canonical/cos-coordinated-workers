@@ -407,7 +407,7 @@ def proxy_loki_endpoints_by_unit(
     tls_available: bool,
     logging_relations: Iterable[ops.Relation],
 ) -> Dict[str, str]:
-    """Return the loki endpoints poroxied via the coordinator per loki unit.
+    """Return the loki endpoints proxied via the coordinator per loki unit.
 
     The proxy URL follows the following convention:
     {scheme}://{hostname}:{proxy_worker_telemetry_port}/proxy/loki/{loki_unit}/push
