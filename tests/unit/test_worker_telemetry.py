@@ -1,21 +1,24 @@
-import dataclasses
 import json
-from unittest.mock import patch, PropertyMock
+from unittest.mock import PropertyMock, patch
 from urllib.parse import urlparse
 
 import ops
 import pytest
 from ops import testing
 
-from coordinated_workers.coordinator import Coordinator, ClusterRolesConfig
+from coordinated_workers.coordinator import ClusterRolesConfig, Coordinator
 from coordinated_workers.interfaces.cluster import ClusterRequirerAppData, ClusterRequirerUnitData
 from coordinated_workers.nginx import NginxConfig
-from coordinated_workers.worker_telemetry import WorkerTelemetryProxyConfig, PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX
+from coordinated_workers.worker_telemetry import (
+    PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX,
+    WorkerTelemetryProxyConfig,
+)
 
 
 @pytest.fixture
 def coordinator_charm_with_proxy():
     """Create a coordinator charm with worker telemetry proxy enabled."""
+
     class MyCoordinatorWithProxy(ops.CharmBase):
         META = {
             "name": "test-coordinator",
@@ -47,7 +50,7 @@ def coordinator_charm_with_proxy():
                     roles={"backend"},
                     meta_roles={},
                     minimal_deployment={"backend"},
-                    recommended_deployment={"backend": 1}
+                    recommended_deployment={"backend": 1},
                 ),
                 external_url="https://test-coordinator.example.com",
                 worker_metrics_port=9090,
@@ -69,7 +72,7 @@ def coordinator_charm_with_proxy():
                 },
                 nginx_config=NginxConfig("localhost", [], {}),
                 workers_config=lambda coordinator: f"config for {coordinator._charm.meta.name}",
-                worker_telemetry_proxy_config=WorkerTelemetryProxyConfig(http=8080, https=8443)
+                worker_telemetry_proxy_config=WorkerTelemetryProxyConfig(http=8080, https=8443),
             )
 
     return MyCoordinatorWithProxy
@@ -78,6 +81,7 @@ def coordinator_charm_with_proxy():
 @pytest.fixture
 def coordinator_charm_no_proxy():
     """Create a coordinator charm without worker telemetry proxy."""
+
     class MyCoordinatorNoProxy(ops.CharmBase):
         META = {
             "name": "test-coordinator",
@@ -109,7 +113,7 @@ def coordinator_charm_no_proxy():
                     roles={"backend"},
                     meta_roles={},
                     minimal_deployment={"backend"},
-                    recommended_deployment={"backend": 1}
+                    recommended_deployment={"backend": 1},
                 ),
                 external_url="https://test-coordinator.example.com",
                 worker_metrics_port=9090,
@@ -130,7 +134,7 @@ def coordinator_charm_no_proxy():
                     "service-mesh-require-cmr-mesh": None,
                 },
                 nginx_config=NginxConfig("localhost", [], {}),
-                workers_config=lambda coordinator: f"config for {coordinator._charm.meta.name}"
+                workers_config=lambda coordinator: f"config for {coordinator._charm.meta.name}",
             )
 
     return MyCoordinatorNoProxy
@@ -160,31 +164,27 @@ def coordinator_state_with_telemetry():
         interface="loki_push_api",
         remote_app_name="loki",
         remote_units_data={
-            0: {
-                "endpoint": json.dumps({"url": "http://loki-0:3100/loki/api/v1/push"})
-            },
-            1: {
-                "endpoint": json.dumps({"url": "http://loki-1:3100/loki/api/v1/push"})
-            }
-        }
+            0: {"endpoint": json.dumps({"url": "http://loki-0:3100/loki/api/v1/push"})},
+            1: {"endpoint": json.dumps({"url": "http://loki-1:3100/loki/api/v1/push"})},
+        },
     )
     requires_relations["my-charm-tracing"] = testing.Relation(
         endpoint="my-charm-tracing",
         interface="tracing",
         remote_app_data={
-            "receivers": json.dumps([
-                {"protocol": {"name": "otlp_http", "type": "http"}, "url": "http://tempo:4318"}
-            ])
-        }
+            "receivers": json.dumps(
+                [{"protocol": {"name": "otlp_http", "type": "http"}, "url": "http://tempo:4318"}]
+            )
+        },
     )
     requires_relations["my-workload-tracing"] = testing.Relation(
         endpoint="my-workload-tracing",
         interface="tracing",
         remote_app_data={
-            "receivers": json.dumps([
-                {"protocol": {"name": "otlp_http", "type": "http"}, "url": "http://tempo:4318"}
-            ])
-        }
+            "receivers": json.dumps(
+                [{"protocol": {"name": "otlp_http", "type": "http"}, "url": "http://tempo:4318"}]
+            )
+        },
     )
     requires_relations["my-s3"] = testing.Relation(
         endpoint="my-s3",
@@ -197,14 +197,8 @@ def coordinator_state_with_telemetry():
         },
     )
     provides_relations = {
-        "my-metrics": testing.Relation(
-            endpoint="my-metrics",
-            interface="prometheus_scrape"
-        ),
-        "my-dashboards": testing.Relation(
-            endpoint="my-dashboards",
-            interface="grafana_dashboard"
-        )
+        "my-metrics": testing.Relation(endpoint="my-metrics", interface="prometheus_scrape"),
+        "my-dashboards": testing.Relation(endpoint="my-dashboards", interface="grafana_dashboard"),
     }
 
     return testing.State(
@@ -216,15 +210,20 @@ def coordinator_state_with_telemetry():
     )
 
 
-
-def test_coordinator_returns_proxy_urls_when_proxy_enabled(coordinator_charm_with_proxy, coordinator_state_with_telemetry):
+def test_coordinator_returns_proxy_urls_when_proxy_enabled(
+    coordinator_charm_with_proxy, coordinator_state_with_telemetry
+):
     """Test that coordinator returns proxy URLs when WorkerTelemetryProxyConfig is provided."""
     # GIVEN a coordinator charm with worker telemetry proxy config enabled
     ctx = testing.Context(coordinator_charm_with_proxy, meta=coordinator_charm_with_proxy.META)
 
     # WHEN we process any event with telemetry relations present
-    with patch.object(Coordinator, "hostname", new_callable=PropertyMock, return_value="coordinator.local"):
-        with patch.object(Coordinator, "tls_available", new_callable=PropertyMock, return_value=False):
+    with patch.object(
+        Coordinator, "hostname", new_callable=PropertyMock, return_value="coordinator.local"
+    ):
+        with patch.object(
+            Coordinator, "tls_available", new_callable=PropertyMock, return_value=False
+        ):
             with ctx(ctx.on.update_status(), state=coordinator_state_with_telemetry) as mgr:
                 coordinator = mgr.charm.coordinator
 
@@ -260,7 +259,9 @@ def test_coordinator_returns_proxy_urls_when_proxy_enabled(coordinator_charm_wit
                 assert "/proxy/loki/loki-0/push" in parsed.path
 
 
-def test_coordinator_returns_upstream_urls_when_proxy_disabled(coordinator_charm_no_proxy, coordinator_state_with_telemetry):
+def test_coordinator_returns_upstream_urls_when_proxy_disabled(
+    coordinator_charm_no_proxy, coordinator_state_with_telemetry
+):
     """Test that coordinator returns actual upstream URLs when no proxy config is provided."""
     # GIVEN a coordinator charm without worker telemetry proxy config
     ctx = testing.Context(coordinator_charm_no_proxy, meta=coordinator_charm_no_proxy.META)
@@ -276,7 +277,7 @@ def test_coordinator_returns_upstream_urls_when_proxy_disabled(coordinator_charm
         upstream_url = charm_urls["otlp_http"]
         parsed = urlparse(upstream_url)
         assert parsed.hostname == "tempo"  # Actual upstream hostname
-        assert parsed.port == 4318        # Actual upstream port
+        assert parsed.port == 4318  # Actual upstream port
         assert "/proxy/" not in parsed.path  # No proxy path
 
         # Test workload tracing URLs - should be actual upstream URLs
@@ -301,14 +302,20 @@ def test_coordinator_returns_upstream_urls_when_proxy_disabled(coordinator_charm
 
 
 @pytest.mark.parametrize("tls_available", [True, False])
-def test_coordinator_proxy_urls_respect_tls_and_port_selection(coordinator_charm_with_proxy, coordinator_state_with_telemetry, tls_available):
+def test_coordinator_proxy_urls_respect_tls_and_port_selection(
+    coordinator_charm_with_proxy, coordinator_state_with_telemetry, tls_available
+):
     """Test that coordinator proxy URLs use correct scheme/port based on TLS and proxy config port selection."""
     # GIVEN a coordinator charm with worker telemetry proxy config and TLS either enabled or disabled
     ctx = testing.Context(coordinator_charm_with_proxy, meta=coordinator_charm_with_proxy.META)
 
     # WHEN we process any event with the TLS availability state
-    with patch.object(Coordinator, "hostname", new_callable=PropertyMock, return_value="coordinator.local"):
-        with patch.object(Coordinator, "tls_available", new_callable=PropertyMock, return_value=tls_available):
+    with patch.object(
+        Coordinator, "hostname", new_callable=PropertyMock, return_value="coordinator.local"
+    ):
+        with patch.object(
+            Coordinator, "tls_available", new_callable=PropertyMock, return_value=tls_available
+        ):
             with ctx(ctx.on.update_status(), state=coordinator_state_with_telemetry) as mgr:
                 coordinator = mgr.charm.coordinator
 
@@ -334,7 +341,9 @@ def test_coordinator_proxy_urls_respect_tls_and_port_selection(coordinator_charm
                 assert parsed.port == expected_port
 
 
-def test_coordinator_remote_write_proxy_behavior(coordinator_charm_with_proxy, coordinator_state_with_telemetry):
+def test_coordinator_remote_write_proxy_behavior(
+    coordinator_charm_with_proxy, coordinator_state_with_telemetry
+):
     """Test coordinator remote write endpoint proxying behavior."""
     # GIVEN a coordinator charm with worker telemetry proxy config and remote write endpoints
     ctx = testing.Context(coordinator_charm_with_proxy, meta=coordinator_charm_with_proxy.META)
@@ -342,12 +351,16 @@ def test_coordinator_remote_write_proxy_behavior(coordinator_charm_with_proxy, c
     # Mock remote write endpoints getter
     sample_endpoints = [
         {"url": "http://prometheus-0.prometheus:9090/api/v1/write"},
-        {"url": "https://prometheus-1.prometheus:9090/api/v1/write"}
+        {"url": "https://prometheus-1.prometheus:9090/api/v1/write"},
     ]
 
     # WHEN we process any event with remote write endpoints available
-    with patch.object(Coordinator, "hostname", new_callable=PropertyMock, return_value="coordinator.local"):
-        with patch.object(Coordinator, "tls_available", new_callable=PropertyMock, return_value=False):
+    with patch.object(
+        Coordinator, "hostname", new_callable=PropertyMock, return_value="coordinator.local"
+    ):
+        with patch.object(
+            Coordinator, "tls_available", new_callable=PropertyMock, return_value=False
+        ):
             with ctx(ctx.on.update_status(), state=coordinator_state_with_telemetry) as mgr:
                 coordinator = mgr.charm.coordinator
 
@@ -366,7 +379,12 @@ def test_coordinator_remote_write_proxy_behavior(coordinator_charm_with_proxy, c
 
 
 @pytest.mark.parametrize("proxy_enabled", [True, False])
-def test_nginx_config_worker_telemetry_proxy_directives(proxy_enabled, coordinator_charm_with_proxy, coordinator_charm_no_proxy, coordinator_state_with_telemetry):
+def test_nginx_config_worker_telemetry_proxy_directives(
+    proxy_enabled,
+    coordinator_charm_with_proxy,
+    coordinator_charm_no_proxy,
+    coordinator_state_with_telemetry,
+):
     """Test that nginx config contains worker telemetry proxy directives when proxy is enabled."""
     # GIVEN a coordinator charm with or without worker telemetry proxy config
     charm_class = coordinator_charm_with_proxy if proxy_enabled else coordinator_charm_no_proxy
@@ -374,8 +392,12 @@ def test_nginx_config_worker_telemetry_proxy_directives(proxy_enabled, coordinat
     ctx = testing.Context(charm_class, meta=charm_class.META)
 
     # WHEN we reconcile worker telemetry and generate nginx configuration
-    with patch.object(Coordinator, "hostname", new_callable=PropertyMock, return_value="coordinator.local"):
-        with patch.object(Coordinator, "tls_available", new_callable=PropertyMock, return_value=False):
+    with patch.object(
+        Coordinator, "hostname", new_callable=PropertyMock, return_value="coordinator.local"
+    ):
+        with patch.object(
+            Coordinator, "tls_available", new_callable=PropertyMock, return_value=False
+        ):
             with ctx(ctx.on.update_status(), state=coordinator_state_with_telemetry) as mgr:
                 coordinator = mgr.charm.coordinator
 
@@ -389,8 +411,7 @@ def test_nginx_config_worker_telemetry_proxy_directives(proxy_enabled, coordinat
 
                 # Get the nginx config
                 nginx_config = coordinator._nginx_config.get_config(
-                    coordinator._upstreams_to_addresses,
-                    listen_tls=False
+                    coordinator._upstreams_to_addresses, listen_tls=False
                 )
 
                 # THEN the nginx config contains proxy directives only when proxy is enabled
@@ -408,17 +429,25 @@ def test_nginx_config_worker_telemetry_proxy_directives(proxy_enabled, coordinat
                     assert "/proxy/workload-tracing/" not in nginx_config
                     assert "/proxy/loki/" not in nginx_config
                     assert "/proxy/remote-write/" not in nginx_config
-                    assert f"upstream {PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX}-" not in nginx_config
+                    assert (
+                        f"upstream {PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX}-" not in nginx_config
+                    )
 
 
-def test_nginx_upstream_keys_match_address_mapping(coordinator_charm_with_proxy, coordinator_state_with_telemetry):
+def test_nginx_upstream_keys_match_address_mapping(
+    coordinator_charm_with_proxy, coordinator_state_with_telemetry
+):
     """Test that nginx upstream keys match the keys in upstreams_to_addresses mapping."""
     # GIVEN a coordinator charm with worker telemetry proxy config
     ctx = testing.Context(coordinator_charm_with_proxy, meta=coordinator_charm_with_proxy.META)
 
     # WHEN we reconcile worker telemetry which populates both nginx config and upstreams_to_addresses
-    with patch.object(Coordinator, "hostname", new_callable=PropertyMock, return_value="coordinator.local"):
-        with patch.object(Coordinator, "tls_available", new_callable=PropertyMock, return_value=False):
+    with patch.object(
+        Coordinator, "hostname", new_callable=PropertyMock, return_value="coordinator.local"
+    ):
+        with patch.object(
+            Coordinator, "tls_available", new_callable=PropertyMock, return_value=False
+        ):
             with ctx(ctx.on.update_status(), state=coordinator_state_with_telemetry) as mgr:
                 coordinator = mgr.charm.coordinator
 
@@ -435,7 +464,7 @@ def test_nginx_upstream_keys_match_address_mapping(coordinator_charm_with_proxy,
                 nginx_upstream_keys = set()
                 for upstream in coordinator._nginx_config._upstream_configs:
                     # Skip upstreams that are configured to ignore address lookup
-                    if not getattr(upstream, 'ignore_address_lookup', False):
+                    if not getattr(upstream, "ignore_address_lookup", False):
                         nginx_upstream_keys.add(upstream.address_lookup_key)
 
                 # Get all keys from upstreams_to_addresses mapping
