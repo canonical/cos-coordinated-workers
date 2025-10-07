@@ -376,6 +376,40 @@ def test_generate_nginx_config_with_tracing_enabled():
         assert sample_config_path.read_text() == generated_config
 
 
+def test_generate_nginx_config_with_extra_http_directives():
+    upstream_configs, server_ports_to_locations = _get_nginx_config_params("litmus")
+
+    addrs_by_role = {
+        "auth": ["worker-address"],
+        "backend": ["worker-address"],
+    }
+    with mock_resolv_conf(f"foo bar\nnameserver {sample_dns_ip}"):
+        nginx = NginxConfig(
+            "localhost",
+            upstream_configs=upstream_configs,
+            server_ports_to_locations=server_ports_to_locations,
+            extra_http_block_directives=[
+                {
+                    "directive": "map",
+                    "args": ["$http_upgrade", "$connection_upgrade"],
+                    "block": [
+                        {"directive": "default", "args": ["upgrade"]},
+                        {"directive": "''", "args": ["close"]},
+                    ],
+                }
+            ],
+            enable_health_check=False,
+            enable_status_page=False,
+        )
+        generated_config = nginx.get_config(addrs_by_role, False)
+        sample_config_path = (
+            Path(__file__).parent
+            / "resources"
+            / "sample_litmus_conf_with_extra_http_directives.txt"
+        )
+        assert sample_config_path.read_text() == generated_config
+
+
 def test_exception_raised_if_nginx_module_missing(caplog):
     # GIVEN an instance of Nginx class
     mock_container = MagicMock()

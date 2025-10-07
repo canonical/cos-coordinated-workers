@@ -297,6 +297,7 @@ class NginxConfig:
         server_name: str,
         upstream_configs: List[NginxUpstream],
         server_ports_to_locations: Dict[int, List[NginxLocationConfig]],
+        extra_http_block_directives: Optional[List[Dict[str, Any]]] = None,
         enable_health_check: bool = False,
         enable_status_page: bool = False,
     ):
@@ -306,6 +307,7 @@ class NginxConfig:
             server_name: The name of the server (e.g. coordinator fqdn), which is used to identify the server in Nginx configurations.
             upstream_configs: List of Nginx upstream metadata configurations used to generate Nginx `upstream` blocks.
             server_ports_to_locations: Mapping from server ports to a list of Nginx location configurations.
+            extra_http_block_directives: List of arbitrary directives to be put under the `http` directive.
             enable_health_check: If True, adds a `/` location that returns a basic 200 OK response.
             enable_status_page: If True, adds a `/status` location that enables `stub_status` for basic Nginx metrics.
 
@@ -324,10 +326,21 @@ class NginxConfig:
                     )
                 ]
             })
+            extra_http_block_directives = [
+                {
+                    "directive": "map",
+                    "args": ["$http_upgrade", "$connection_upgrade"],
+                    "block": [
+                        {"directive": "default", "args": ["upgrade"]},
+                        {"directive": "''", "args": ["close"]},
+                    ],
+                }
+            ]
         """
         self._server_name = server_name
         self._upstream_configs = upstream_configs
         self._server_ports_to_locations = server_ports_to_locations
+        self._extra_http_block_directives = extra_http_block_directives or []
         self._enable_health_check = enable_health_check
         self._enable_status_page = enable_status_page
         self._dns_IP_address = self._get_dns_ip_address()
@@ -410,6 +423,7 @@ class NginxConfig:
                             '$remote_addr - $remote_user [$time_local]  $status "$request" $body_bytes_sent "$http_referer" "$http_user_agent" "$http_x_forwarded_for"',
                         ],
                     },
+                    *self._extra_http_block_directives,
                     *self._log_verbose(verbose=False),
                     {"directive": "sendfile", "args": ["on"]},
                     {"directive": "tcp_nopush", "args": ["on"]},
