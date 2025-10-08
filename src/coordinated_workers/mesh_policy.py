@@ -35,17 +35,36 @@ class CharmPolicies:
 
 
 def _get_mesh_policies_for_cluster_application(
-    source_application: str, cluster_model: str, target_selector_labels: Dict[str, str]
-) -> MeshPolicy:
+    source_application: str,
+    cluster_model: str,
+    target_selector_labels: Dict[str, str],
+    charm: ops.CharmBase,
+    worker: bool = False,
+) -> List[MeshPolicy]:
     """Return mesh policy that grant access for the specified cluster application to target all cluster units."""
     # NOTE: The following policy assumes that the coordinator and worker will always be in the same model.
-    return MeshPolicy(
-        source_namespace=cluster_model,
-        source_app_name=source_application,
-        target_namespace=cluster_model,
-        target_selector_labels=target_selector_labels,
-        target_type=PolicyTargetType.unit,
-    )
+    mesh_policy: List[MeshPolicy] = [
+        MeshPolicy(
+            source_namespace=cluster_model,
+            source_app_name=source_application,
+            target_namespace=cluster_model,
+            target_selector_labels=target_selector_labels,
+            target_type=PolicyTargetType.unit,
+        )
+    ]
+    if worker:
+        # for worker applications, allow the worker units to also access the coordinator's service URL.
+        # This is required for proxying telemetry and self-monitoring.
+        mesh_policy.append(
+            MeshPolicy(
+                source_namespace=cluster_model,
+                source_app_name=source_application,
+                target_namespace=cluster_model,
+                target_app_name=charm.app.name,
+                target_type=PolicyTargetType.app,
+            )
+        )
+    return mesh_policy
 
 
 def _get_cluster_internal_mesh_policies(
@@ -56,11 +75,12 @@ def _get_cluster_internal_mesh_policies(
     """Return all the required cluster internal mesh policies."""
     mesh_policies: List[MeshPolicy] = []
     # Coordinator -> Everything in the cluster
-    mesh_policies.append(
+    mesh_policies.extend(
         _get_mesh_policies_for_cluster_application(
             charm.app.name,
             charm.model.name,
             target_selector_labels,
+            charm,
         )
     )
     cluster_apps: Set[str] = {
@@ -68,11 +88,13 @@ def _get_cluster_internal_mesh_policies(
     }
     # Workers -> Everything in the cluster
     for worker_app in cluster_apps:
-        mesh_policies.append(
+        mesh_policies.extend(
             _get_mesh_policies_for_cluster_application(
                 worker_app,
                 charm.model.name,
                 target_selector_labels,
+                charm,
+                worker=True,
             )
         )
     return mesh_policies
@@ -108,7 +130,11 @@ def reconcile(
     prm = _get_policy_resource_manager(charm, logger)
     if mesh_type:
         # if mesh_type exists, the charm is connected to a service mesh charm. reconcile the cluster interal policies.
-        policies = _get_cluster_internal_mesh_policies(charm, cluster, target_selector_labels)
+        policies = _get_cluster_internal_mesh_policies(
+            charm,
+            cluster,
+            target_selector_labels,
+        )
         if charm_policies and charm_policies.cluster_internal:
             policies.extend(charm_policies.cluster_internal)
         prm.reconcile(policies, mesh_type)
