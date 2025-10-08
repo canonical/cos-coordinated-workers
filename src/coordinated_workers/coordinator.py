@@ -1012,32 +1012,6 @@ class Coordinator(ops.Object):
             # if mesh_type is None, there is no active service-mesh relation. silently purge all policies, if any.
             prm.delete()
 
-    @property
-    def loki_endpoints_by_unit(self) -> Dict[str, str]:
-        """Loki endpoints from relation data in the format needed for Pebble log forwarding.
-
-        Returns:
-            A dictionary of remote units and the respective Loki endpoint.
-            {
-                "loki/0": "http://loki:3100/loki/api/v1/push",
-                "another-loki/0": "http://another-loki:3100/loki/api/v1/push",
-            }
-        """
-        endpoints: Dict[str, str] = {}
-        relations: List[ops.Relation] = self.model.relations.get(self._endpoints["logging"], [])
-
-        for relation in relations:
-            for unit in relation.units:
-                unit_databag = relation.data.get(unit, {})
-                if "endpoint" not in unit_databag:
-                    continue
-                endpoint = unit_databag["endpoint"]
-                deserialized_endpoint = json.loads(endpoint)
-                url = deserialized_endpoint["url"]
-                endpoints[unit.name] = url
-
-        return endpoints
-
     def _reconcile_cluster_relations(self):
         """Build the workers config and distribute it to the relations."""
         if not self._charm.unit.is_leader():
