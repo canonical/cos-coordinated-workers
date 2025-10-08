@@ -271,6 +271,35 @@ class NginxUpstream:
 
 
 @dataclass
+class NginxMapConfig:
+    """Represents a `map` block of the Nginx config.
+
+    Example:
+    NginxMapConfig(
+        source_variable="$http_upgrade",
+        target_variable="$connection_upgrade",
+        value_mappings={
+            "default": ["upgrade"],
+            "''": ["close"],
+        },
+    )
+    will result in the following `map` block:
+
+    map $http_upgrade $connection_upgrade {
+        default upgrade;
+        "''" close;
+    }
+    """
+
+    source_variable: str
+    """Name of the variable to map from."""
+    target_variable: str
+    """Name of the variable to be created."""
+    value_mappings: Dict[str, List[str]]
+    """Mapping of source values to target values."""
+
+
+@dataclass
 class NginxTracingConfig:
     """Configuration for OTel tracing in Nginx."""
 
@@ -291,12 +320,29 @@ class NginxConfig:
     _ssl_ciphers = ["HIGH:!aNULL:!MD5"]
     _proxy_connect_timeout = "5s"
     otel_module_path = "/etc/nginx/modules/ngx_otel_module.so"
+    _http_x_scope_orgid_map_config = NginxMapConfig(
+        source_variable="$http_x_scope_orgid",
+        target_variable="$ensured_x_scope_orgid",
+        value_mappings={
+            "default": ["$http_x_scope_orgid"],
+            "": ["anonymous"],
+        },
+    )
+    _logging_by_status_map_config = NginxMapConfig(
+        source_variable="$status",
+        target_variable="$loggable",
+        value_mappings={
+            "~^[23]": ["0"],
+            "default": ["1"],
+        },
+    )
 
     def __init__(
         self,
         server_name: str,
         upstream_configs: List[NginxUpstream],
         server_ports_to_locations: Dict[int, List[NginxLocationConfig]],
+        map_configs: Optional[List[NginxMapConfig]] = None,
         enable_health_check: bool = False,
         enable_status_page: bool = False,
     ):
@@ -306,28 +352,41 @@ class NginxConfig:
             server_name: The name of the server (e.g. coordinator fqdn), which is used to identify the server in Nginx configurations.
             upstream_configs: List of Nginx upstream metadata configurations used to generate Nginx `upstream` blocks.
             server_ports_to_locations: Mapping from server ports to a list of Nginx location configurations.
+            map_configs: List of extra `map` directives to be put under the `http` directive.
             enable_health_check: If True, adds a `/` location that returns a basic 200 OK response.
             enable_status_page: If True, adds a `/status` location that enables `stub_status` for basic Nginx metrics.
 
         Example:
             .. code-block:: python
             NginxConfig(
-            server_name = "tempo-coordinator-0.tempo-coordinator-endpoints.model.svc.cluster.local",
-            upstreams = [
-                NginxUpstream(name="zipkin", port=9411, worker_role="distributor"),
-            ],
-            server_ports_to_locations = {
-                9411: [
-                    NginxLocationConfig(
-                        path="/",
-                        backend="zipkin"
+                server_name = "tempo-coordinator-0.tempo-coordinator-endpoints.model.svc.cluster.local",
+                upstreams = [
+                    NginxUpstream(name="zipkin", port=9411, worker_role="distributor"),
+                ],
+                server_ports_to_locations = {
+                    9411: [
+                        NginxLocationConfig(
+                            path="/",
+                            backend="zipkin"
+                        )
+                    ]
+                },
+                map_configs=[
+                    NginxConfigVariable(
+                        source_variable="$http_upgrade",
+                        target_variable="$connection_upgrade",
+                        value_mappings={
+                            "default": ["upgrade"],
+                            "''": ["close"],
+                        },
                     )
-                ]
-            })
+                ],
+            )
         """
         self._server_name = server_name
         self._upstream_configs = upstream_configs
         self._server_ports_to_locations = server_ports_to_locations
+        self._map_configs = map_configs or []
         self._enable_health_check = enable_health_check
         self._enable_status_page = enable_status_page
         self._dns_IP_address = self._get_dns_ip_address()
@@ -410,19 +469,14 @@ class NginxConfig:
                             '$remote_addr - $remote_user [$time_local]  $status "$request" $body_bytes_sent "$http_referer" "$http_user_agent" "$http_x_forwarded_for"',
                         ],
                     },
-                    *self._log_verbose(verbose=False),
+                    *[self._build_map(variable) for variable in self._map_configs],
+                    self._build_map(self._logging_by_status_map_config),
+                    {"directive": "access_log", "args": ["/dev/stderr"]},
                     {"directive": "sendfile", "args": ["on"]},
                     {"directive": "tcp_nopush", "args": ["on"]},
                     *self._resolver(),
                     # TODO: add custom http block for the user to config?
-                    {
-                        "directive": "map",
-                        "args": ["$http_x_scope_orgid", "$ensured_x_scope_orgid"],
-                        "block": [
-                            {"directive": "default", "args": ["$http_x_scope_orgid"]},
-                            {"directive": "", "args": ["anonymous"]},
-                        ],
-                    },
+                    self._build_map(self._http_x_scope_orgid_map_config),
                     {"directive": "proxy_read_timeout", "args": [self._proxy_read_timeout]},
                     # server block
                     *self._build_servers_config(backends, listen_tls, root_path),
@@ -431,20 +485,16 @@ class NginxConfig:
         ]
         return full_config
 
-    def _log_verbose(self, verbose: bool = True) -> List[Dict[str, Any]]:
-        if verbose:
-            return [{"directive": "access_log", "args": ["/dev/stderr", "main"]}]
-        return [
-            {
-                "directive": "map",
-                "args": ["$status", "$loggable"],
-                "block": [
-                    {"directive": "~^[23]", "args": ["0"]},
-                    {"directive": "default", "args": ["1"]},
-                ],
-            },
-            {"directive": "access_log", "args": ["/dev/stderr"]},
-        ]
+    @staticmethod
+    def _build_map(variable: NginxMapConfig) -> Dict[str, Any]:
+        return {
+            "directive": "map",
+            "args": [variable.source_variable, variable.target_variable],
+            "block": [
+                {"directive": directive, "args": args}
+                for directive, args in variable.value_mappings.items()
+            ],
+        }
 
     def _resolver(
         self,
