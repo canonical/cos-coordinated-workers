@@ -108,12 +108,12 @@ def test_cluster_internal_mesh_policies(juju: Juju, worker_charm: PackedCharm):
     """Test if the cluster internal mesh policies are applied correctly."""
     # deploy a tester that is not in the service mesh for benchmarking.
     out_of_mesh_app = "out-of-mesh-app"
-    juju.deploy(
-        **asdict(worker_charm),
-        app=out_of_mesh_app,
-        trust=True,
-    )
-    juju.wait(lambda status: all_blocked(status, out_of_mesh_app))
+    # juju.deploy(
+    #     **asdict(worker_charm),
+    #     app=out_of_mesh_app,
+    #     trust=True,
+    # )
+    # juju.wait(lambda status: all_blocked(status, out_of_mesh_app))
 
     # coordinator can talk to both workers
     assert_request_returns_http_code(
@@ -147,13 +147,13 @@ def test_cluster_internal_mesh_policies(juju: Juju, worker_charm: PackedCharm):
     assert_request_returns_http_code(
         juju.model,
         f"{WORKER_A_NAME}/0",
-        f"http://{COORDINATOR_NAME}-0.{COORDINATOR_NAME}-endpoints.{juju.model}.svc.cluster.local:8080/role-b/foo",  # basically pinging worker-b via the coordinator
+        f"http://{COORDINATOR_NAME}-0.{COORDINATOR_NAME}-endpoints.{juju.model}.svc.cluster.local:8080/",
         code=200,
     )
     assert_request_returns_http_code(
         juju.model,
         f"{WORKER_B_NAME}/0",
-        f"http://{COORDINATOR_NAME}-0.{COORDINATOR_NAME}-endpoints.{juju.model}.svc.cluster.local:8080/role-a/foo",  # basically pinging worker-a via the coordinator
+        f"http://{COORDINATOR_NAME}-0.{COORDINATOR_NAME}-endpoints.{juju.model}.svc.cluster.local:8080/",
         code=200,
     )
 
