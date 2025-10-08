@@ -35,6 +35,32 @@ class _BundleParams(pydantic.BaseModel):
             )
 
 
+def _get_roles_from_config(
+    config: Dict[str, Dict[str, Any]],
+    meta_roles: Dict[str, Sequence[str]],
+    scale: int,
+    app_name: str,
+):
+    # we expect exactly one role to be set to True. If not, that's a misconfiguration.
+    has_role_set = False
+    errors = []
+    roles = Counter()
+    for option, value in config.items():
+        if option.startswith("role-") and value is True:
+            if has_role_set:
+                errors.append(f"{app_name} has more than one role- config option set to True")
+            role = option[len("role-") :]
+
+            # expand meta roles
+            if meta_roles and role in meta_roles:
+                for _role in meta_roles[role]:
+                    roles[_role] += scale
+            else:
+                roles[role] += scale
+
+    return roles, errors
+
+
 def bundle(
     bundles: Dict[str, Dict[str, Any]],
     *args,
@@ -94,22 +120,11 @@ def bundle(
                 n_all_roles += scale
                 continue
 
-            has_role_set = False
-
-            for option, value in config.items():
-                if option.startswith("role-") and value is True:
-                    if has_role_set:
-                        errors.append(
-                            f"{app_name} has more than one role- config option set to True"
-                        )
-                    role = option[len("role-") :]
-
-                    # expand meta roles
-                    if meta_roles and role in meta_roles:
-                        for _role in meta_roles[role]:
-                            roles[_role] += scale
-                    else:
-                        roles[role] += scale
+            _roles, _errors = _get_roles_from_config(
+                config=config, meta_roles=meta_roles, scale=scale, app_name=app_name
+            )
+            roles.update(_roles)
+            errors.extend(_errors)
 
     if not charm_found:
         raise RuntimeError(
