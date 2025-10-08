@@ -7,18 +7,37 @@
 from collections import Counter
 from typing import Any, Dict, List, Sequence
 
+import pydantic
+
 
 def status(bundles, *args, **kwargs):
     """Verify the juju status report."""
     assert True
 
 
+class _BundleParams(pydantic.BaseModel):
+    """Model validator for `bundle` input kwargs."""
+
+    worker_charm: str
+    recommended_deployment: Dict[str, int]
+    meta_roles: Dict[str, Sequence[str]] = pydantic.Field(default_factory=dict)
+
+    @pydantic.model_validator(mode="after")
+    def _(self):
+        unknown_roles = []
+        known_roles = self.recommended_deployment
+        for expanded in self.meta_roles.values():
+            unknown_roles.extend(r for r in expanded if r not in known_roles)
+        if unknown_roles:
+            raise ValueError(
+                "each meta_role must expand to a recommended_deployment role. "
+                "Unknown roles: %s" % unknown_roles
+            )
+
+
 def bundle(
     bundles: Dict[str, Dict[str, Any]],
     *args,
-    worker_charm: str,
-    recommended_deployment: Dict[str, int],
-    meta_roles: Dict[str, Sequence[str]] = None,
     **kwargs,
 ):
     """Verify the juju export-bundle report.
@@ -43,20 +62,31 @@ def bundle(
                   read: [querier, query-frontend, ingester]
                   write: [distributor]
     """
+    # input validation and parsing
+    params = _BundleParams(**kwargs)
+    worker_charm = params.worker_charm
+    meta_roles = params.meta_roles
+    recommended_deployment = params.recommended_deployment
+
     errors: List[str] = []
 
+    # used to keep track of whether we've found at least one application of the worker charm
+    #  we're validating our deployment on
+    charm_found = False
     n_all_roles = 0
     roles = Counter()
     for bndl in bundles.values():
         for app_name, app in bndl["applications"].items():
             charm = app["charm"]
-            scale = app["scale"]
             if charm.startswith("local:"):
                 # in bundle export, the charm name looks like: local:tempo-worker-k8s-1
                 # for whatever reason
                 charm = "-".join(charm.split(":")[1].split("-")[:-1])
             if charm != worker_charm:
                 continue
+            charm_found = True
+
+            scale = app.get("scale", 1)
             config = app.get("options", {})
             if not config:
                 # ASSUME: no config means the 'all' role is enabled (and no other is) as that is the default
@@ -81,6 +111,11 @@ def bundle(
                     else:
                         roles[role] += scale
 
+    if not charm_found:
+        raise RuntimeError(
+            "worker_charm '%s' not found in any of the provided bundles" % worker_charm
+        )
+
     # now we check if each recommended role, is satisfied by the explicitly counted roles
     for role in recommended_deployment:
         # if we have nodes with the role all, we lower the target bar for all other roles.
@@ -97,7 +132,7 @@ def bundle(
 
     if errors:
         joined_errors = "\n".join(errors)
-        raise RuntimeError(f"Errors found: {joined_errors}", errors)
+        raise RuntimeError("Errors found: %s" % joined_errors, errors)
 
 
 def show_unit(bundles, *args, **kwargs):

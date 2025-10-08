@@ -2,6 +2,7 @@ import shlex
 import subprocess
 from pathlib import Path
 
+import pydantic
 import pytest
 import yaml
 
@@ -95,6 +96,56 @@ def test_bundle_all_but_too_few():
     bundle_yaml["applications"] = {"tempo-worker-all": all_worker}
     with pytest.raises(RuntimeError):
         check_bundle(bundle_yaml)
+
+
+def test_meta_role_nonmatching():
+    # this is valid: we're declaring a meta-role, but we're not using it
+    bundle(
+        bundles={
+            "test-bundle": {
+                "applications": {
+                    "foo0": {"charm": "foo", "options": {"role-all": False, "role-a": True}},
+                    "foo1": {"charm": "foo", "options": {"role-all": False, "role-b": True}},
+                    "foo2": {"charm": "foo", "options": {"role-all": False, "role-b": True}},
+                }
+            }
+        },
+        worker_charm="foo",
+        recommended_deployment={"a": 1, "b": 2},
+        meta_roles={"c": ["a", "b"]},
+    )
+
+
+def test_meta_role_invalid():
+    # this is invvalid: we're declaring a meta-role, but one of the roles it expands to is unknown
+    with pytest.raises(
+        pydantic.ValidationError,
+        match="each meta_role must expand to a recommended_deployment role",
+    ):
+        bundle(
+            bundles={
+                "test-bundle": {
+                    "applications": {
+                        "foo0": {"charm": "foo", "options": {"role-all": False, "role-a": True}},
+                        "foo1": {"charm": "foo", "options": {"role-all": False, "role-b": True}},
+                        "foo2": {"charm": "foo", "options": {"role-all": False, "role-b": True}},
+                    }
+                }
+            },
+            worker_charm="foo",
+            recommended_deployment={"a": 1, "b": 2},
+            meta_roles={"c": ["a", "c"]},  # role c does not occur in recommended_deployment
+        )
+
+
+def test_charm_not_found_validation():
+    with pytest.raises(RuntimeError, match="worker_charm 'bar' not found"):
+        bundle(
+            bundles={"test-bundle": {"applications": {"foo": {"charm": "foo"}}}},
+            worker_charm="bar",
+            recommended_deployment=RECOMMENDED_DEPLOYMENT,
+            meta_roles=META_ROLES,
+        )
 
 
 def test_bundle_meta_roles():
