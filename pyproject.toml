@@ -22,6 +22,8 @@ dependencies = [
     "cosl>=1",
     # charms.tls_certificates_interface.v4.tls_certificates
     "cryptography",
+    "charmed-service-mesh-helpers>=0.2.0",
+    "lightkube-extensions@git+https://github.com/canonical/lightkube-extensions.git@main"
 ]
 classifiers = [
     "Programming Language :: Python :: 3.8",
@@ -46,6 +48,8 @@ dev = [
     # INTEGRATION TESTS
     "jubilant",
     "pytest-jubilant",
+    "sh",
+    "tenacity",
 ]
 [project.urls]
 "Homepage" = "https://github.com/canonical/cos-coordinated-workers"
