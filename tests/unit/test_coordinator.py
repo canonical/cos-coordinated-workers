@@ -812,8 +812,9 @@ def test_rendered_alert_rules(
     )
 
 
+@patch("coordinated_workers.mesh_policy.PolicyResourceManager")
 def test_coordinator_passes_service_mesh_labels_to_workers(
-    coordinator_state: testing.State, coordinator_charm: ops.CharmBase
+    mock_prm, coordinator_state: testing.State, coordinator_charm: ops.CharmBase
 ):
     """Test that the Coordinator passes service mesh labels to the Workers via the Cluster relation."""
     # GIVEN a coordinator_charm
@@ -867,7 +868,7 @@ def test_coordinator_passes_solution_labels_to_worker(
             assert labels[key] == value
 
 
-@patch("coordinated_workers.coordinator.PolicyResourceManager")
+@patch("coordinated_workers.mesh_policy.PolicyResourceManager")
 def test_coordinator_creates_and_reconcilies_policy_resource_managers(
     mock_prm, coordinator_state: testing.State, coordinator_charm: ops.CharmBase
 ):
@@ -904,7 +905,7 @@ def test_coordinator_creates_and_reconcilies_policy_resource_managers(
         mock_prm.return_value.reconcile.assert_called_once()
 
 
-@patch("coordinated_workers.coordinator.PolicyResourceManager")
+@patch("coordinated_workers.mesh_policy.PolicyResourceManager")
 def test_cluster_internal_mesh_policies(
     mock_prm, coordinator_state: testing.State, coordinator_charm: ops.CharmBase
 ):
@@ -959,7 +960,7 @@ def test_cluster_internal_mesh_policies(
         assert source_apps == expected_source_apps
 
 
-@patch("coordinated_workers.coordinator.PolicyResourceManager")
+@patch("coordinated_workers.mesh_policy.PolicyResourceManager")
 def test_mesh_policies_deletion_when_mesh_disconnected(
     mock_prm, coordinator_state: testing.State, coordinator_charm: ops.CharmBase
 ):

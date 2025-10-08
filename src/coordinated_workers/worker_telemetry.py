@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Copyright 2025 Canonical Ltd.
 # See LICENSE file for licensing details.
-"""Helper functions to enable the coordinator to proxy worker's telemetry through it."""
+"""Coordinator helper extensions to enable the coordinator to proxy worker's telemetry through it."""
 
 import dataclasses
 from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple, Union

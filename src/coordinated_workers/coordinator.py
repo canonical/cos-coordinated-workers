@@ -36,9 +36,14 @@ from lightkube import Client
 from opentelemetry import trace
 from ops import StatusBase
 
-from coordinated_workers import worker, worker_telemetry
+from coordinated_workers import (
+    mesh_policy,
+    worker,
+    worker_telemetry,
+)
 from coordinated_workers.helpers import check_libs_installed
 from coordinated_workers.interfaces.cluster import ClusterProvider, RemoteWriteEndpoint
+from coordinated_workers.mesh_policy import CharmPolicies
 from coordinated_workers.nginx import (
     Nginx,
     NginxConfig,
@@ -62,9 +67,6 @@ from charms.catalogue_k8s.v1.catalogue import CatalogueConsumer, CatalogueItem
 from charms.data_platform_libs.v0.s3 import S3Requirer
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.istio_beacon_k8s.v0.service_mesh import (  # type: ignore
-    MeshPolicy,
-    PolicyResourceManager,
-    PolicyTargetType,
     ServiceMeshConsumer,  # type: ignore
     reconcile_charm_labels,  # type: ignore
 )
@@ -241,6 +243,8 @@ class Coordinator(ops.Object):
         worker_telemetry_proxy_config: Optional[
             worker_telemetry.WorkerTelemetryProxyConfig
         ] = None,
+        worker_telemetry_proxy_config: Optional[WorkerTelemetryProxyConfig] = None,
+        charm_policies: Optional[CharmPolicies] = None,
     ):
         """Constructor for a Coordinator object.
 
@@ -272,6 +276,8 @@ class Coordinator(ops.Object):
             catalogue_item: A catalogue application entry to be sent to catalogue.
             worker_telemetry_proxy_config: Configuration including HTTP and HTTPS ports for proxying workers telemetry data via coordinator.
                 Leaving it blank disables the worker telemetry proxying.
+                Passing a valid configuration value also enables the worker telemetry proxying.
+            charm_policies: charm specific service-mesh and coordinator managed mesh policies.
 
         Raises:
         ValueError:
@@ -306,6 +312,7 @@ class Coordinator(ops.Object):
         )
         self._remote_write_endpoints_getter = remote_write_endpoints
         self._workers_config_getter = partial(workers_config, self)
+        self._charm_policies = charm_policies
 
         ## Integrations
         self.cluster = ClusterProvider(
@@ -410,6 +417,9 @@ class Coordinator(ops.Object):
                 mesh_relation_name=cast(str, mesh_relation_name),
                 cross_model_mesh_provides_name=cast(str, provide_cmr_mesh_name),
                 cross_model_mesh_requires_name=cast(str, require_cmr_mesh_name),
+                policies=self._charm_policies.cluster_external  # type: ignore
+                if self._charm_policies and self._charm_policies.cluster_external
+                else [],
             )
         elif any(
             (
@@ -963,55 +973,16 @@ class Coordinator(ops.Object):
             labels=self._coordinated_workers_solution_labels,
         )
 
-    def _get_mesh_policies_for_cluster_application(self, source_application: str) -> MeshPolicy:
-        """Return mesh policy that grant access for the specified cluster application to target all cluster units."""
-        # NOTE: The following policy assumes that the coordinator and worker will always be in the same model.
-        return MeshPolicy(
-            source_namespace=self._charm.model.name,
-            source_app_name=source_application,
-            target_namespace=self._charm.model.name,
-            target_selector_labels=self._coordinated_workers_solution_labels,
-            target_type=PolicyTargetType.unit,
-        )
-
-    def _get_cluster_internal_mesh_policies(self) -> List[MeshPolicy]:
-        """Return all the required cluster internal mesh policies."""
-        mesh_policies: List[MeshPolicy] = []
-        # Coordinator -> Everything in the cluster
-        mesh_policies.append(self._get_mesh_policies_for_cluster_application(self._charm.app.name))
-        cluster_apps = {
-            worker_unit["application"] for worker_unit in self.cluster.gather_topology()
-        }
-        # Workers -> Everything in the cluster
-        for worker_app in cluster_apps:
-            mesh_policies.append(self._get_mesh_policies_for_cluster_application(worker_app))
-        return mesh_policies
-
-    def _get_policy_resource_manager(self) -> PolicyResourceManager:
-        """Return a PolicyResourceManager for the given mesh_type."""
-        return PolicyResourceManager(
-            charm=self._charm,  # type: ignore
-            lightkube_client=Client(field_manager=self._charm.app.name),  # type: ignore
-            labels={
-                "app.kubernetes.io/instance": f"{self._charm.app.name}",  # type: ignore
-                "kubernetes-resource-handler-scope": f"{self._charm.app.name}-cluster-internal",  # type: ignore
-            },
-            logger=logger,
-        )
-
     def _reconcile_mesh_policies(self) -> None:
         """Reconcile all the cluster internal mesh policies."""
-        if not self._mesh:  # If _mesh is None, we have no service-mesh endpoint in the charm.
-            return
-        mesh_type = self._mesh.mesh_type()  # type: ignore
-        prm = self._get_policy_resource_manager()
-        if mesh_type:
-            # if mesh_type exists, the charm is connected to a service mesh charm. reconcile the cluster interal policies.
-            policies = self._get_cluster_internal_mesh_policies()
-            prm.reconcile(policies, mesh_type)
-        else:
-            # if mesh_type is None, there is no active service-mesh relation. silently purge all policies, if any.
-            prm.delete()
+        mesh_policy.reconcile(
+            mesh=self._mesh,
+            cluster=self.cluster,
+            charm=self._charm,
+            target_selector_labels=self._coordinated_workers_solution_labels,
+            logger=logger,
+            charm_policies=self._charm_policies,
+        )
 
     def _reconcile_cluster_relations(self):
         """Build the workers config and distribute it to the relations."""
