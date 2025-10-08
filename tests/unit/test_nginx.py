@@ -17,8 +17,8 @@ from coordinated_workers.nginx import (
     NGINX_CONFIG,
     Nginx,
     NginxConfig,
-    NginxConfigVariable,
     NginxLocationConfig,
+    NginxMapConfig,
     NginxTracingConfig,
     NginxUpstream,
 )
@@ -389,8 +389,8 @@ def test_generate_nginx_config_with_extra_http_variables():
             "localhost",
             upstream_configs=upstream_configs,
             server_ports_to_locations=server_ports_to_locations,
-            extra_http_block_variables=[
-                NginxConfigVariable(
+            map_configs=[
+                NginxMapConfig(
                     source_variable="$http_upgrade",
                     target_variable="$connection_upgrade",
                     value_mappings={
