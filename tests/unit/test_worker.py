@@ -630,7 +630,7 @@ def test_worker_no_reconcile_when_patch_not_ready(_update_config_mock):
                 {"cluster": "cluster"},
                 readiness_check_endpoint="http://localhost:3200/ready",
                 resources_requests=lambda _: {"cpu": "50m", "memory": "50Mi"},
-                container_name="charm",
+                container_name="nginx",
             )
 
     ctx = testing.Context(
