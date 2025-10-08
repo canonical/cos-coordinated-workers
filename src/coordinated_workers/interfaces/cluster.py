@@ -307,6 +307,14 @@ class ClusterProvider(Object):
                     continue
         return data
 
+    def gather_addresses_by_unit(self) -> Dict[str, Set[str]]:
+        """Go through the worker's unit databags to collect addresses by individual unit."""
+        data: Dict[str, Set[str]] = {}
+        for worker in self.gather_topology():
+            unit_name = worker["unit"]
+            data[unit_name] = {worker["address"]}
+        return data
+
     def gather_addresses(self) -> Tuple[str, ...]:
         """Go through the worker's unit databags to collect all the addresses published by the units."""
         data: Set[str] = set()
