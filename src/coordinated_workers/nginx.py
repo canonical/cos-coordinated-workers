@@ -271,6 +271,36 @@ class NginxUpstream:
 
 
 @dataclass
+class NginxConfigVariable:
+    """Represents a `map` block of the Nginx config.
+
+    Example:
+
+    NginxConfigVariable(
+        source_variable="$http_upgrade",
+        target_variable="$connection_upgrade",
+        value_mappings={
+            "default": ["upgrade"],
+            "''": ["close"],
+        },
+    )
+    will result in the following `map` block:
+
+    map $http_upgrade $connection_upgrade {
+        default upgrade;
+        "''" close;
+    }
+    """
+
+    source_variable: str
+    """Name of the variable to map from."""
+    target_variable: str
+    """Name of the variable to be created."""
+    value_mappings: Dict[str, List[str]]
+    """Mapping of source values to target values."""
+
+
+@dataclass
 class NginxTracingConfig:
     """Configuration for OTel tracing in Nginx."""
 
@@ -296,8 +326,8 @@ class NginxConfig:
         self,
         server_name: str,
         upstream_configs: List[NginxUpstream],
-        server_ports_to_locations: Dict[int, List[NginxLocationConfig]],
-        extra_http_block_directives: Optional[List[Dict[str, Any]]] = None,
+        server_ports_to_locations: Dict[int, List[NginxConfigVariable]],
+        extra_http_block_variables: Optional[List[NginxConfigVariable]] = None,
         enable_health_check: bool = False,
         enable_status_page: bool = False,
     ):
@@ -340,7 +370,7 @@ class NginxConfig:
         self._server_name = server_name
         self._upstream_configs = upstream_configs
         self._server_ports_to_locations = server_ports_to_locations
-        self._extra_http_block_directives = extra_http_block_directives or []
+        self._extra_http_block_variables = extra_http_block_variables or []
         self._enable_health_check = enable_health_check
         self._enable_status_page = enable_status_page
         self._dns_IP_address = self._get_dns_ip_address()
@@ -423,20 +453,17 @@ class NginxConfig:
                             '$remote_addr - $remote_user [$time_local]  $status "$request" $body_bytes_sent "$http_referer" "$http_user_agent" "$http_x_forwarded_for"',
                         ],
                     },
-                    *self._extra_http_block_directives,
-                    *self._log_verbose(verbose=False),
+                    *[
+                        self._build_map(variable)
+                        for variable in self._extra_http_block_variables
+                    ],
+                    self._build_map(self._logging_by_status),
+                    {"directive": "access_log", "args": ["/dev/stderr"]},
                     {"directive": "sendfile", "args": ["on"]},
                     {"directive": "tcp_nopush", "args": ["on"]},
                     *self._resolver(),
                     # TODO: add custom http block for the user to config?
-                    {
-                        "directive": "map",
-                        "args": ["$http_x_scope_orgid", "$ensured_x_scope_orgid"],
-                        "block": [
-                            {"directive": "default", "args": ["$http_x_scope_orgid"]},
-                            {"directive": "", "args": ["anonymous"]},
-                        ],
-                    },
+                    self._build_map(self._http_x_scope_orgid),
                     {"directive": "proxy_read_timeout", "args": [self._proxy_read_timeout]},
                     # server block
                     *self._build_servers_config(backends, listen_tls, root_path),
@@ -445,20 +472,38 @@ class NginxConfig:
         ]
         return full_config
 
-    def _log_verbose(self, verbose: bool = True) -> List[Dict[str, Any]]:
-        if verbose:
-            return [{"directive": "access_log", "args": ["/dev/stderr", "main"]}]
-        return [
-            {
-                "directive": "map",
-                "args": ["$status", "$loggable"],
-                "block": [
-                    {"directive": "~^[23]", "args": ["0"]},
-                    {"directive": "default", "args": ["1"]},
-                ],
+    @staticmethod
+    def _build_map(variable: NginxConfigVariable) -> Dict[str, Any]:
+        return {
+            "directive": "map",
+            "args": [variable.source_variable, variable.target_variable],
+            "block": [
+                {"directive": directive, "args": args}
+                for directive, args in variable.value_mappings.items()
+            ],
+        }
+
+    @property
+    def _http_x_scope_orgid(self) -> NginxConfigVariable:
+        return NginxConfigVariable(
+            source_variable="$http_x_scope_orgid",
+            target_variable="$ensured_x_scope_orgid",
+            value_mappings={
+                "default": ["$http_x_scope_orgid"],
+                "": ["anonymous"],
             },
-            {"directive": "access_log", "args": ["/dev/stderr"]},
-        ]
+        )
+
+    @property
+    def _logging_by_status(self) -> NginxConfigVariable:
+        return NginxConfigVariable(
+            source_variable="$status",
+            target_variable="$loggable",
+            value_mappings={
+                "~^[23]": ["0"],
+                "default": ["1"],
+            },
+        )
 
     def _resolver(
         self,

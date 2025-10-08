@@ -17,6 +17,7 @@ from coordinated_workers.nginx import (
     NGINX_CONFIG,
     Nginx,
     NginxConfig,
+    NginxConfigVariable,
     NginxLocationConfig,
     NginxTracingConfig,
     NginxUpstream,
@@ -376,7 +377,7 @@ def test_generate_nginx_config_with_tracing_enabled():
         assert sample_config_path.read_text() == generated_config
 
 
-def test_generate_nginx_config_with_extra_http_directives():
+def test_generate_nginx_config_with_extra_http_variables():
     upstream_configs, server_ports_to_locations = _get_nginx_config_params("litmus")
 
     addrs_by_role = {
@@ -388,15 +389,15 @@ def test_generate_nginx_config_with_extra_http_directives():
             "localhost",
             upstream_configs=upstream_configs,
             server_ports_to_locations=server_ports_to_locations,
-            extra_http_block_directives=[
-                {
-                    "directive": "map",
-                    "args": ["$http_upgrade", "$connection_upgrade"],
-                    "block": [
-                        {"directive": "default", "args": ["upgrade"]},
-                        {"directive": "''", "args": ["close"]},
-                    ],
-                }
+            extra_http_block_variables=[
+                NginxConfigVariable(
+                    source_variable="$http_upgrade",
+                    target_variable="$connection_upgrade",
+                    value_mappings={
+                        "default": ["upgrade"],
+                        "''": ["close"],
+                    },
+                )
             ],
             enable_health_check=False,
             enable_status_page=False,
@@ -405,7 +406,7 @@ def test_generate_nginx_config_with_extra_http_directives():
         sample_config_path = (
             Path(__file__).parent
             / "resources"
-            / "sample_litmus_conf_with_extra_http_directives.txt"
+            / "sample_litmus_conf_with_extra_http_variables.txt"
         )
         assert sample_config_path.read_text() == generated_config
 
