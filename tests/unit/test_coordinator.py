@@ -945,12 +945,12 @@ def test_cluster_internal_mesh_policies(
             policies = call[0][0]
             all_policies.extend(policies)
 
-        # THEN we should have 8 policies total (coordinator + 3 workers -> test-model, coordinator + 3 workers -> coordinator model)
-        assert len(all_policies) == 8
+        # THEN we should have 8 policies total (coordinator + 3 workers)
+        assert len(all_policies) == 4
 
-        # AND all policies should target the test-model and the coordinator namespace
+        # AND all policies should target the coordinator model
         for policy in all_policies:
-            assert policy.target_namespace in ["test-model", mgr.charm.model.name]
+            assert policy.target_namespace in [mgr.charm.model.name]
             assert policy.target_selector_labels == {"app.kubernetes.io/part-of": "foo-app"}
 
         # AND policies should be from the expected sources

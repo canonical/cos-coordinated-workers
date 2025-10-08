@@ -188,7 +188,7 @@ POLICY_RESOURCE_TYPES = {  # type: ignore
 
 LIBID = "3f40cb7e3569454a92ac2541c5ca0a0c"  # Never change this
 LIBAPI = 0
-LIBPATCH = 14
+LIBPATCH = 15
 
 PYDEPS = [
     "lightkube",
@@ -949,7 +949,6 @@ class PolicyResourceManager():
             prm = PolicyResourceManager(
                 charm=self,
                 lightkube_client=self.lightkube_client,
-                mesh_type=MeshType.istio,
                 labels={
                     "label-key": "label-value-that-helps-identify-this-resource",
                 },
@@ -1015,7 +1014,7 @@ class PolicyResourceManager():
         def _reconcile(self):
             prm = self._get_policy_manager()
             policies = self._get_policies_i_manager()
-            prm.reconcile(polcies)
+            prm.reconcile(policies, MeshType.istio)
     ````
     Args:
         charm (ops.CharmBase): The charm instantiating this object.
@@ -1048,13 +1047,11 @@ class PolicyResourceManager():
         self,
         charm: CharmBase,
         lightkube_client: Client,
-        mesh_type: Optional[MeshType] = None,
         labels: Optional[Dict] = None,
         logger: Optional[logging.Logger] = None,
     ):
         self._app_name = charm.app.name
         self._model_name = charm.model.name
-        self._mesh_type = mesh_type
         resource_types = self._get_all_supported_policy_resource_types()
 
         if logger is None:
@@ -1073,18 +1070,20 @@ class PolicyResourceManager():
         """Return all the resource types supported by the PRM class."""
         return set(RESOURCE_TYPES.values())
 
-    def _get_policy_resource_builder(self):
-        if self._mesh_type == MeshType.istio:
+    @staticmethod
+    def _get_policy_resource_builder(mesh_type: MeshType):
+        if mesh_type == MeshType.istio:
             return _build_policy_resources_istio
-        raise ValueError(f"PolicyResourceManager instantiated with an unknown mesh type: {self._mesh_type}. Check Canonical Service Mesh documentation for currently supported mesh types.")  # type: ignore
+        raise ValueError(f"PolicyResourceManager instantiated with an unknown mesh type: {mesh_type}. Check Canonical Service Mesh documentation for currently supported mesh types.")
 
-    def _build_policy_resources(self, policies) -> LightkubeResourcesList:
+    def _build_policy_resources(self, policies: List[MeshPolicy], mesh_type: MeshType) -> LightkubeResourcesList:
         """Build the Lightkube resources for the managed policies."""
-        policy_resource_builder = self._get_policy_resource_builder()
+        policy_resource_builder = self._get_policy_resource_builder(mesh_type)
         return policy_resource_builder(self._app_name, self._model_name, policies)  # type: ignore
 
     def reconcile(self,
         policies: List[MeshPolicy],
+        mesh_type: MeshType,
         force=True,
         ignore_missing=True
     ) -> None:
@@ -1103,7 +1102,7 @@ class PolicyResourceManager():
 
         Args:
             policies (list): A list of MeshPolicy objects that define the required behaviour of the policy resources.
-            This can be used as a manual way to provide a K8s policy resource that cannot be defined using the MeshPolicy data type.
+            mesh_type (MeshType): The type of service mesh the charm is connected to. This information can be obtained from ServiceMeshConsumer.
             force: *(optional)* Passed to self.apply().  This will force apply over any resources
                    marked as managed by another field manager.
             ignore_missing: *(optional)* Avoid raising 404 errors on deletion (defaults to True)
@@ -1111,7 +1110,7 @@ class PolicyResourceManager():
         if not policies:
             self.delete(ignore_missing=ignore_missing)
             return
-        policy_resources = self._build_policy_resources(policies)  # type: ignore
+        policy_resources = self._build_policy_resources(policies, mesh_type)  # type: ignore
         self._krm.reconcile(policy_resources, force=force, ignore_missing=ignore_missing)  # type: ignore
 
     def delete(self, ignore_missing=True):
