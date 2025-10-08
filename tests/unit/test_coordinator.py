@@ -946,13 +946,23 @@ def test_cluster_internal_mesh_policies(
             policies = call[0][0]
             all_policies.extend(policies)
 
-        # THEN we should have 8 policies total (coordinator + 3 workers)
-        assert len(all_policies) == 4
+        # THEN we should have 7 policies total
+        # 1. coordinator to all cluster units
+        # 2. reader to all cluster units
+        # 3. writer to all cluster units
+        # 4. backender to all cluster units
+        # 5. reader to coordinator's service
+        # 6. writer to coordinator's service
+        # 7. backender to coordinator's service
+        assert len(all_policies) == 7
 
         # AND all policies should target the coordinator model
         for policy in all_policies:
             assert policy.target_namespace in [mgr.charm.model.name]
-            assert policy.target_selector_labels == {"app.kubernetes.io/part-of": "foo-app"}
+            if policy.target_type == "unit":
+                assert policy.target_selector_labels == {"app.kubernetes.io/part-of": "foo-app"}
+            if policy.target_type == "app":
+                assert policy.target_app_name == "foo-app"
 
         # AND policies should be from the expected sources
         source_apps = {policy.source_app_name for policy in all_policies}
