@@ -275,7 +275,6 @@ class NginxConfigVariable:
     """Represents a `map` block of the Nginx config.
 
     Example:
-
     NginxConfigVariable(
         source_variable="$http_upgrade",
         target_variable="$connection_upgrade",
@@ -326,7 +325,7 @@ class NginxConfig:
         self,
         server_name: str,
         upstream_configs: List[NginxUpstream],
-        server_ports_to_locations: Dict[int, List[NginxConfigVariable]],
+        server_ports_to_locations: Dict[int, List[NginxLocationConfig]],
         extra_http_block_variables: Optional[List[NginxConfigVariable]] = None,
         enable_health_check: bool = False,
         enable_status_page: bool = False,
@@ -337,35 +336,36 @@ class NginxConfig:
             server_name: The name of the server (e.g. coordinator fqdn), which is used to identify the server in Nginx configurations.
             upstream_configs: List of Nginx upstream metadata configurations used to generate Nginx `upstream` blocks.
             server_ports_to_locations: Mapping from server ports to a list of Nginx location configurations.
-            extra_http_block_directives: List of arbitrary directives to be put under the `http` directive.
+            extra_http_block_variables: List of extra variables to be put under the `http` directive.
             enable_health_check: If True, adds a `/` location that returns a basic 200 OK response.
             enable_status_page: If True, adds a `/status` location that enables `stub_status` for basic Nginx metrics.
 
         Example:
             .. code-block:: python
             NginxConfig(
-            server_name = "tempo-coordinator-0.tempo-coordinator-endpoints.model.svc.cluster.local",
-            upstreams = [
-                NginxUpstream(name="zipkin", port=9411, worker_role="distributor"),
-            ],
-            server_ports_to_locations = {
-                9411: [
-                    NginxLocationConfig(
-                        path="/",
-                        backend="zipkin"
+                server_name = "tempo-coordinator-0.tempo-coordinator-endpoints.model.svc.cluster.local",
+                upstreams = [
+                    NginxUpstream(name="zipkin", port=9411, worker_role="distributor"),
+                ],
+                server_ports_to_locations = {
+                    9411: [
+                        NginxLocationConfig(
+                            path="/",
+                            backend="zipkin"
+                        )
+                    ]
+                },
+                extra_http_block_variables=[
+                    NginxConfigVariable(
+                        source_variable="$http_upgrade",
+                        target_variable="$connection_upgrade",
+                        value_mappings={
+                            "default": ["upgrade"],
+                            "''": ["close"],
+                        },
                     )
-                ]
-            })
-            extra_http_block_directives = [
-                {
-                    "directive": "map",
-                    "args": ["$http_upgrade", "$connection_upgrade"],
-                    "block": [
-                        {"directive": "default", "args": ["upgrade"]},
-                        {"directive": "''", "args": ["close"]},
-                    ],
-                }
-            ]
+                ],
+            )
         """
         self._server_name = server_name
         self._upstream_configs = upstream_configs
@@ -453,10 +453,7 @@ class NginxConfig:
                             '$remote_addr - $remote_user [$time_local]  $status "$request" $body_bytes_sent "$http_referer" "$http_user_agent" "$http_x_forwarded_for"',
                         ],
                     },
-                    *[
-                        self._build_map(variable)
-                        for variable in self._extra_http_block_variables
-                    ],
+                    *[self._build_map(variable) for variable in self._extra_http_block_variables],
                     self._build_map(self._logging_by_status),
                     {"directive": "access_log", "args": ["/dev/stderr"]},
                     {"directive": "sendfile", "args": ["on"]},
