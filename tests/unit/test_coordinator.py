@@ -2,7 +2,7 @@ import dataclasses
 import json
 from contextlib import ExitStack, contextmanager, nullcontext
 from pathlib import Path
-from unittest.mock import PropertyMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 from urllib.parse import urlparse
 
 import ops
@@ -27,6 +27,16 @@ from tests.unit.test_worker import MyCharm
 
 MOCK_CERTS_DATA = "<TLS_STUFF>"
 MOCK_TLS_CONFIG = TLSConfig(MOCK_CERTS_DATA, MOCK_CERTS_DATA, MOCK_CERTS_DATA)
+
+
+@pytest.fixture(autouse=True)
+def mock_policy_resource_manager():
+    """Mock _get_policy_resource_manager to prevent lightkube Client instantiation in all tests."""
+    with patch("coordinated_workers.mesh_policy._get_policy_resource_manager") as mock_get_prm:
+        # Create a mock PolicyResourceManager with the necessary methods
+        mock_prm = MagicMock()
+        mock_get_prm.return_value = mock_prm
+        yield mock_get_prm
 
 
 @pytest.fixture
@@ -812,9 +822,10 @@ def test_rendered_alert_rules(
     )
 
 
-@patch("coordinated_workers.mesh_policy._get_policy_resource_manager")
 def test_coordinator_passes_service_mesh_labels_to_workers(
-    mock_get_prm, coordinator_state: testing.State, coordinator_charm: ops.CharmBase
+    mock_policy_resource_manager,
+    coordinator_state: testing.State,
+    coordinator_charm: ops.CharmBase,
 ):
     """Test that the Coordinator passes service mesh labels to the Workers via the Cluster relation."""
     # GIVEN a coordinator_charm
@@ -868,9 +879,10 @@ def test_coordinator_passes_solution_labels_to_worker(
             assert labels[key] == value
 
 
-@patch("coordinated_workers.mesh_policy._get_policy_resource_manager")
 def test_coordinator_creates_and_reconcilies_policy_resource_managers(
-    mock_get_prm, coordinator_state: testing.State, coordinator_charm: ops.CharmBase
+    mock_policy_resource_manager,
+    coordinator_state: testing.State,
+    coordinator_charm: ops.CharmBase,
 ):
     """Test that the Coordinator creates and calls the reconcile of PolicyResourceManager the right number of times."""
     # GIVEN a coordinator_charm
@@ -901,13 +913,14 @@ def test_coordinator_creates_and_reconcilies_policy_resource_managers(
         coordinator._reconcile_mesh_policies()
 
         # THEN _get_policy_resource_manager is called and reconcile is called
-        mock_get_prm.assert_called_once()
-        mock_get_prm.return_value.reconcile.assert_called_once()
+        mock_policy_resource_manager.assert_called_once()
+        mock_policy_resource_manager.return_value.reconcile.assert_called_once()
 
 
-@patch("coordinated_workers.mesh_policy._get_policy_resource_manager")
 def test_cluster_internal_mesh_policies(
-    mock_get_prm, coordinator_state: testing.State, coordinator_charm: ops.CharmBase
+    mock_policy_resource_manager,
+    coordinator_state: testing.State,
+    coordinator_charm: ops.CharmBase,
 ):
     """Test that the correct mesh policies are created and passed to reconcile."""
     # GIVEN a coordinator_charm
@@ -938,7 +951,7 @@ def test_cluster_internal_mesh_policies(
         coordinator._reconcile_mesh_policies()
 
         # with the correct mesh policies are passed to reconcile
-        reconcile_calls = mock_get_prm.return_value.reconcile.call_args_list
+        reconcile_calls = mock_policy_resource_manager.return_value.reconcile.call_args_list
 
         # Extract policies from all reconcile calls
         all_policies = []
@@ -970,9 +983,10 @@ def test_cluster_internal_mesh_policies(
         assert source_apps == expected_source_apps
 
 
-@patch("coordinated_workers.mesh_policy._get_policy_resource_manager")
 def test_mesh_policies_deletion_when_mesh_disconnected(
-    mock_get_prm, coordinator_state: testing.State, coordinator_charm: ops.CharmBase
+    mock_policy_resource_manager,
+    coordinator_state: testing.State,
+    coordinator_charm: ops.CharmBase,
 ):
     """Test that mesh policies are deleted when service mesh is disconnected."""
     # GIVEN a coordinator_charm
@@ -987,6 +1001,6 @@ def test_mesh_policies_deletion_when_mesh_disconnected(
         # WHEN we reconcile mesh policies
         coordinator._reconcile_mesh_policies()
         # THEN prm.delete() is called for cleanup
-        mock_get_prm.return_value.delete.assert_called()
+        mock_policy_resource_manager.return_value.delete.assert_called()
         # AND reconcile is not called
-        mock_get_prm.return_value.reconcile.assert_not_called()
+        mock_policy_resource_manager.return_value.reconcile.assert_not_called()
