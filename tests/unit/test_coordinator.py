@@ -72,6 +72,7 @@ def coordinator_state():
         remote_units_data={
             0: ClusterRequirerUnitData(
                 juju_topology={
+                    "model": "test-model",
                     "application": "reader",
                     "unit": "reader/0",
                     "charm_name": "test-reader",
@@ -87,12 +88,22 @@ def coordinator_state():
         remote_units_data={
             0: ClusterRequirerUnitData(
                 juju_topology={
+                    "model": "test-model",
                     "application": "writer",
                     "unit": "writer/0",
                     "charm_name": "test-writer",
                 },
                 address="something",
-            ).dump()
+            ).dump(),
+            1: ClusterRequirerUnitData(
+                juju_topology={
+                    "model": "test-model",
+                    "application": "writer",
+                    "unit": "writer/1",
+                    "charm_name": "test-writer",
+                },
+                address="something",
+            ).dump(),
         },
     )
     requires_relations["cluster_worker2"] = testing.Relation(
@@ -102,6 +113,7 @@ def coordinator_state():
         remote_units_data={
             0: ClusterRequirerUnitData(
                 juju_topology={
+                    "model": "test-model",
                     "application": "backender",
                     "unit": "backender/0",
                     "charm_name": "test-backender",
@@ -141,11 +153,14 @@ def coordinator_charm(request):
                 "my-workload-tracing": {"interface": "tracing", "limit": 1},
                 "my-s3": {"interface": "s3"},
                 "my-ds-exchange-require": {"interface": "grafana_datasource_exchange"},
+                "my-service-mesh": {"interface": "service_mesh", "limit": 1},
+                "my-service-mesh-require-cmr-mesh": {"interface": "cross_model_mesh"},
             },
             "provides": {
                 "my-dashboards": {"interface": "grafana_dashboard"},
                 "my-metrics": {"interface": "prometheus_scrape"},
                 "my-ds-exchange-provide": {"interface": "grafana_datasource_exchange"},
+                "my-service-mesh-provide-cmr-mesh": {"interface": "cross_model_mesh"},
             },
             "containers": {
                 "nginx": {"type": "oci-image"},
@@ -189,6 +204,9 @@ def coordinator_charm(request):
                     "send-datasource": "my-ds-exchange-provide",
                     "receive-datasource": "my-ds-exchange-require",
                     "catalogue": None,
+                    "service-mesh": "my-service-mesh",
+                    "service-mesh-provide-cmr-mesh": "my-service-mesh-provide-cmr-mesh",
+                    "service-mesh-require-cmr-mesh": "my-service-mesh-require-cmr-mesh",
                 },
                 nginx_config=NginxConfig("localhost", [], {}),
                 workers_config=lambda coordinator: f"workers configuration for {coordinator._charm.meta.name}",
@@ -745,6 +763,7 @@ def test_rendered_alert_rules(
                 remote_units_data={
                     0: ClusterRequirerUnitData(
                         juju_topology={
+                            "model": "test-model",
                             "application": f"all-{worker_no}",
                             "unit": f"all-{worker_no}/0",
                             "charm_name": "test-all",
@@ -791,3 +810,172 @@ def test_rendered_alert_rules(
         sum(len(group["rules"]) for group in alert_rules["groups"])
         == total_worker_rules_no + coordinator_rules_no
     )
+
+
+def test_coordinator_passes_service_mesh_labels_to_workers(
+    coordinator_state: testing.State, coordinator_charm: ops.CharmBase
+):
+    """Test that the Coordinator passes service mesh labels to the Workers via the Cluster relation."""
+    # GIVEN a coordinator_charm
+    ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
+
+    # AND a coordinator_state that is valid and includes a populated service mesh relation
+    expected_labels = {"label1": "value1", "label2": "value2"}
+    service_mesh_relation = testing.Relation(
+        endpoint="my-service-mesh",
+        interface="service_mesh",
+        remote_app_data={
+            "labels": json.dumps(expected_labels),
+            "mesh_type": json.dumps("istio"),
+        },
+    )
+    relations_with_service_mesh = [*coordinator_state.relations, service_mesh_relation]
+    state_with_service_mesh = dataclasses.replace(
+        coordinator_state, relations=relations_with_service_mesh
+    )
+    state_with_service_mesh = dataclasses.replace(state_with_service_mesh, leader=True)
+
+    # WHEN we process any event
+    state_out = ctx.run(ctx.on.update_status(), state=state_with_service_mesh)
+    # THEN the service mesh labels are correctly distributed to the workers via the Cluster relation
+    cluster = state_out.get_relations("my-cluster")
+    for relation in cluster:
+        labels = json.loads(relation.local_app_data.get("worker_labels", "{}"))
+        for key, value in expected_labels.items():
+            assert labels[key] == value
+
+
+def test_coordinator_passes_solution_labels_to_worker(
+    coordinator_state: testing.State, coordinator_charm: ops.CharmBase
+):
+    """Test that the Coordinator passes the solution-level labels to the Workers via the Cluster relation."""
+    # GIVEN a coordinator_charm
+    ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
+    expected_labels = {"app.kubernetes.io/part-of": coordinator_charm.META["name"]}
+
+    # AND a coordinator_state that is valid and complete with this unit being the leader
+    state = coordinator_state
+    state = dataclasses.replace(state, leader=True)
+
+    # WHEN we process any event
+    state_out = ctx.run(ctx.on.update_status(), state=state)
+    # THEN the solution-level labels are correctly distributed to the workers via the Cluster relation
+    cluster = state_out.get_relations("my-cluster")
+    for relation in cluster:
+        labels = json.loads(relation.local_app_data.get("worker_labels", "{}"))
+        for key, value in expected_labels.items():
+            assert labels[key] == value
+
+
+@patch("coordinated_workers.coordinator.PolicyResourceManager")
+def test_coordinator_creates_and_reconcilies_policy_resource_managers(
+    mock_prm, coordinator_state: testing.State, coordinator_charm: ops.CharmBase
+):
+    """Test that the Coordinator creates and calls the reconcile of PolicyResourceManager the right number of times."""
+    # GIVEN a coordinator_charm
+    ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
+
+    # AND a coordinator_state that is valid and includes a populated service mesh relation
+    mesh_labels = {"label1": "value1", "label2": "value2"}
+    mesh_type = "istio"
+    service_mesh_relation = testing.Relation(
+        endpoint="my-service-mesh",
+        interface="service_mesh",
+        remote_app_data={
+            "labels": json.dumps(mesh_labels),
+            "mesh_type": json.dumps(mesh_type),
+        },
+    )
+    relations_with_service_mesh = [*coordinator_state.relations, service_mesh_relation]
+    state_with_service_mesh = dataclasses.replace(
+        coordinator_state, relations=relations_with_service_mesh
+    )
+    state_with_service_mesh = dataclasses.replace(state_with_service_mesh, leader=True)
+
+    # WHEN we process any event
+    with ctx(ctx.on.update_status(), state=state_with_service_mesh) as mgr:
+        coordinator = mgr.charm.coordinator
+
+        # AND when we reconcile mesh policies
+        coordinator._reconcile_mesh_policies()
+
+        # THEN PolicyResourceManager is created and reconcile is called
+        mock_prm.assert_called_once()
+        mock_prm.return_value.reconcile.assert_called_once()
+
+
+@patch("coordinated_workers.coordinator.PolicyResourceManager")
+def test_cluster_internal_mesh_policies(
+    mock_prm, coordinator_state: testing.State, coordinator_charm: ops.CharmBase
+):
+    """Test that the correct mesh policies are created and passed to reconcile."""
+    # GIVEN a coordinator_charm
+    ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
+
+    # AND a coordinator_state that is valid and includes a populated service mesh relation
+    mesh_labels = {"label1": "value1", "label2": "value2"}
+    mesh_type = "istio"
+    service_mesh_relation = testing.Relation(
+        endpoint="my-service-mesh",
+        interface="service_mesh",
+        remote_app_data={
+            "labels": json.dumps(mesh_labels),
+            "mesh_type": json.dumps(mesh_type),
+        },
+    )
+    relations_with_service_mesh = [*coordinator_state.relations, service_mesh_relation]
+    state_with_service_mesh = dataclasses.replace(
+        coordinator_state, relations=relations_with_service_mesh
+    )
+    state_with_service_mesh = dataclasses.replace(state_with_service_mesh, leader=True)
+
+    # WHEN we process any event
+    with ctx(ctx.on.update_status(), state=state_with_service_mesh) as mgr:
+        coordinator = mgr.charm.coordinator
+
+        # WHEN we reconcile mesh policies
+        coordinator._reconcile_mesh_policies()
+
+        # with the correct mesh policies are passed to reconcile
+        reconcile_calls = mock_prm.return_value.reconcile.call_args_list
+
+        # Extract policies from all reconcile calls
+        all_policies = []
+        for call in reconcile_calls:
+            policies = call[0][0]
+            all_policies.extend(policies)
+
+        # THEN we should have 8 policies total (coordinator + 3 workers)
+        assert len(all_policies) == 4
+
+        # AND all policies should target the coordinator model
+        for policy in all_policies:
+            assert policy.target_namespace in [mgr.charm.model.name]
+            assert policy.target_selector_labels == {"app.kubernetes.io/part-of": "foo-app"}
+
+        # AND policies should be from the expected sources
+        source_apps = {policy.source_app_name for policy in all_policies}
+        expected_source_apps = {"foo-app", "reader", "writer", "backender"}
+        assert source_apps == expected_source_apps
+
+
+@patch("coordinated_workers.coordinator.PolicyResourceManager")
+def test_mesh_policies_deletion_when_mesh_disconnected(
+    mock_prm, coordinator_state: testing.State, coordinator_charm: ops.CharmBase
+):
+    """Test that mesh policies are deleted when service mesh is disconnected."""
+    # GIVEN a coordinator_charm
+    ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
+
+    # AND a coordinator_state without service mesh relation (mesh disconnected)
+    state_without_service_mesh = dataclasses.replace(coordinator_state, leader=True)
+
+    # WHEN we process any event
+    with ctx(ctx.on.update_status(), state=state_without_service_mesh) as mgr:
+        coordinator = mgr.charm.coordinator
+        # WHEN we reconcile mesh policies
+        coordinator._reconcile_mesh_policies()
+        # THEN prm.delete() is called for cleanup
+        mock_prm.return_value.delete.assert_called()
+        # AND reconcile is not called
+        mock_prm.return_value.reconcile.assert_not_called()
