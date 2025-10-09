@@ -151,6 +151,7 @@ Any charm can instantiate `NginxConfig` to generate its own Nginx configuration 
 
 """
 
+import copy
 import logging
 import subprocess
 from dataclasses import dataclass, field
@@ -251,13 +252,14 @@ class NginxUpstream:
 
     Our coordinators assume that all servers under an upstream share the same port.
     """
-    worker_role: str
-    """The worker role that corresponds to this upstream.
+    address_lookup_key: str
+    """The address lookup key that corresponds to this upstream.
 
-    This role will be used to look up workers (backend server) addresses for this upstream.
+    This key will be used to look up backend server addresses for this upstream.
+    Can be a worker role (e.g., 'compactor') or individual unit identifier (e.g., 'worker-metrics-unit-0').
     """
-    ignore_worker_role: bool = False
-    """If True, overrides `worker_role` and routes to all available backend servers.
+    ignore_address_lookup: bool = False
+    """If True, overrides `address_lookup_key` and routes to all available backend servers.
 
     Use this when the upstream should be generic and include any available backend.
     """
@@ -315,6 +317,39 @@ class NginxConfig:
         self._enable_status_page = enable_status_page
         self._dns_IP_address = self._get_dns_ip_address()
         self._ipv6_enabled = is_ipv6_enabled()
+
+    def copy(self) -> "NginxConfig":
+        """Return a deep copy of this NginxConfig."""
+        return NginxConfig(
+            server_name=self._server_name,
+            upstream_configs=copy.deepcopy(self._upstream_configs),
+            server_ports_to_locations=copy.deepcopy(self._server_ports_to_locations),
+            enable_health_check=self._enable_health_check,
+            enable_status_page=self._enable_status_page,
+        )
+
+    def extend_upstream_configs(self, upstream_configs: List[NginxUpstream]):
+        """Add upstreams to existing configuration."""
+        self._upstream_configs.extend(upstream_configs)
+
+    def update_server_ports_to_locations(
+        self,
+        server_ports_to_locations: Dict[int, List[NginxLocationConfig]],
+        overwrite: bool = True,
+    ):
+        """Add locations to existing port configurations.
+
+        Args:
+            server_ports_to_locations: Dictionary mapping ports to location configs
+            overwrite: If True, replace existing locations for each port.
+                      If False, extend existing locations for each port.
+        """
+        for port, locations in server_ports_to_locations.items():
+            if overwrite or port not in self._server_ports_to_locations:
+                self._server_ports_to_locations[port] = locations.copy()
+            else:
+                # Extend existing locations for this port
+                self._server_ports_to_locations[port].extend(locations.copy())
 
     def get_config(
         self,
@@ -442,13 +477,13 @@ class NginxConfig:
         nginx_upstreams: List[Any] = []
 
         for upstream_config in self._upstream_configs:
-            if upstream_config.ignore_worker_role:
+            if upstream_config.ignore_address_lookup:
                 # include all available addresses
                 addresses: Optional[Set[str]] = set()
                 for address_set in upstreams_to_addresses.values():
                     addresses.update(address_set)
             else:
-                addresses = upstreams_to_addresses.get(upstream_config.worker_role)
+                addresses = upstreams_to_addresses.get(upstream_config.address_lookup_key)
 
             # don't add an upstream block if there are no addresses
             if addresses:
