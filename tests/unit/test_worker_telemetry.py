@@ -72,7 +72,7 @@ def coordinator_charm_with_proxy():
                 },
                 nginx_config=NginxConfig("localhost", [], {}),
                 workers_config=lambda coordinator: f"config for {coordinator._charm.meta.name}",
-                worker_telemetry_proxy_config=WorkerTelemetryProxyConfig(http=8080, https=8443),
+                worker_telemetry_proxy_config=WorkerTelemetryProxyConfig(http_port=8080, https_port=8443),
             )
 
     return MyCoordinatorWithProxy

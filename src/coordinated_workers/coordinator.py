@@ -43,7 +43,6 @@ from coordinated_workers.nginx import (
     NginxMappingOverrides,
     NginxPrometheusExporter,
 )
-from coordinated_workers.worker_telemetry import WorkerTelemetryProxyConfig
 
 check_libs_installed(
     "charms.data_platform_libs.v0.s3",
@@ -226,7 +225,9 @@ class Coordinator(ops.Object):
         remote_write_endpoints: Optional[Callable[[], List[RemoteWriteEndpoint]]] = None,
         workload_tracing_protocols: Optional[List[ReceiverProtocol]] = None,
         catalogue_item: Optional[CatalogueItem] = None,
-        worker_telemetry_proxy_config: Optional[WorkerTelemetryProxyConfig] = None,
+        worker_telemetry_proxy_config: Optional[
+            worker_telemetry.WorkerTelemetryProxyConfig
+        ] = None,
     ):
         """Constructor for a Coordinator object.
 
@@ -257,7 +258,7 @@ class Coordinator(ops.Object):
                 workload traces with.
             catalogue_item: A catalogue application entry to be sent to catalogue.
             worker_telemetry_proxy_config: Configuration including HTTP and HTTPS ports for proxying workers telemetry data via coordinator.
-                Passing a valid configuration value also enables the worker telemetry proxying.
+                Leaving it blank disables the worker telemetry proxying.
 
         Raises:
         ValueError:
@@ -349,9 +350,9 @@ class Coordinator(ops.Object):
         self._proxy_worker_telemetry_port: Optional[int] = None
         if worker_telemetry_proxy_config:
             self._proxy_worker_telemetry_port = (
-                worker_telemetry_proxy_config.https
+                worker_telemetry_proxy_config.https_port
                 if self.tls_available
-                else worker_telemetry_proxy_config.http
+                else worker_telemetry_proxy_config.http_port
             )
 
         # NOTE: setup nginx after tracing requirers as it uses logging and tracing endpoints

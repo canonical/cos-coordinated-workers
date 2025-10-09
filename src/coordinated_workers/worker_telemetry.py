@@ -32,8 +32,8 @@ PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX = "worker-telemetry-proxy"
 class WorkerTelemetryProxyConfig:
     """Worker telemetry proxy configuration object."""
 
-    http: int
-    https: int
+    http_port: int
+    https_port: int
 
 
 @dataclasses.dataclass
