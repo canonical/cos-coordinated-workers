@@ -1010,7 +1010,7 @@ def test_coordinator_charm_mesh_policies_passed_to_service_mesh_consumer(
     coordinator_state: testing.State,
 ):
     """Test that charm_mesh_policies are properly passed to ServiceMeshConsumer."""
-    from charms.istio_beacon_k8s.v0.service_mesh import AppPolicy, UnitPolicy, Endpoint
+    from charms.istio_beacon_k8s.v0.service_mesh import AppPolicy, Endpoint, UnitPolicy
 
     # Create custom charm mesh policies
     charm_app_policy = AppPolicy(
@@ -1104,7 +1104,7 @@ def test_coordinator_charm_mesh_policies_passed_to_service_mesh_consumer(
     relations = [*coordinator_state.relations, service_mesh_relation]
     state = dataclasses.replace(coordinator_state, relations=relations, leader=True)
 
-    with patch("coordinated_workers.coordinator.ServiceMeshConsumer") as mock_mesh_consumer:
+    with patch("coordinated_workers.service_mesh.ServiceMeshConsumer") as mock_mesh_consumer:
         ctx.run(ctx.on.update_status(), state=state)
 
         # Verify ServiceMeshConsumer was called with the combined policies
@@ -1113,6 +1113,8 @@ def test_coordinator_charm_mesh_policies_passed_to_service_mesh_consumer(
 
         # Check that policies parameter includes our custom policies
         policies_arg = call_args[1]["policies"]
-        assert len(policies_arg) == 2  # Should have both custom policies
+        assert (
+            len(policies_arg) == 3
+        )  # Should have both custom policies and the default metrics policy
         assert charm_app_policy in policies_arg
         assert charm_unit_policy in policies_arg

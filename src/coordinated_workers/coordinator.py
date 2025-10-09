@@ -68,12 +68,6 @@ from charms.data_platform_libs.v0.s3 import S3Requirer
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.istio_beacon_k8s.v0.service_mesh import (
     AppPolicy,
-    Endpoint,
-    MeshPolicy,
-    Method,
-    PolicyResourceManager,
-    PolicyTargetType,
-    ServiceMeshConsumer,
     UnitPolicy,
     reconcile_charm_labels,
 )
@@ -412,64 +406,14 @@ class Coordinator(ops.Object):
         )
 
         # service mesh
-        charm_mesh_policies = charm_mesh_policies if charm_mesh_policies else []
-        if all(
-            (
-                mesh_relation_name := self._endpoints.get("service-mesh"),
-                provide_cmr_mesh_name := self._endpoints.get("service-mesh-provide-cmr-mesh"),
-                require_cmr_mesh_name := self._endpoints.get("service-mesh-require-cmr-mesh"),
-            )
-        ):
-            default_policies: List[Union[AppPolicy, UnitPolicy]] = [
-                # UnitPolicy for metrics-endpoint allows scrapers to scrape Coordinator's nginx pod
-                UnitPolicy(
-                    relation=self._endpoints["metrics"],
-                    ports=[self.nginx_exporter.port],
-                )
-            ]
-
-            if self._proxy_worker_telemetry_port:
-                default_policies.append(
-                    # AppPolicy for metrics-endpoint allows scrapers to scrape through Coordinator's proxy to the
-                    # workers
-                    AppPolicy(
-                        relation=self._endpoints["metrics"],
-                        endpoints=[
-                            Endpoint(
-                                ports=[self._proxy_worker_telemetry_port]
-                                if self._proxy_worker_telemetry_port
-                                else [],
-                                methods=[Method.get],
-                                paths=[
-                                    worker_telemetry.PROXY_WORKER_TELEMETRY_PATHS[
-                                        "metrics"
-                                    ].replace("{unit}", "{*}")
-                                ],
-                            )
-                        ],
-                    )
-                )
-
-            self._mesh = ServiceMeshConsumer(  # type: ignore
-                self._charm,
-                mesh_relation_name=cast(str, mesh_relation_name),
-                cross_model_mesh_provides_name=cast(str, provide_cmr_mesh_name),
-                cross_model_mesh_requires_name=cast(str, require_cmr_mesh_name),
-                policies=default_policies,  # type: ignore
-            )
-        elif any(
-            (
-                self._endpoints.get("service-mesh"),
-                self._endpoints.get("service-mesh-provide-cmr-mesh"),
-                self._endpoints.get("service-mesh-require-cmr-mesh"),
-            )
-        ):
-            raise ValueError(
-                "If any of 'service-mesh', 'service-mesh-provide-cmr-mesh' or "
-                "'service-mesh-require-cmr-mesh' endpoints are provided, all of them must be."
-            )
-        else:
-            self._mesh = None
+        self._mesh = service_mesh.initialize(
+            endpoints=self._endpoints,
+            charm=self._charm,
+            nginx_exporter_port=self.nginx_exporter.port,
+            proxy_worker_telemetry_paths=worker_telemetry.PROXY_WORKER_TELEMETRY_PATHS,
+            proxy_worker_telemetry_port=self._proxy_worker_telemetry_port,
+            charm_mesh_policies=charm_mesh_policies,
+        )
 
         ## Observers
         # We always listen to collect-status

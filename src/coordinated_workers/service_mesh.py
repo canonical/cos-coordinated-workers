@@ -4,18 +4,25 @@
 """Coordinator helper extensions to configure service mesh policies for the coordinator."""
 
 import logging
-from typing import Dict, List, Optional, Set
+from typing import TYPE_CHECKING, Dict, List, Optional, Set, Union, cast
 
 import ops
 from charms.istio_beacon_k8s.v0.service_mesh import (  # type: ignore
+    AppPolicy,
+    Endpoint,
     MeshPolicy,
+    Method,
     PolicyResourceManager,
     PolicyTargetType,
     ServiceMeshConsumer,
+    UnitPolicy,
 )
 from lightkube import Client
 
 from coordinated_workers.interfaces.cluster import ClusterProvider
+
+if TYPE_CHECKING:
+    from coordinated_workers.coordinator import _EndpointMapping  # type: ignore
 
 
 def _get_unit_mesh_policy_for_cluster_application(
@@ -99,6 +106,73 @@ def _get_policy_resource_manager(
         },
         logger=logger,
     )
+
+
+def initialize(
+    endpoints: "_EndpointMapping",
+    charm: ops.CharmBase,
+    nginx_exporter_port: int,
+    proxy_worker_telemetry_paths: Dict[str, str],
+    proxy_worker_telemetry_port: Optional[int],
+    charm_mesh_policies: Optional[List[Union[AppPolicy, UnitPolicy]]],
+) -> Optional[ServiceMeshConsumer]:
+    """Instantiate service mesh consumer for the coordinator."""
+    mesh: Optional[ServiceMeshConsumer] = None
+    charm_mesh_policies = charm_mesh_policies if charm_mesh_policies else []
+    if all(
+        (
+            mesh_relation_name := endpoints.get("service-mesh"),
+            provide_cmr_mesh_name := endpoints.get("service-mesh-provide-cmr-mesh"),
+            require_cmr_mesh_name := endpoints.get("service-mesh-require-cmr-mesh"),
+        )
+    ):
+        default_policies: List[Union[AppPolicy, UnitPolicy]] = [
+            # UnitPolicy for metrics-endpoint allows scrapers to scrape Coordinator's nginx pod
+            UnitPolicy(
+                relation=endpoints["metrics"],
+                ports=[nginx_exporter_port],
+            )
+        ]
+
+        if proxy_worker_telemetry_port:
+            default_policies.append(
+                # AppPolicy for metrics-endpoint allows scrapers to scrape through Coordinator's proxy to the
+                # workers
+                AppPolicy(
+                    relation=endpoints["metrics"],
+                    endpoints=[
+                        Endpoint(
+                            ports=[proxy_worker_telemetry_port]
+                            if proxy_worker_telemetry_port
+                            else [],
+                            methods=[Method.get],
+                            paths=[
+                                proxy_worker_telemetry_paths["metrics"].replace("{unit}", "{*}")
+                            ],
+                        )
+                    ],
+                )
+            )
+
+        mesh = ServiceMeshConsumer(  # type: ignore
+            charm,
+            mesh_relation_name=cast(str, mesh_relation_name),
+            cross_model_mesh_provides_name=cast(str, provide_cmr_mesh_name),
+            cross_model_mesh_requires_name=cast(str, require_cmr_mesh_name),
+            policies=default_policies + charm_mesh_policies,  # type: ignore
+        )
+    elif any(
+        (
+            endpoints.get("service-mesh"),
+            endpoints.get("service-mesh-provide-cmr-mesh"),
+            endpoints.get("service-mesh-require-cmr-mesh"),
+        )
+    ):
+        raise ValueError(
+            "If any of 'service-mesh', 'service-mesh-provide-cmr-mesh' or "
+            "'service-mesh-require-cmr-mesh' endpoints are provided, all of them must be."
+        )
+    return mesh
 
 
 def reconcile_cluster_internal_mesh_policies(
