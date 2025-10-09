@@ -1,6 +1,7 @@
 """Test the coordinated-worker deploys correctly to a service mesh."""
 
 import logging
+from dataclasses import asdict
 
 import lightkube
 import pytest
@@ -10,7 +11,7 @@ from helpers import (
     assert_request_returns_http_code,
     deploy_coordinated_worker_solution,
 )
-from jubilant import Juju, all_active
+from jubilant import Juju, all_active, all_blocked
 from lightkube.resources.core_v1 import Pod
 from pytest_jubilant.main import TempModelFactory
 
@@ -107,12 +108,12 @@ def test_cluster_internal_mesh_policies(juju: Juju, worker_charm: PackedCharm):
     """Test if the cluster internal mesh policies are applied correctly."""
     # deploy a tester that is not in the service mesh for benchmarking.
     out_of_mesh_app = "out-of-mesh-app"
-    # juju.deploy(
-    #     **asdict(worker_charm),
-    #     app=out_of_mesh_app,
-    #     trust=True,
-    # )
-    # juju.wait(lambda status: all_blocked(status, out_of_mesh_app))
+    juju.deploy(
+        **asdict(worker_charm),
+        app=out_of_mesh_app,
+        trust=True,
+    )
+    juju.wait(lambda status: all_blocked(status, out_of_mesh_app))
 
     # coordinator can talk to both workers
     assert_request_returns_http_code(
