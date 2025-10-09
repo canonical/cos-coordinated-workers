@@ -10,11 +10,6 @@ from typing import Any, Dict, List, Sequence
 import pydantic
 
 
-def status(bundles, *args, **kwargs):
-    """Verify the juju status report."""
-    assert True
-
-
 class _BundleParams(pydantic.BaseModel):
     """Model validator for `bundle` input kwargs."""
 
@@ -23,7 +18,7 @@ class _BundleParams(pydantic.BaseModel):
     meta_roles: Dict[str, Sequence[str]] = pydantic.Field(default_factory=dict)
 
     @pydantic.model_validator(mode="after")
-    def _(self):
+    def meta_roles_map_to_undefined_roles(self):
         unknown_roles = []
         known_roles = self.recommended_deployment
         for expanded in self.meta_roles.values():
@@ -126,10 +121,10 @@ def bundle(
             roles.update(_roles)
             errors.extend(_errors)
 
-    if not charm_found:
-        raise RuntimeError(
-            "worker_charm '%s' not found in any of the provided bundles" % worker_charm
-        )
+        if not charm_found:
+            raise RuntimeError(
+                f"worker_charm {worker_charm!r} not found in the bundle"
+            )
 
     # now we check if each recommended role, is satisfied by the explicitly counted roles
     for role in recommended_deployment:
@@ -148,8 +143,3 @@ def bundle(
     if errors:
         joined_errors = "\n".join(errors)
         raise RuntimeError("Errors found: %s" % joined_errors, errors)
-
-
-def show_unit(bundles, *args, **kwargs):
-    """Verify the juju show-unit report."""
-    assert True
