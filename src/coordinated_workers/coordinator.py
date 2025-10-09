@@ -22,7 +22,7 @@ from typing import (
     Sequence,
     Set,
     TypedDict,
-    cast,
+    cast, Union,
 )
 from urllib.parse import urlparse
 
@@ -409,7 +409,7 @@ class Coordinator(ops.Object):
                 require_cmr_mesh_name := self._endpoints.get("service-mesh-require-cmr-mesh"),
             )
         ):
-            default_policies = [
+            default_policies: List[Union[AppPolicy, UnitPolicy]] = [
                 # UnitPolicy for metrics-endpoint allows scrapers to scrape Coordinator's nginx pod
                 UnitPolicy(
                     relation=self._endpoints["metrics"],
@@ -429,7 +429,7 @@ class Coordinator(ops.Object):
                                 if self._proxy_worker_telemetry_port
                                 else [],
                                 methods=[Method.get],
-                                paths=["/proxy/worker/{*}/metrics"],
+                                paths=[worker_telemetry.PROXY_WORKER_TELEMETRY_PATHS["metrics"].replace("{unit}", "{*}")]
                             )
                         ],
                     )
@@ -440,7 +440,7 @@ class Coordinator(ops.Object):
                 mesh_relation_name=cast(str, mesh_relation_name),
                 cross_model_mesh_provides_name=cast(str, provide_cmr_mesh_name),
                 cross_model_mesh_requires_name=cast(str, require_cmr_mesh_name),
-                policies=default_policies,
+                policies=default_policies,  # type: ignore
             )
         elif any(
             (

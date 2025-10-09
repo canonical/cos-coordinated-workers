@@ -80,8 +80,8 @@ class CoordinatorTester(CharmBase):
             catalogue_item=None,
             # The port this coordinator exposes for worker telemetry proxying
             worker_telemetry_proxy_config=WorkerTelemetryProxyConfig(
-                http=self._port,
-                https=self._port,
+                http_port=self._port,
+                https_port=self._port,
             ),
         )
 
