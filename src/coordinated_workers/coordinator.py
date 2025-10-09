@@ -43,7 +43,6 @@ from coordinated_workers import (
 )
 from coordinated_workers.helpers import check_libs_installed
 from coordinated_workers.interfaces.cluster import ClusterProvider, RemoteWriteEndpoint
-from coordinated_workers.mesh_policy import CharmPolicies
 from coordinated_workers.nginx import (
     Nginx,
     NginxConfig,
@@ -243,8 +242,7 @@ class Coordinator(ops.Object):
         worker_telemetry_proxy_config: Optional[
             worker_telemetry.WorkerTelemetryProxyConfig
         ] = None,
-        worker_telemetry_proxy_config: Optional[WorkerTelemetryProxyConfig] = None,
-        charm_policies: Optional[CharmPolicies] = None,
+        charm_policies: Optional[mesh_policy.CharmPolicies] = None,
     ):
         """Constructor for a Coordinator object.
 
@@ -276,7 +274,6 @@ class Coordinator(ops.Object):
             catalogue_item: A catalogue application entry to be sent to catalogue.
             worker_telemetry_proxy_config: Configuration including HTTP and HTTPS ports for proxying workers telemetry data via coordinator.
                 Leaving it blank disables the worker telemetry proxying.
-                Passing a valid configuration value also enables the worker telemetry proxying.
             charm_policies: charm specific service-mesh and coordinator managed mesh policies.
 
         Raises:
