@@ -22,7 +22,8 @@ from typing import (
     Sequence,
     Set,
     TypedDict,
-    cast, Union,
+    Union,
+    cast,
 )
 from urllib.parse import urlparse
 
@@ -429,7 +430,11 @@ class Coordinator(ops.Object):
                                 if self._proxy_worker_telemetry_port
                                 else [],
                                 methods=[Method.get],
-                                paths=[worker_telemetry.PROXY_WORKER_TELEMETRY_PATHS["metrics"].replace("{unit}", "{*}")]
+                                paths=[
+                                    worker_telemetry.PROXY_WORKER_TELEMETRY_PATHS[
+                                        "metrics"
+                                    ].replace("{unit}", "{*}")
+                                ],
                             )
                         ],
                     )
@@ -895,9 +900,7 @@ class Coordinator(ops.Object):
     def _nginx_scrape_jobs(self) -> List[Dict[str, Any]]:
         """The Prometheus scrape job for Nginx."""
         job: Dict[str, Any] = {
-            "static_configs": [
-                {"targets": [f"{self.hostname}:{self.nginx_exporter.port}"]}
-            ]
+            "static_configs": [{"targets": [f"{self.hostname}:{self.nginx_exporter.port}"]}]
         }
 
         return [job]
