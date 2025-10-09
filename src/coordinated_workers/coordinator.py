@@ -22,6 +22,7 @@ from typing import (
     Sequence,
     Set,
     TypedDict,
+    Union,
     cast,
 )
 from urllib.parse import urlparse
@@ -66,7 +67,9 @@ from charms.catalogue_k8s.v1.catalogue import CatalogueConsumer, CatalogueItem
 from charms.data_platform_libs.v0.s3 import S3Requirer
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.istio_beacon_k8s.v0.service_mesh import (  # type: ignore
+    AppPolicy,
     ServiceMeshConsumer,  # type: ignore
+    UnitPolicy,
     reconcile_charm_labels,  # type: ignore
 )
 from charms.loki_k8s.v1.loki_push_api import LogForwarder, LokiPushApiConsumer
@@ -242,7 +245,7 @@ class Coordinator(ops.Object):
         worker_telemetry_proxy_config: Optional[
             worker_telemetry.WorkerTelemetryProxyConfig
         ] = None,
-        charm_policies: Optional[mesh_policy.CharmPolicies] = None,
+        charm_policies: Optional[List[Union[AppPolicy, UnitPolicy]]] = None,
     ):
         """Constructor for a Coordinator object.
 
@@ -414,9 +417,7 @@ class Coordinator(ops.Object):
                 mesh_relation_name=cast(str, mesh_relation_name),
                 cross_model_mesh_provides_name=cast(str, provide_cmr_mesh_name),
                 cross_model_mesh_requires_name=cast(str, require_cmr_mesh_name),
-                policies=self._charm_policies.cluster_external  # type: ignore
-                if self._charm_policies and self._charm_policies.cluster_external
-                else [],
+                policies=self._charm_policies if self._charm_policies else [],  # type: ignore
             )
         elif any(
             (
@@ -978,7 +979,6 @@ class Coordinator(ops.Object):
             charm=self._charm,
             target_selector_labels=self._coordinated_workers_solution_labels,
             logger=logger,
-            charm_policies=self._charm_policies,
         )
 
     def _reconcile_cluster_relations(self):
