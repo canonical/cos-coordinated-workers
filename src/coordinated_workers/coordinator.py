@@ -505,7 +505,9 @@ class Coordinator(ops.Object):
 
         if (proxy_worker_telemetry_port := self._proxy_worker_telemetry_port) and not ignore_proxy:
             return worker_telemetry.proxy_tracing_receivers_urls(
-                hostname=self.app_hostname(self.hostname, self._charm.app.name, self._charm.model.name),
+                hostname=self.app_hostname(
+                    self.hostname, self._charm.app.name, self._charm.model.name
+                ),
                 proxy_worker_telemetry_port=proxy_worker_telemetry_port,
                 tls_available=self.tls_available,
                 tracing_target_type=_type,
@@ -575,7 +577,9 @@ class Coordinator(ops.Object):
         endpoints = self._remote_write_endpoints_getter()
         if proxy_worker_telemetry_port := self._proxy_worker_telemetry_port:
             return worker_telemetry.proxy_remote_write_endpoints(
-                hostname=self.app_hostname(self.hostname, self._charm.app.name, self._charm.model.name),
+                hostname=self.app_hostname(
+                    self.hostname, self._charm.app.name, self._charm.model.name
+                ),
                 proxy_worker_telemetry_port=proxy_worker_telemetry_port,
                 tls_available=self.tls_available,
                 endpoints=endpoints,
@@ -629,7 +633,9 @@ class Coordinator(ops.Object):
 
         if proxy_worker_telemetry_port := self._proxy_worker_telemetry_port:
             return worker_telemetry.proxy_loki_endpoints_by_unit(  # type: ignore
-                hostname=self.app_hostname(self.hostname, self._charm.app.name, self._charm.model.name),
+                hostname=self.app_hostname(
+                    self.hostname, self._charm.app.name, self._charm.model.name
+                ),
                 proxy_worker_telemetry_port=proxy_worker_telemetry_port,
                 tls_available=self.tls_available,
                 logging_relations=relations,
@@ -817,7 +823,9 @@ class Coordinator(ops.Object):
                 # address: address of the coordinator
                 # path: location used in the nginx config for proxying worker metric
 
-                targets = [f"{self.app_hostname(self.hostname, self._charm.app.name, self._charm.model.name)}:{self._proxy_worker_telemetry_port}"]
+                targets = [
+                    f"{self.app_hostname(self.hostname, self._charm.app.name, self._charm.model.name)}:{self._proxy_worker_telemetry_port}"
+                ]
                 metrics_path = worker_telemetry.PROXY_WORKER_TELEMETRY_PATHS["metrics"].format(
                     unit=worker_topology["unit"].replace("/", "-"),
                 )
@@ -1004,32 +1012,6 @@ class Coordinator(ops.Object):
         else:
             # if mesh_type is None, there is no active service-mesh relation. silently purge all policies, if any.
             prm.delete()
-
-    @property
-    def loki_endpoints_by_unit(self) -> Dict[str, str]:
-        """Loki endpoints from relation data in the format needed for Pebble log forwarding.
-
-        Returns:
-            A dictionary of remote units and the respective Loki endpoint.
-            {
-                "loki/0": "http://loki:3100/loki/api/v1/push",
-                "another-loki/0": "http://another-loki:3100/loki/api/v1/push",
-            }
-        """
-        endpoints: Dict[str, str] = {}
-        relations: List[ops.Relation] = self.model.relations.get(self._endpoints["logging"], [])
-
-        for relation in relations:
-            for unit in relation.units:
-                unit_databag = relation.data.get(unit, {})
-                if "endpoint" not in unit_databag:
-                    continue
-                endpoint = unit_databag["endpoint"]
-                deserialized_endpoint = json.loads(endpoint)
-                url = deserialized_endpoint["url"]
-                endpoints[unit.name] = url
-
-        return endpoints
 
     def _reconcile_cluster_relations(self):
         """Build the workers config and distribute it to the relations."""

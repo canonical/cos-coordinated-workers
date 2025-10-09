@@ -89,7 +89,6 @@ class DatabagAccessPermissionError(ClusterError):
 class _Topology(pydantic.BaseModel):
     """Juju topology information."""
 
-    model: str
     application: str
     unit: str
     charm_name: str
@@ -360,7 +359,6 @@ class ClusterProvider(Object):
                     continue
                 worker_topology = {
                     "address": unit_address,
-                    "model": worker_data.juju_topology.model,
                     "application": worker_data.juju_topology.application,
                     "unit": worker_data.juju_topology.unit,
                     "charm_name": worker_data.juju_topology.charm_name,
