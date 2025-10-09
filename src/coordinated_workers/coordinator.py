@@ -38,7 +38,7 @@ from opentelemetry import trace
 from ops import StatusBase
 
 from coordinated_workers import (
-    mesh_policy,
+    service_mesh,
     worker,
     worker_telemetry,
 )
@@ -245,7 +245,7 @@ class Coordinator(ops.Object):
         worker_telemetry_proxy_config: Optional[
             worker_telemetry.WorkerTelemetryProxyConfig
         ] = None,
-        charm_policies: Optional[List[Union[AppPolicy, UnitPolicy]]] = None,
+        charm_mesh_policies: Optional[List[Union[AppPolicy, UnitPolicy]]] = None,
     ):
         """Constructor for a Coordinator object.
 
@@ -277,7 +277,9 @@ class Coordinator(ops.Object):
             catalogue_item: A catalogue application entry to be sent to catalogue.
             worker_telemetry_proxy_config: Configuration including HTTP and HTTPS ports for proxying workers telemetry data via coordinator.
                 Leaving it blank disables the worker telemetry proxying.
-            charm_policies: charm specific service-mesh and coordinator managed mesh policies.
+            charm_mesh_policies: Charm specific service mesh policies.
+                These policies will only govern the traffic incoming to the coordinator.
+                These policies will be added to the Coordinator defined policies that are common for all coordinated-workers charms.
 
         Raises:
         ValueError:
@@ -312,7 +314,6 @@ class Coordinator(ops.Object):
         )
         self._remote_write_endpoints_getter = remote_write_endpoints
         self._workers_config_getter = partial(workers_config, self)
-        self._charm_policies = charm_policies
 
         ## Integrations
         self.cluster = ClusterProvider(
@@ -405,6 +406,8 @@ class Coordinator(ops.Object):
             else None
         )
 
+        # service mesh
+        charm_mesh_policies = charm_mesh_policies if charm_mesh_policies else []
         if all(
             (
                 mesh_relation_name := self._endpoints.get("service-mesh"),
@@ -412,12 +415,14 @@ class Coordinator(ops.Object):
                 require_cmr_mesh_name := self._endpoints.get("service-mesh-require-cmr-mesh"),
             )
         ):
+            default_policies: List[Union[AppPolicy, UnitPolicy]] = []
+            combined_policies = default_policies + charm_mesh_policies
             self._mesh = ServiceMeshConsumer(  # type: ignore
                 self._charm,
                 mesh_relation_name=cast(str, mesh_relation_name),
                 cross_model_mesh_provides_name=cast(str, provide_cmr_mesh_name),
                 cross_model_mesh_requires_name=cast(str, require_cmr_mesh_name),
-                policies=self._charm_policies if self._charm_policies else [],  # type: ignore
+                policies=combined_policies
             )
         elif any(
             (
@@ -973,7 +978,7 @@ class Coordinator(ops.Object):
 
     def _reconcile_mesh_policies(self) -> None:
         """Reconcile all the cluster internal mesh policies."""
-        mesh_policy.reconcile(
+        service_mesh.reconcile_cluster_internal_mesh_policies(
             mesh=self._mesh,
             cluster=self.cluster,
             charm=self._charm,

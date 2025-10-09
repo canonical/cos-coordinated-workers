@@ -23,7 +23,7 @@ def _get_unit_mesh_policy_for_cluster_application(
     cluster_model: str,
     target_selector_labels: Dict[str, str],
 ) -> MeshPolicy:
-    """Return mesh policy that grant access for the specified cluster application to target all cluster units."""
+    """Return a mesh policy that grants access for the specified cluster application that targets all the units with the given label selector."""
     # NOTE: The following policy assumes that the coordinator and worker will always be in the same model.
     return MeshPolicy(
         source_namespace=cluster_model,
@@ -38,7 +38,7 @@ def _get_app_mesh_policy_for_cluster_application(
     source_application: str,
     charm: ops.CharmBase,
 ) -> MeshPolicy:
-    """Return app mesh policy that grant access for the specified cluster application to target the coordinator application."""
+    """Return a mesh policy that grants access for the specified application to the coordinator application."""
     # NOTE: The following policy assumes that the coordinator and worker will always be in the same model.
     return MeshPolicy(
         source_namespace=charm.model.name,
@@ -101,7 +101,7 @@ def _get_policy_resource_manager(
     )
 
 
-def reconcile(
+def reconcile_cluster_internal_mesh_policies(
     mesh: Optional[ServiceMeshConsumer],
     cluster: ClusterProvider,
     charm: ops.CharmBase,
@@ -114,7 +114,7 @@ def reconcile(
     mesh_type = mesh.mesh_type()  # type: ignore
     prm = _get_policy_resource_manager(charm, logger)
     if mesh_type:
-        # if mesh_type exists, the charm is connected to a service mesh charm. reconcile the cluster interal policies.
+        # if mesh_type exists, the charm is connected to a service mesh charm. reconcile the cluster internal policies.
         policies = _get_cluster_internal_mesh_policies(
             charm,
             cluster,

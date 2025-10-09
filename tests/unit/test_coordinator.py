@@ -32,7 +32,7 @@ MOCK_TLS_CONFIG = TLSConfig(MOCK_CERTS_DATA, MOCK_CERTS_DATA, MOCK_CERTS_DATA)
 @pytest.fixture(autouse=True)
 def mock_policy_resource_manager():
     """Mock _get_policy_resource_manager to prevent lightkube Client instantiation in all tests."""
-    with patch("coordinated_workers.mesh_policy._get_policy_resource_manager") as mock_get_prm:
+    with patch("coordinated_workers.service_mesh._get_policy_resource_manager") as mock_get_prm:
         # Create a mock PolicyResourceManager with the necessary methods
         mock_prm = MagicMock()
         mock_get_prm.return_value = mock_prm
@@ -1004,3 +1004,115 @@ def test_mesh_policies_deletion_when_mesh_disconnected(
         mock_policy_resource_manager.return_value.delete.assert_called()
         # AND reconcile is not called
         mock_policy_resource_manager.return_value.reconcile.assert_not_called()
+
+
+def test_coordinator_charm_mesh_policies_passed_to_service_mesh_consumer(
+    coordinator_state: testing.State,
+):
+    """Test that charm_mesh_policies are properly passed to ServiceMeshConsumer."""
+    from charms.istio_beacon_k8s.v0.service_mesh import AppPolicy, UnitPolicy, Endpoint
+
+    # Create custom charm mesh policies
+    charm_app_policy = AppPolicy(
+        relation="custom-relation",
+        endpoints=[
+            Endpoint(
+                ports=[8080],
+            )
+        ],
+    )
+
+    charm_unit_policy = UnitPolicy(
+        relation="custom-relation",
+        ports=[8080, 9090],
+    )
+
+    charm_policies = [charm_app_policy, charm_unit_policy]
+
+    class MyCoordinatorWithPolicies(ops.CharmBase):
+        META = {
+            "name": "foo-app",
+            "requires": {
+                "my-certificates": {"interface": "certificates"},
+                "my-cluster": {"interface": "cluster"},
+                "my-logging": {"interface": "loki_push_api"},
+                "my-charm-tracing": {"interface": "tracing", "limit": 1},
+                "my-workload-tracing": {"interface": "tracing", "limit": 1},
+                "my-s3": {"interface": "s3"},
+                "my-ds-exchange-require": {"interface": "grafana_datasource_exchange"},
+                "my-service-mesh": {"interface": "service_mesh", "limit": 1},
+                "my-service-mesh-require-cmr-mesh": {"interface": "cross_model_mesh"},
+            },
+            "provides": {
+                "my-dashboards": {"interface": "grafana_dashboard"},
+                "my-metrics": {"interface": "prometheus_scrape"},
+                "my-ds-exchange-provide": {"interface": "grafana_datasource_exchange"},
+                "my-service-mesh-provide-cmr-mesh": {"interface": "cross_model_mesh"},
+            },
+            "containers": {
+                "nginx": {"type": "oci-image"},
+                "nginx-prometheus-exporter": {"type": "oci-image"},
+            },
+        }
+
+        def __init__(self, framework: ops.Framework):
+            super().__init__(framework)
+            self.coordinator = Coordinator(
+                charm=self,
+                roles_config=ClusterRolesConfig(
+                    roles={"all", "read", "write", "backend"},
+                    meta_roles={"all": {"all", "read", "write", "backend"}},
+                    minimal_deployment={"read", "write", "backend"},
+                    recommended_deployment={"read": 3, "write": 3, "backend": 3},
+                ),
+                external_url="https://foo.example.com",
+                worker_metrics_port=123,
+                endpoints={
+                    "certificates": "my-certificates",
+                    "cluster": "my-cluster",
+                    "grafana-dashboards": "my-dashboards",
+                    "logging": "my-logging",
+                    "metrics": "my-metrics",
+                    "charm-tracing": "my-charm-tracing",
+                    "workload-tracing": "my-workload-tracing",
+                    "s3": "my-s3",
+                    "send-datasource": "my-ds-exchange-provide",
+                    "receive-datasource": "my-ds-exchange-require",
+                    "catalogue": None,
+                    "service-mesh": "my-service-mesh",
+                    "service-mesh-provide-cmr-mesh": "my-service-mesh-provide-cmr-mesh",
+                    "service-mesh-require-cmr-mesh": "my-service-mesh-require-cmr-mesh",
+                },
+                nginx_config=NginxConfig("localhost", [], {}),
+                workers_config=lambda coordinator: f"workers configuration for {coordinator._charm.meta.name}",
+                worker_ports=None,
+                charm_mesh_policies=charm_policies,  # Pass custom policies here
+            )
+
+    # Test with ServiceMesh relation present
+    ctx = testing.Context(MyCoordinatorWithPolicies, meta=MyCoordinatorWithPolicies.META)
+
+    service_mesh_relation = testing.Relation(
+        endpoint="my-service-mesh",
+        interface="service_mesh",
+        remote_app_data={
+            "labels": json.dumps({"label1": "value1"}),
+            "mesh_type": json.dumps("istio"),
+        },
+    )
+
+    relations = [*coordinator_state.relations, service_mesh_relation]
+    state = dataclasses.replace(coordinator_state, relations=relations, leader=True)
+
+    with patch("coordinated_workers.coordinator.ServiceMeshConsumer") as mock_mesh_consumer:
+        ctx.run(ctx.on.update_status(), state=state)
+
+        # Verify ServiceMeshConsumer was called with the combined policies
+        mock_mesh_consumer.assert_called_once()
+        call_args = mock_mesh_consumer.call_args
+
+        # Check that policies parameter includes our custom policies
+        policies_arg = call_args[1]["policies"]
+        assert len(policies_arg) == 2  # Should have both custom policies
+        assert charm_app_policy in policies_arg
+        assert charm_unit_policy in policies_arg
