@@ -16,8 +16,8 @@ from coordinated_workers.nginx import (
     NginxLocationConfig,
     NginxUpstream,
 )
+from coordinated_workers.worker_telemetry import WorkerTelemetryProxyConfig
 from coordinator_config import ROLES_CONFIG
-
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +27,7 @@ class CoordinatorTester(CharmBase):
 
     def __init__(self, framework):
         super().__init__(framework)
+        self._port = 8080
 
         self._nginx_container = self.unit.get_container("nginx")
 
@@ -37,7 +38,8 @@ class CoordinatorTester(CharmBase):
             charm=self,
             roles_config=ROLES_CONFIG,
             external_url=self._internal_app_hostname,
-            worker_metrics_port=2345,
+            # port that the worker app exposes, not this coordinator's port
+            worker_metrics_port=8080,
             endpoints={
                 "certificates": "certificates",
                 "cluster": "cluster",
@@ -57,8 +59,8 @@ class CoordinatorTester(CharmBase):
             nginx_config=NginxConfig(
                 server_name=self._internal_app_hostname,
                 upstream_configs=[
-                    NginxUpstream("worker-role-a", 8080, "a"),
-                    NginxUpstream("worker-role-b", 8080, "b"),
+                    NginxUpstream("worker-role-a", 8080, "role-a"),
+                    NginxUpstream("worker-role-b", 8080, "role-b"),
                 ],
                 server_ports_to_locations={
                     8080: [
@@ -76,9 +78,13 @@ class CoordinatorTester(CharmBase):
             worker_ports=None,
             workload_tracing_protocols=["otlp_http"],
             catalogue_item=None,
+            # The port this coordinator exposes for worker telemetry proxying
+            worker_telemetry_proxy_config=WorkerTelemetryProxyConfig(
+                http_port=self._port,
+                https_port=self._port,
+            ),
         )
 
-        self._port = 8080
         self.unit.set_ports(self._port)
 
     def _on_collect_status(self, e: CollectStatusEvent) -> None:

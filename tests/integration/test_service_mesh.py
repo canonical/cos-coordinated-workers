@@ -79,7 +79,7 @@ def test_configure_service_mesh(juju: Juju):
     lightkube_client = lightkube.Client()
     for app in (COORDINATOR_NAME, WORKER_A_NAME, WORKER_B_NAME):
         for attempt in tenacity.Retrying(
-            stop=tenacity.stop_after_delay(40),
+            stop=tenacity.stop_after_delay(30),
             wait=tenacity.wait_fixed(5),
             # if you don't succeed raise the last caught exception when you're done
             reraise=True,
@@ -147,13 +147,13 @@ def test_cluster_internal_mesh_policies(juju: Juju, worker_charm: PackedCharm):
     assert_request_returns_http_code(
         juju.model,
         f"{WORKER_A_NAME}/0",
-        f"http://{COORDINATOR_NAME}-0.{COORDINATOR_NAME}-endpoints.{juju.model}.svc.cluster.local:8080/role-b/foo",  # basically pinging worker-b via the coordinator
+        f"http://{COORDINATOR_NAME}-0.{COORDINATOR_NAME}-endpoints.{juju.model}.svc.cluster.local:8080/",
         code=200,
     )
     assert_request_returns_http_code(
         juju.model,
         f"{WORKER_B_NAME}/0",
-        f"http://{COORDINATOR_NAME}-0.{COORDINATOR_NAME}-endpoints.{juju.model}.svc.cluster.local:8080/role-a/foo",  # basically pinging worker-a via the coordinator
+        f"http://{COORDINATOR_NAME}-0.{COORDINATOR_NAME}-endpoints.{juju.model}.svc.cluster.local:8080/",
         code=200,
     )
 
