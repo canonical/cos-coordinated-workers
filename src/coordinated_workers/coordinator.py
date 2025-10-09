@@ -37,7 +37,11 @@ from lightkube import Client
 from opentelemetry import trace
 from ops import StatusBase
 
-from coordinated_workers import worker, worker_telemetry
+from coordinated_workers import (
+    service_mesh,
+    worker,
+    worker_telemetry,
+)
 from coordinated_workers.helpers import check_libs_installed
 from coordinated_workers.interfaces.cluster import ClusterProvider, RemoteWriteEndpoint
 from coordinated_workers.nginx import (
@@ -64,12 +68,6 @@ from charms.data_platform_libs.v0.s3 import S3Requirer
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.istio_beacon_k8s.v0.service_mesh import (
     AppPolicy,
-    Endpoint,
-    MeshPolicy,
-    Method,
-    PolicyResourceManager,
-    PolicyTargetType,
-    ServiceMeshConsumer,
     UnitPolicy,
     reconcile_charm_labels,
 )
@@ -246,6 +244,7 @@ class Coordinator(ops.Object):
         worker_telemetry_proxy_config: Optional[
             worker_telemetry.WorkerTelemetryProxyConfig
         ] = None,
+        charm_mesh_policies: Optional[List[Union[AppPolicy, UnitPolicy]]] = None,
     ):
         """Constructor for a Coordinator object.
 
@@ -277,6 +276,9 @@ class Coordinator(ops.Object):
             catalogue_item: A catalogue application entry to be sent to catalogue.
             worker_telemetry_proxy_config: Configuration including HTTP and HTTPS ports for proxying workers telemetry data via coordinator.
                 Leaving it blank disables the worker telemetry proxying.
+            charm_mesh_policies: Charm specific service mesh policies.
+                These policies will only govern the traffic incoming to the coordinator.
+                These policies will be added to the Coordinator defined policies that are common for all coordinated-workers charms.
 
         Raises:
         ValueError:
@@ -403,63 +405,15 @@ class Coordinator(ops.Object):
             else None
         )
 
-        if all(
-            (
-                mesh_relation_name := self._endpoints.get("service-mesh"),
-                provide_cmr_mesh_name := self._endpoints.get("service-mesh-provide-cmr-mesh"),
-                require_cmr_mesh_name := self._endpoints.get("service-mesh-require-cmr-mesh"),
-            )
-        ):
-            default_policies: List[Union[AppPolicy, UnitPolicy]] = [
-                # UnitPolicy for metrics-endpoint allows scrapers to scrape Coordinator's nginx pod
-                UnitPolicy(
-                    relation=self._endpoints["metrics"],
-                    ports=[self.nginx_exporter.port],
-                )
-            ]
-
-            if self._proxy_worker_telemetry_port:
-                default_policies.append(
-                    # AppPolicy for metrics-endpoint allows scrapers to scrape through Coordinator's proxy to the
-                    # workers
-                    AppPolicy(
-                        relation=self._endpoints["metrics"],
-                        endpoints=[
-                            Endpoint(
-                                ports=[self._proxy_worker_telemetry_port]
-                                if self._proxy_worker_telemetry_port
-                                else [],
-                                methods=[Method.get],
-                                paths=[
-                                    worker_telemetry.PROXY_WORKER_TELEMETRY_PATHS[
-                                        "metrics"
-                                    ].replace("{unit}", "{*}")
-                                ],
-                            )
-                        ],
-                    )
-                )
-
-            self._mesh = ServiceMeshConsumer(  # type: ignore
-                self._charm,
-                mesh_relation_name=cast(str, mesh_relation_name),
-                cross_model_mesh_provides_name=cast(str, provide_cmr_mesh_name),
-                cross_model_mesh_requires_name=cast(str, require_cmr_mesh_name),
-                policies=default_policies,  # type: ignore
-            )
-        elif any(
-            (
-                self._endpoints.get("service-mesh"),
-                self._endpoints.get("service-mesh-provide-cmr-mesh"),
-                self._endpoints.get("service-mesh-require-cmr-mesh"),
-            )
-        ):
-            raise ValueError(
-                "If any of 'service-mesh', 'service-mesh-provide-cmr-mesh' or "
-                "'service-mesh-require-cmr-mesh' endpoints are provided, all of them must be."
-            )
-        else:
-            self._mesh = None
+        # service mesh
+        self._mesh = service_mesh.initialize(
+            endpoints=self._endpoints,
+            charm=self._charm,
+            nginx_exporter_port=self.nginx_exporter.port,
+            proxy_worker_telemetry_paths=worker_telemetry.PROXY_WORKER_TELEMETRY_PATHS,
+            proxy_worker_telemetry_port=self._proxy_worker_telemetry_port,
+            charm_mesh_policies=charm_mesh_policies,
+        )
 
         ## Observers
         # We always listen to collect-status
@@ -997,55 +951,15 @@ class Coordinator(ops.Object):
             labels=self._coordinated_workers_solution_labels,
         )
 
-    def _get_mesh_policies_for_cluster_application(self, source_application: str) -> MeshPolicy:
-        """Return mesh policy that grant access for the specified cluster application to target all cluster units."""
-        # NOTE: The following policy assumes that the coordinator and worker will always be in the same model.
-        return MeshPolicy(
-            source_namespace=self._charm.model.name,
-            source_app_name=source_application,
-            target_namespace=self._charm.model.name,
-            target_selector_labels=self._coordinated_workers_solution_labels,
-            target_type=PolicyTargetType.unit,
-        )
-
-    def _get_cluster_internal_mesh_policies(self) -> List[MeshPolicy]:
-        """Return all the required cluster internal mesh policies."""
-        mesh_policies: List[MeshPolicy] = []
-        # Coordinator -> Everything in the cluster
-        mesh_policies.append(self._get_mesh_policies_for_cluster_application(self._charm.app.name))
-        cluster_apps = {
-            worker_unit["application"] for worker_unit in self.cluster.gather_topology()
-        }
-        # Workers -> Everything in the cluster
-        for worker_app in cluster_apps:
-            mesh_policies.append(self._get_mesh_policies_for_cluster_application(worker_app))
-        return mesh_policies
-
-    def _get_policy_resource_manager(self) -> PolicyResourceManager:
-        """Return a PolicyResourceManager for the given mesh_type."""
-        return PolicyResourceManager(
-            charm=self._charm,  # type: ignore
-            lightkube_client=Client(field_manager=self._charm.app.name),  # type: ignore
-            labels={
-                "app.kubernetes.io/instance": f"{self._charm.app.name}",  # type: ignore
-                "kubernetes-resource-handler-scope": f"{self._charm.app.name}-cluster-internal",  # type: ignore
-            },
-            logger=logger,
-        )
-
     def _reconcile_mesh_policies(self) -> None:
         """Reconcile all the cluster internal mesh policies."""
-        if not self._mesh:  # If _mesh is None, we have no service-mesh endpoint in the charm.
-            return
-        mesh_type = self._mesh.mesh_type()  # type: ignore
-        prm = self._get_policy_resource_manager()
-        if mesh_type:
-            # if mesh_type exists, the charm is connected to a service mesh charm. reconcile the cluster interal policies.
-            policies = self._get_cluster_internal_mesh_policies()
-            prm.reconcile(policies, mesh_type)
-        else:
-            # if mesh_type is None, there is no active service-mesh relation. silently purge all policies, if any.
-            prm.delete()
+        service_mesh.reconcile_cluster_internal_mesh_policies(
+            mesh=self._mesh,
+            cluster=self.cluster,
+            charm=self._charm,
+            target_selector_labels=self._coordinated_workers_solution_labels,
+            logger=logger,
+        )
 
     def _reconcile_cluster_relations(self):
         """Build the workers config and distribute it to the relations."""
