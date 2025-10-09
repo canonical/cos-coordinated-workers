@@ -22,6 +22,7 @@ from typing import (
     Sequence,
     Set,
     TypedDict,
+    Union,
     cast,
 )
 from urllib.parse import urlparse
@@ -61,12 +62,16 @@ check_libs_installed(
 from charms.catalogue_k8s.v1.catalogue import CatalogueConsumer, CatalogueItem
 from charms.data_platform_libs.v0.s3 import S3Requirer
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
-from charms.istio_beacon_k8s.v0.service_mesh import (  # type: ignore
+from charms.istio_beacon_k8s.v0.service_mesh import (
+    AppPolicy,
+    Endpoint,
     MeshPolicy,
+    Method,
     PolicyResourceManager,
     PolicyTargetType,
-    ServiceMeshConsumer,  # type: ignore
-    reconcile_charm_labels,  # type: ignore
+    ServiceMeshConsumer,
+    UnitPolicy,
+    reconcile_charm_labels,
 )
 from charms.loki_k8s.v1.loki_push_api import LogForwarder, LokiPushApiConsumer
 from charms.observability_libs.v0.kubernetes_compute_resources_patch import (
@@ -405,11 +410,42 @@ class Coordinator(ops.Object):
                 require_cmr_mesh_name := self._endpoints.get("service-mesh-require-cmr-mesh"),
             )
         ):
+            default_policies: List[Union[AppPolicy, UnitPolicy]] = [
+                # UnitPolicy for metrics-endpoint allows scrapers to scrape Coordinator's nginx pod
+                UnitPolicy(
+                    relation=self._endpoints["metrics"],
+                    ports=[self.nginx_exporter.port],
+                )
+            ]
+
+            if self._proxy_worker_telemetry_port:
+                default_policies.append(
+                    # AppPolicy for metrics-endpoint allows scrapers to scrape through Coordinator's proxy to the
+                    # workers
+                    AppPolicy(
+                        relation=self._endpoints["metrics"],
+                        endpoints=[
+                            Endpoint(
+                                ports=[self._proxy_worker_telemetry_port]
+                                if self._proxy_worker_telemetry_port
+                                else [],
+                                methods=[Method.get],
+                                paths=[
+                                    worker_telemetry.PROXY_WORKER_TELEMETRY_PATHS[
+                                        "metrics"
+                                    ].replace("{unit}", "{*}")
+                                ],
+                            )
+                        ],
+                    )
+                )
+
             self._mesh = ServiceMeshConsumer(  # type: ignore
                 self._charm,
                 mesh_relation_name=cast(str, mesh_relation_name),
                 cross_model_mesh_provides_name=cast(str, provide_cmr_mesh_name),
                 cross_model_mesh_requires_name=cast(str, require_cmr_mesh_name),
+                policies=default_policies,  # type: ignore
             )
         elif any(
             (
@@ -864,9 +900,7 @@ class Coordinator(ops.Object):
     def _nginx_scrape_jobs(self) -> List[Dict[str, Any]]:
         """The Prometheus scrape job for Nginx."""
         job: Dict[str, Any] = {
-            "static_configs": [
-                {"targets": [f"{self.hostname}:{self.nginx.options['nginx_exporter_port']}"]}
-            ]
+            "static_configs": [{"targets": [f"{self.hostname}:{self.nginx_exporter.port}"]}]
         }
 
         return [job]
