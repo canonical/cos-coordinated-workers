@@ -1,13 +1,14 @@
 import logging
 import tempfile
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
-from typing import Tuple
-from unittest.mock import patch
+from typing import Dict, List, Tuple
+from unittest.mock import MagicMock, patch
 
 import ops
 import pytest
-from ops import testing
+from ops import pebble, testing
 
 from coordinated_workers.nginx import (
     CA_CERT_PATH,
@@ -17,6 +18,8 @@ from coordinated_workers.nginx import (
     Nginx,
     NginxConfig,
     NginxLocationConfig,
+    NginxMapConfig,
+    NginxTracingConfig,
     NginxUpstream,
 )
 
@@ -47,25 +50,23 @@ def nginx_context():
     )
 
 
-def test_certs_on_disk(certificate_mounts: dict, nginx_context: testing.Context):
+def test_certs_on_disk(certificate_mounts: dict, nginx_context: testing.Context, nginx_container):
     # GIVEN any charm with a container
     ctx = nginx_context
 
     # WHEN we process any event
     with ctx(
         ctx.on.update_status(),
-        state=testing.State(
-            containers={testing.Container("nginx", can_connect=True, mounts=certificate_mounts)}
-        ),
+        state=testing.State(containers={replace(nginx_container, mounts=certificate_mounts)}),
     ) as mgr:
         charm = mgr.charm
-        nginx = Nginx(charm, lambda: "foo_string", None)
+        nginx = Nginx(charm)
 
         # THEN the certs exist on disk
         assert nginx.are_certificates_on_disk
 
 
-def test_certs_deleted(certificate_mounts: dict, nginx_context: testing.Context):
+def test_certs_deleted(certificate_mounts: dict, nginx_context: testing.Context, nginx_container):
     # Test deleting the certificates.
 
     # GIVEN any charm with a container
@@ -75,11 +76,13 @@ def test_certs_deleted(certificate_mounts: dict, nginx_context: testing.Context)
     with ctx(
         ctx.on.update_status(),
         state=testing.State(
-            containers={testing.Container("nginx", can_connect=True, mounts=certificate_mounts)}
+            containers={
+                replace(nginx_container, mounts=certificate_mounts),
+            }
         ),
     ) as mgr:
         charm = mgr.charm
-        nginx = Nginx(charm, lambda: "foo_string", None)
+        nginx = Nginx(charm)
 
         # AND when we call delete_certificates
         nginx._delete_certificates()
@@ -88,7 +91,7 @@ def test_certs_deleted(certificate_mounts: dict, nginx_context: testing.Context)
         assert not nginx.are_certificates_on_disk
 
 
-def test_has_config_changed(nginx_context: testing.Context):
+def test_has_config_changed(nginx_context: testing.Context, nginx_container):
     # Test changing the nginx config and catching the change.
 
     # GIVEN any charm with a container and a nginx config file
@@ -103,9 +106,8 @@ def test_has_config_changed(nginx_context: testing.Context):
         ctx.on.update_status(),
         state=testing.State(
             containers={
-                testing.Container(
-                    "nginx",
-                    can_connect=True,
+                replace(
+                    nginx_container,
                     mounts={
                         "config": testing.Mount(location=NGINX_CONFIG, source=test_config.name)
                     },
@@ -114,7 +116,7 @@ def test_has_config_changed(nginx_context: testing.Context):
         ),
     ) as mgr:
         charm = mgr.charm
-        nginx = Nginx(charm, lambda: "foo_string", None)
+        nginx = Nginx(charm)
 
         # AND a unique config is added
         new_config = "bar"
@@ -156,9 +158,42 @@ def test_nginx_pebble_plan(container_name):
         ),
     ) as mgr:
         charm = mgr.charm
-        nginx = Nginx(charm, lambda: "foo_string", None, container_name=container_name)
+        nginx = Nginx(charm, container_name=container_name)
         # THEN the generated pebble layer has the container_name set as the service name
         assert nginx.layer == expected_layer
+
+
+@pytest.mark.parametrize("tls", (False, True))
+def test_nginx_pebble_checks(tls, nginx_container):
+    check_endpoint = f"http{'s' if tls else ''}://1.2.3.4/health"
+    expected_partial_service_dict = {"nginx-up": "restart"}
+
+    # GIVEN any charm with a container
+    ctx = testing.Context(
+        ops.CharmBase, meta={"name": "foo", "containers": {"nginx": {"type": "oci-image"}}}
+    )
+
+    # WHEN we process any event
+    with ctx(
+        ctx.on.update_status(),
+        state=testing.State(
+            containers={
+                nginx_container,
+            },
+        ),
+    ) as mgr:
+        charm = mgr.charm
+        # AND we pass a liveness check endpoint
+        nginx = Nginx(charm, liveness_check_endpoint_getter=lambda _: check_endpoint)
+        nginx.reconcile("mock nginx config")
+        # THEN the generated pebble layer has the expected pebble check
+        out = mgr.run()
+        layer = out.get_container("nginx").layers["nginx"]
+        actual_services = layer.services
+        actual_checks = layer.checks
+        assert actual_checks["nginx-up"].http == {"url": check_endpoint}
+        # AND the pebble layer service has a restart on check-failure
+        assert actual_services["nginx"].on_check_failure == expected_partial_service_dict
 
 
 @contextmanager
@@ -284,6 +319,123 @@ def test_generate_nginx_config_with_extra_location_directives():
         assert sample_config_path.read_text() == generated_config
 
 
+def test_location_skipped_if_no_matching_upstream():
+    upstream_configs, server_ports_to_locations = (
+        [],
+        _get_server_ports_to_locations("litmus_ssl"),
+    )
+
+    addrs_by_role = {
+        role: {"worker-address"}
+        for role in (upstream.worker_role for upstream in upstream_configs)
+    }
+    with mock_resolv_conf(f"foo bar\nnameserver {sample_dns_ip}"):
+        nginx = NginxConfig(
+            "localhost",
+            upstream_configs=upstream_configs,
+            server_ports_to_locations=server_ports_to_locations,
+            enable_health_check=False,
+            enable_status_page=False,
+        )
+        generated_config = nginx.get_config(addrs_by_role, False, root_path="/dist")
+        sample_config_path = (
+            Path(__file__).parent / "resources" / "sample_litmus_missing_upstreams_conf.txt"
+        )
+        assert sample_config_path.read_text() == generated_config
+
+
+def test_generate_nginx_config_with_tracing_enabled():
+    mock_tracing_config = NginxTracingConfig(
+        endpoint="endpoint:4317",
+        service_name="nginx-workload",
+        resource_attributes={
+            "juju_application": "nginx",
+            "juju_model": "test",
+            "juju_unit": "nginx/0",
+        },
+    )
+    upstream_configs, server_ports_to_locations = _get_nginx_config_params("litmus")
+
+    addrs_by_role = {
+        "auth": ["worker-address"],
+        "backend": ["worker-address"],
+    }
+    with mock_resolv_conf(f"foo bar\nnameserver {sample_dns_ip}"):
+        nginx = NginxConfig(
+            "localhost",
+            upstream_configs=upstream_configs,
+            server_ports_to_locations=server_ports_to_locations,
+            enable_health_check=False,
+            enable_status_page=False,
+        )
+        generated_config = nginx.get_config(
+            addrs_by_role, False, tracing_config=mock_tracing_config
+        )
+        sample_config_path = (
+            Path(__file__).parent / "resources" / "sample_litmus_conf_with_tracing.txt"
+        )
+        assert sample_config_path.read_text() == generated_config
+
+
+def test_generate_nginx_config_with_extra_http_variables():
+    upstream_configs, server_ports_to_locations = _get_nginx_config_params("litmus")
+
+    addrs_by_role = {
+        "auth": ["worker-address"],
+        "backend": ["worker-address"],
+    }
+    with mock_resolv_conf(f"foo bar\nnameserver {sample_dns_ip}"):
+        nginx = NginxConfig(
+            "localhost",
+            upstream_configs=upstream_configs,
+            server_ports_to_locations=server_ports_to_locations,
+            map_configs=[
+                NginxMapConfig(
+                    source_variable="$http_upgrade",
+                    target_variable="$connection_upgrade",
+                    value_mappings={
+                        "default": ["upgrade"],
+                        "''": ["close"],
+                    },
+                )
+            ],
+            enable_health_check=False,
+            enable_status_page=False,
+        )
+        generated_config = nginx.get_config(addrs_by_role, False)
+        sample_config_path = (
+            Path(__file__).parent
+            / "resources"
+            / "sample_litmus_conf_with_extra_http_variables.txt"
+        )
+        assert sample_config_path.read_text() == generated_config
+
+
+def test_exception_raised_if_nginx_module_missing(caplog):
+    # GIVEN an instance of Nginx class
+    mock_container = MagicMock()
+    mock_unit = MagicMock()
+    mock_charm = MagicMock()
+
+    # AND a mock container that will fail when the pebble service is started
+    mock_container.autostart = MagicMock(side_effect=pebble.ChangeError("something", MagicMock()))
+    # AND ngx_otel_module file is not found in the container
+    mock_container.exists.return_value = False
+
+    mock_unit.get_container = MagicMock(return_value=mock_container)
+    mock_charm.unit = mock_unit
+    nginx = Nginx(mock_charm)
+
+    # WHEN we call nginx.reconcile with some tracing related config
+    # THEN an exception should be raised
+    with pytest.raises(pebble.ChangeError):
+        with caplog.at_level("ERROR"):
+            nginx.reconcile(nginx_config="placeholder nginx config with ngx_otel_module")
+
+    # AND we can verify that the missing-module message is in the logs
+    assert "missing the ngx_otel_module" in caplog.text
+
+
 upstream_configs = {
     "tempo": [
         NginxUpstream("zipkin", 9411, "distributor"),
@@ -373,6 +525,14 @@ server_ports_to_locations = {
     "litmus": {
         8185: [
             NginxLocationConfig(
+                path="/",
+                extra_directives={
+                    "add_header": ["Cache-Control", "no-cache"],
+                    "try_files": ["$uri", "/index.html"],
+                    "autoindex": ["on"],
+                },
+            ),
+            NginxLocationConfig(
                 path="/auth", backend="auth", rewrite=["^/auth(/.*)$", "$1", "break"]
             ),
             NginxLocationConfig(path="/api", backend="backend"),
@@ -380,6 +540,14 @@ server_ports_to_locations = {
     },
     "litmus_ssl": {
         8185: [
+            NginxLocationConfig(
+                path="/",
+                extra_directives={
+                    "add_header": ["Cache-Control", "no-cache"],
+                    "try_files": ["$uri", "/index.html"],
+                    "autoindex": ["on"],
+                },
+            ),
             NginxLocationConfig(
                 path="/auth",
                 backend="auth",
@@ -407,4 +575,8 @@ server_ports_to_locations = {
 
 
 def _get_nginx_config_params(workload: str) -> Tuple[list, dict]:
-    return upstream_configs[workload], server_ports_to_locations[workload]
+    return upstream_configs[workload], _get_server_ports_to_locations(workload)
+
+
+def _get_server_ports_to_locations(workload: str) -> Dict[int, List[NginxLocationConfig]]:
+    return server_ports_to_locations[workload]

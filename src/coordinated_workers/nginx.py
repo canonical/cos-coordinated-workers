@@ -171,7 +171,7 @@ NGINX_DIR = "/etc/nginx"
 NGINX_CONFIG = f"{NGINX_DIR}/nginx.conf"
 KEY_PATH = f"{NGINX_DIR}/certs/server.key"
 CERT_PATH = f"{NGINX_DIR}/certs/server.cert"
-CA_CERT_PATH = "/usr/local/share/ca-certificates/ca.cert"
+CA_CERT_PATH = "/usr/local/share/ca-certificates/ca.crt"
 
 _NginxMapping = TypedDict(
     "_NginxMapping", {"nginx_port": int, "nginx_exporter_port": int}, total=True
@@ -211,11 +211,18 @@ class NginxLocationConfig:
             proxy_connect_timeout 5s;
             proxy_set_header a b;
         }
+
+    To support serving static files `backend` should be omitted. For example, NginxLocationConfig('/', extra_directives={"try_files": ["$uri", "/index.html"], "autoindex": ["on"],})
+    would result in:
+        location / {
+            try_files $uri /index.html;
+            autoindex on;
+        }
     """
 
     path: str
     """The location path (e.g., '/', '/api') to match incoming requests."""
-    backend: str
+    backend: Optional[str] = None
     """The name of the upstream service to route requests to (e.g., defined in an `upstream` block)."""
     backend_url: str = ""
     """An optional URL path to append when forwarding to the upstream (e.g., '/v1')."""
@@ -265,6 +272,44 @@ class NginxUpstream:
     """
 
 
+@dataclass
+class NginxMapConfig:
+    """Represents a `map` block of the Nginx config.
+
+    Example:
+    NginxMapConfig(
+        source_variable="$http_upgrade",
+        target_variable="$connection_upgrade",
+        value_mappings={
+            "default": ["upgrade"],
+            "''": ["close"],
+        },
+    )
+    will result in the following `map` block:
+
+    map $http_upgrade $connection_upgrade {
+        default upgrade;
+        "''" close;
+    }
+    """
+
+    source_variable: str
+    """Name of the variable to map from."""
+    target_variable: str
+    """Name of the variable to be created."""
+    value_mappings: Dict[str, List[str]]
+    """Mapping of source values to target values."""
+
+
+@dataclass
+class NginxTracingConfig:
+    """Configuration for OTel tracing in Nginx."""
+
+    endpoint: str
+    service_name: str
+    resource_attributes: Dict[str, str] = field(default_factory=lambda: {})
+
+
 class NginxConfig:
     """Responsible for building the Nginx configuration used by the coordinators."""
 
@@ -276,12 +321,30 @@ class NginxConfig:
     _supported_tls_versions = ["TLSv1", "TLSv1.1", "TLSv1.2", "TLSv1.3"]
     _ssl_ciphers = ["HIGH:!aNULL:!MD5"]
     _proxy_connect_timeout = "5s"
+    otel_module_path = "/etc/nginx/modules/ngx_otel_module.so"
+    _http_x_scope_orgid_map_config = NginxMapConfig(
+        source_variable="$http_x_scope_orgid",
+        target_variable="$ensured_x_scope_orgid",
+        value_mappings={
+            "default": ["$http_x_scope_orgid"],
+            "": ["anonymous"],
+        },
+    )
+    _logging_by_status_map_config = NginxMapConfig(
+        source_variable="$status",
+        target_variable="$loggable",
+        value_mappings={
+            "~^[23]": ["0"],
+            "default": ["1"],
+        },
+    )
 
     def __init__(
         self,
         server_name: str,
         upstream_configs: List[NginxUpstream],
         server_ports_to_locations: Dict[int, List[NginxLocationConfig]],
+        map_configs: Optional[List[NginxMapConfig]] = None,
         enable_health_check: bool = False,
         enable_status_page: bool = False,
     ):
@@ -291,28 +354,41 @@ class NginxConfig:
             server_name: The name of the server (e.g. coordinator fqdn), which is used to identify the server in Nginx configurations.
             upstream_configs: List of Nginx upstream metadata configurations used to generate Nginx `upstream` blocks.
             server_ports_to_locations: Mapping from server ports to a list of Nginx location configurations.
+            map_configs: List of extra `map` directives to be put under the `http` directive.
             enable_health_check: If True, adds a `/` location that returns a basic 200 OK response.
             enable_status_page: If True, adds a `/status` location that enables `stub_status` for basic Nginx metrics.
 
         Example:
             .. code-block:: python
             NginxConfig(
-            server_name = "tempo-coordinator-0.tempo-coordinator-endpoints.model.svc.cluster.local",
-            upstreams = [
-                NginxUpstream(name="zipkin", port=9411, worker_role="distributor"),
-            ],
-            server_ports_to_locations = {
-                9411: [
-                    NginxLocationConfig(
-                        path="/",
-                        backend="zipkin"
+                server_name = "tempo-coordinator-0.tempo-coordinator-endpoints.model.svc.cluster.local",
+                upstreams = [
+                    NginxUpstream(name="zipkin", port=9411, worker_role="distributor"),
+                ],
+                server_ports_to_locations = {
+                    9411: [
+                        NginxLocationConfig(
+                            path="/",
+                            backend="zipkin"
+                        )
+                    ]
+                },
+                map_configs=[
+                    NginxConfigVariable(
+                        source_variable="$http_upgrade",
+                        target_variable="$connection_upgrade",
+                        value_mappings={
+                            "default": ["upgrade"],
+                            "''": ["close"],
+                        },
                     )
-                ]
-            })
+                ],
+            )
         """
         self._server_name = server_name
         self._upstream_configs = upstream_configs
         self._server_ports_to_locations = server_ports_to_locations
+        self._map_configs = map_configs or []
         self._enable_health_check = enable_health_check
         self._enable_status_page = enable_status_page
         self._dns_IP_address = self._get_dns_ip_address()
@@ -356,6 +432,7 @@ class NginxConfig:
         upstreams_to_addresses: Dict[str, Set[str]],
         listen_tls: bool,
         root_path: Optional[str] = None,
+        tracing_config: Optional[NginxTracingConfig] = None,
     ) -> str:
         """Render the Nginx configuration as a string.
 
@@ -363,8 +440,12 @@ class NginxConfig:
             upstreams_to_addresses: A dictionary mapping each upstream name to a set of addresses associated with that upstream.
             listen_tls: Whether Nginx should listen for incoming traffic over TLS.
             root_path: If provided, it is used as a location where static files will be served.
+            tracing_config: Enables tracing in Nginx and exports traces to the specified endpoint if provided.
+                Note: Tracing is only available if the Nginx binary has been built with the ngx_otel_module.
         """
-        full_config = self._prepare_config(upstreams_to_addresses, listen_tls, root_path)
+        full_config = self._prepare_config(
+            upstreams_to_addresses, listen_tls, root_path, tracing_config
+        )
         return crossplane.build(full_config)  # type: ignore
 
     def _prepare_config(
@@ -372,12 +453,18 @@ class NginxConfig:
         upstreams_to_addresses: Dict[str, Set[str]],
         listen_tls: bool,
         root_path: Optional[str] = None,
+        tracing_config: Optional[NginxTracingConfig] = None,
     ) -> List[Dict[str, Any]]:
         upstreams = self._upstreams(upstreams_to_addresses)
         # extract the upstream name
         backends = [upstream["args"][0] for upstream in upstreams]
         # build the complete configuration
         full_config = [
+            *(
+                [{"directive": "load_module", "args": [self.otel_module_path]}]
+                if tracing_config
+                else []
+            ),
             {"directive": "worker_processes", "args": [self._worker_processes]},
             {"directive": "error_log", "args": ["/dev/stderr", "error"]},
             {"directive": "pid", "args": [self._pid]},
@@ -391,6 +478,7 @@ class NginxConfig:
                 "directive": "http",
                 "args": [],
                 "block": [
+                    *self._tracing_block(tracing_config),
                     # upstreams (load balancing)
                     *upstreams,
                     # temp paths
@@ -402,6 +490,11 @@ class NginxConfig:
                     {"directive": "fastcgi_temp_path", "args": ["/tmp/fastcgi_temp"]},
                     {"directive": "uwsgi_temp_path", "args": ["/tmp/uwsgi_temp"]},
                     {"directive": "scgi_temp_path", "args": ["/tmp/scgi_temp"]},
+                    # include mime types so nginx can map file extensions correctly.
+                    # Without this, files may fall back to "application/octet-stream",
+                    # and when Nginx serves static files, browsers may download them
+                    # instead of rendering (e.g., JS, CSS, SVG).
+                    {"directive": "include", "args": ["/etc/nginx/mime.types"]},
                     # logging
                     {"directive": "default_type", "args": ["application/octet-stream"]},
                     {
@@ -411,19 +504,14 @@ class NginxConfig:
                             '$remote_addr - $remote_user [$time_local]  $status "$request" $body_bytes_sent "$http_referer" "$http_user_agent" "$http_x_forwarded_for"',
                         ],
                     },
-                    *self._log_verbose(verbose=False),
+                    *[self._build_map(variable) for variable in self._map_configs],
+                    self._build_map(self._logging_by_status_map_config),
+                    {"directive": "access_log", "args": ["/dev/stderr"]},
                     {"directive": "sendfile", "args": ["on"]},
                     {"directive": "tcp_nopush", "args": ["on"]},
                     *self._resolver(),
                     # TODO: add custom http block for the user to config?
-                    {
-                        "directive": "map",
-                        "args": ["$http_x_scope_orgid", "$ensured_x_scope_orgid"],
-                        "block": [
-                            {"directive": "default", "args": ["$http_x_scope_orgid"]},
-                            {"directive": "", "args": ["anonymous"]},
-                        ],
-                    },
+                    self._build_map(self._http_x_scope_orgid_map_config),
                     {"directive": "proxy_read_timeout", "args": [self._proxy_read_timeout]},
                     # server block
                     *self._build_servers_config(backends, listen_tls, root_path),
@@ -432,20 +520,16 @@ class NginxConfig:
         ]
         return full_config
 
-    def _log_verbose(self, verbose: bool = True) -> List[Dict[str, Any]]:
-        if verbose:
-            return [{"directive": "access_log", "args": ["/dev/stderr", "main"]}]
-        return [
-            {
-                "directive": "map",
-                "args": ["$status", "$loggable"],
-                "block": [
-                    {"directive": "~^[23]", "args": ["0"]},
-                    {"directive": "default", "args": ["1"]},
-                ],
-            },
-            {"directive": "access_log", "args": ["/dev/stderr"]},
-        ]
+    @staticmethod
+    def _build_map(variable: NginxMapConfig) -> Dict[str, Any]:
+        return {
+            "directive": "map",
+            "args": [variable.source_variable, variable.target_variable],
+            "block": [
+                {"directive": directive, "args": args}
+                for directive, args in variable.value_mappings.items()
+            ],
+        }
 
     def _resolver(
         self,
@@ -618,6 +702,26 @@ class NginxConfig:
             )
 
         for location in locations:
+            # Handle locations without backend, i.e. serving static files
+            if not location.backend:
+                nginx_locations.append(
+                    {
+                        "directive": "location",
+                        "args": (
+                            [location.path]
+                            if location.modifier == ""
+                            else [location.modifier, location.path]
+                        ),
+                        "block": [
+                            *self._rewrite_block(location.rewrite),
+                            # add headers if any
+                            *self._headers_block(location.headers),
+                            # add extra config directives if any
+                            *self._extra_directives_block(location.extra_directives),
+                        ],
+                    }
+                )
+            # Handle locations with corresponding backends
             # don't add a location block if the upstream backend doesn't exist in the config
             if location.backend in backends:
                 # if upstream_tls is explicitly set for this location, use that; otherwise, use the server's listen_tls setting.
@@ -640,11 +744,7 @@ class NginxConfig:
                                     f"{protocol}://{location.backend}{location.backend_url}",
                                 ],
                             },
-                            *(
-                                [{"directive": "rewrite", "args": location.rewrite}]
-                                if location.rewrite
-                                else []
-                            ),
+                            *self._rewrite_block(location.rewrite),
                             {
                                 "directive": "grpc_pass" if grpc else "proxy_pass",
                                 "args": ["$backend"],
@@ -655,28 +755,37 @@ class NginxConfig:
                                 "args": [self._proxy_connect_timeout],
                             },
                             # add headers if any
-                            *(
-                                [
-                                    {"directive": "proxy_set_header", "args": [key, val]}
-                                    for key, val in location.headers.items()
-                                ]
-                                if location.headers
-                                else []
-                            ),
+                            *self._headers_block(location.headers),
                             # add extra config directives if any
-                            *(
-                                [
-                                    {"directive": key, "args": val}
-                                    for key, val in location.extra_directives.items()
-                                ]
-                                if location.extra_directives
-                                else []
-                            ),
+                            *self._extra_directives_block(location.extra_directives),
                         ],
                     }
                 )
 
         return nginx_locations
+
+    @staticmethod
+    def _extra_directives_block(
+        extra_directives: Optional[Dict[str, List[str]]],
+    ) -> List[Optional[Dict[str, Any]]]:
+        if extra_directives:
+            return [{"directive": key, "args": val} for key, val in extra_directives.items()]
+        return []
+
+    @staticmethod
+    def _headers_block(headers: Optional[Dict[str, str]]) -> List[Optional[Dict[str, Any]]]:
+        if headers:
+            return [
+                {"directive": "proxy_set_header", "args": [key, val]}
+                for key, val in headers.items()
+            ]
+        return []
+
+    @staticmethod
+    def _rewrite_block(rewrite: Optional[List[str]]) -> List[Optional[Dict[str, Any]]]:
+        if rewrite:
+            return [{"directive": "rewrite", "args": rewrite}]
+        return []
 
     def _root_path(self, root_path: Optional[str] = None) -> List[Optional[Dict[str, Any]]]:
         if root_path:
@@ -718,6 +827,29 @@ class NginxConfig:
             args.append("ssl")
         return args
 
+    def _tracing_block(self, tracing_config: Optional[NginxTracingConfig]) -> List[Dict[str, Any]]:
+        return (
+            [
+                {"directive": "otel_trace", "args": ["on"]},
+                # propagate the trace context headers
+                {"directive": "otel_trace_context", "args": ["propagate"]},
+                {
+                    "directive": "otel_exporter",
+                    "args": [],
+                    "block": [{"directive": "endpoint", "args": [tracing_config.endpoint]}],
+                },
+                {"directive": "otel_service_name", "args": [tracing_config.service_name]},
+                *(
+                    [
+                        {"directive": "otel_resource_attr", "args": [attr_key, attr_val]}
+                        for attr_key, attr_val in tracing_config.resource_attributes.items()
+                    ]
+                ),
+            ]
+            if tracing_config
+            else []
+        )
+
 
 class Nginx:
     """Helper class to manage the nginx workload."""
@@ -728,17 +860,16 @@ class Nginx:
     def __init__(
         self,
         charm: CharmBase,
-        config_getter: Callable[[bool], str],
-        tls_config_getter: Callable[[], Optional[TLSConfig]],
         options: Optional[NginxMappingOverrides] = None,
         container_name: str = "nginx",
+        liveness_check_endpoint_getter: Optional[Callable[[bool], str]] = None,
     ):
         self._charm = charm
-        self._config_getter = config_getter
-        self._tls_config_getter = tls_config_getter
         self._container_name = container_name
         self._container = self._charm.unit.get_container(container_name)
         self.options.update(options or {})
+        self._liveness_check_endpoint_getter = liveness_check_endpoint_getter
+        self._liveness_check_name = f"{self._container_name}-up"
 
     @property
     def are_certificates_on_disk(self) -> bool:
@@ -781,9 +912,8 @@ class Nginx:
             self._container.push(KEY_PATH, private_key, make_dirs=True)
             self._container.push(CERT_PATH, server_cert, make_dirs=True)
             self._container.push(CA_CERT_PATH, ca_cert, make_dirs=True)
-
-            # TODO: uncomment when/if the nginx image contains the ca-certificates package
-            # self._container.exec(["update-ca-certificates", "--fresh"])
+            logger.debug("running update-ca-certificates")
+            self._container.exec(["update-ca-certificates", "--fresh"]).wait()
 
     def _delete_certificates(self) -> None:
         """Delete the certificate files from disk and run update-ca-certificates."""
@@ -795,9 +925,8 @@ class Nginx:
             for path in (CERT_PATH, KEY_PATH, CA_CERT_PATH):
                 if self._container.exists(path):
                     self._container.remove_path(path, recursive=True)
-
-            # TODO: uncomment when/if the nginx image contains the ca-certificates package
-            # self._container.exec(["update-ca-certificates", "--fresh"])
+            logger.debug("running update-ca-certificates")
+            self._container.exec(["update-ca-certificates", "--fresh"]).wait()
 
     def _has_config_changed(self, new_config: str) -> bool:
         """Return True if the passed config differs from the one on disk."""
@@ -817,14 +946,18 @@ class Nginx:
 
         return current_config != new_config
 
-    def reconcile(self):
+    def reconcile(
+        self,
+        nginx_config: str,
+        tls_config: Optional[TLSConfig] = None,
+    ):
         """Configure pebble layer and restart if necessary."""
         if self._container.can_connect():
-            self._reconcile_tls_config()
-            self._reconcile_nginx_config()
+            self._reconcile_tls_config(tls_config)
+            self._reconcile_nginx_config(nginx_config)
 
-    def _reconcile_tls_config(self):
-        if tls_config := self._tls_config_getter():
+    def _reconcile_tls_config(self, tls_config: Optional[TLSConfig] = None):
+        if tls_config:
             self._configure_tls(
                 server_cert=tls_config.server_cert,
                 ca_cert=tls_config.ca_cert,
@@ -833,17 +966,26 @@ class Nginx:
         else:
             self._delete_certificates()
 
-    def _reconcile_nginx_config(self):
-        new_config = self._config_getter(self.are_certificates_on_disk)
-        should_restart = self._has_config_changed(new_config)
-        self._container.push(self.config_path, new_config, make_dirs=True)  # type: ignore
+    def _reconcile_nginx_config(self, nginx_config: str):
+        should_restart = self._has_config_changed(nginx_config)
+        self._container.push(self.config_path, nginx_config, make_dirs=True)  # type: ignore
         self._container.add_layer("nginx", self.layer, combine=True)
-        self._container.autostart()
-
+        try:
+            self._container.autostart()
+        except pebble.ChangeError:
+            # check if we're trying to load an external nginx module, but it doesn't exist in the nginx image
+            if "ngx_otel_module" in nginx_config and not self._container.exists(
+                NginxConfig.otel_module_path
+            ):
+                logger.exception(
+                    "Failed to enable tracing for nginx. The nginx image is missing the ngx_otel_module."
+                )
+            # otherwise, it's an unexpected error and we should raise it as is
+            raise
         if should_restart:
             logger.info("new nginx config: restarting the service")
             # Reload the nginx config without restarting the service
-            self._container.exec(["nginx", "-s", "reload"])
+            self._container.exec(["nginx", "-s", "reload"]).wait()
 
     @property
     def layer(self) -> pebble.Layer:
@@ -852,16 +994,41 @@ class Nginx:
             {
                 "summary": "nginx layer",
                 "description": "pebble config layer for Nginx",
-                "services": {
-                    self._container_name: {
-                        "override": "replace",
-                        "summary": "nginx",
-                        "command": "nginx -g 'daemon off;'",
-                        "startup": "enabled",
-                    }
-                },
+                "services": {self._container_name: self._service_dict},
+                "checks": {self._liveness_check_name: self._check_dict}
+                if self._liveness_check_endpoint_getter
+                else {},
             }
         )
+
+    @property
+    def _service_dict(self) -> pebble.ServiceDict:
+        service_dict: pebble.ServiceDict = {
+            "override": "replace",
+            "summary": "nginx",
+            "command": "nginx -g 'daemon off;'",
+            "startup": "enabled",
+        }
+        if self._liveness_check_endpoint_getter:
+            # we've observed that nginx sometimes doesn't get reloaded after a config change.
+            # Probably a race condition if we change the config too quickly, while the workers are
+            # already reloading because of a previous config change.
+            # To counteract this, we rely on the pebble health check: if this check fails,
+            # pebble will automatically restart the nginx service.
+            service_dict["on-check-failure"] = {self._liveness_check_name: "restart"}
+        return service_dict
+
+    @property
+    def _check_dict(self) -> pebble.CheckDict:
+        if not self._liveness_check_endpoint_getter:
+            return {}
+
+        return {
+            "override": "replace",
+            "startup": "enabled",
+            "threshold": 3,
+            "http": {"url": self._liveness_check_endpoint_getter(self.are_certificates_on_disk)},
+        }
 
 
 class NginxPrometheusExporter:

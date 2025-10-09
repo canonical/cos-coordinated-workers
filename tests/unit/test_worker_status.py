@@ -78,7 +78,7 @@ def ctx(tls):
                 {"cluster": "cluster"},
                 readiness_check_endpoint=self._readiness_check_endpoint,
                 resources_requests=lambda _: {"cpu": "50m", "memory": "100Mi"},
-                container_name="workload",
+                container_name="nginx",
             )
 
         def _readiness_check_endpoint(self, _):

@@ -1,3 +1,4 @@
+load_module /etc/nginx/modules/ngx_otel_module.so;
 worker_processes 5;
 error_log /dev/stderr error;
 pid /tmp/nginx.pid;
@@ -6,6 +7,15 @@ events {
     worker_connections 4096;
 }
 http {
+    otel_trace on;
+    otel_trace_context propagate;
+    otel_exporter {
+        endpoint endpoint:4317;
+    }
+    otel_service_name nginx-workload;
+    otel_resource_attr juju_application nginx;
+    otel_resource_attr juju_model test;
+    otel_resource_attr juju_unit nginx/0;
     upstream auth {
         zone auth_zone 64k;
         server worker-address:3000 resolve;

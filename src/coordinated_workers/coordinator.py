@@ -467,6 +467,15 @@ class Coordinator(ops.Object):
         # reconcile workloads
         self._reconcile_worker_telemetry()  # keep this above nginx.reconcile() since it modifies the nginx config
         self.nginx.reconcile()
+        self.nginx.reconcile(
+            nginx_config=self._nginx_config.get_config(
+                upstreams_to_addresses=self.cluster.gather_addresses_by_role(),
+                listen_tls=self.tls_available,
+                # TODO: pass tracing_config once https://github.com/canonical/cos-coordinated-workers/issues/77 is addressed
+                tracing_config=None,
+            ),
+            tls_config=self.tls_config,
+        )
         self.nginx_exporter.reconcile()
 
         # reconcile relations
