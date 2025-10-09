@@ -409,30 +409,38 @@ class Coordinator(ops.Object):
                 require_cmr_mesh_name := self._endpoints.get("service-mesh-require-cmr-mesh"),
             )
         ):
-            self._mesh = ServiceMeshConsumer(  # type: ignore
-                self._charm,
-                mesh_relation_name=cast(str, mesh_relation_name),
-                cross_model_mesh_provides_name=cast(str, provide_cmr_mesh_name),
-                cross_model_mesh_requires_name=cast(str, require_cmr_mesh_name),
-                policies=[
+            default_policies = [
+                # UnitPolicy for metrics-endpoint allows scrapers to scrape Coordinator's nginx pod
+                UnitPolicy(
+                    relation=self._endpoints["metrics"],
+                    ports=[self.nginx_exporter.port],
+                )
+            ]
+
+            if self._proxy_worker_telemetry_port:
+                default_policies.append(
                     # AppPolicy for metrics-endpoint allows scrapers to scrape through Coordinator's proxy to the
                     # workers
                     AppPolicy(
                         relation=self._endpoints["metrics"],
                         endpoints=[
                             Endpoint(
-                                ports=[self._proxy_worker_telemetry_port] if self._proxy_worker_telemetry_port else [],
+                                ports=[self._proxy_worker_telemetry_port]
+                                if self._proxy_worker_telemetry_port
+                                else [],
                                 methods=[Method.get],
                                 paths=["/proxy/worker/{*}/metrics"],
                             )
                         ],
-                    ),
-                    # UnitPolicy for metrics-endpoint allows scrapers to scrape Coordinator's nginx pod
-                    UnitPolicy(
-                        relation=self._endpoints["metrics"],
-                        ports=[self.nginx_exporter.exporter_port],
                     )
-                ],
+                )
+
+            self._mesh = ServiceMeshConsumer(  # type: ignore
+                self._charm,
+                mesh_relation_name=cast(str, mesh_relation_name),
+                cross_model_mesh_provides_name=cast(str, provide_cmr_mesh_name),
+                cross_model_mesh_requires_name=cast(str, require_cmr_mesh_name),
+                policies=default_policies,
             )
         elif any(
             (
@@ -888,7 +896,7 @@ class Coordinator(ops.Object):
         """The Prometheus scrape job for Nginx."""
         job: Dict[str, Any] = {
             "static_configs": [
-                {"targets": [f"{self.hostname}:{self.nginx.options['nginx_exporter_port']}"]}
+                {"targets": [f"{self.hostname}:{self.nginx_exporter.port}"]}
             ]
         }
 

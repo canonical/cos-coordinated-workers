@@ -891,7 +891,7 @@ class NginxPrometheusExporter:
         )
 
     @property
-    def exporter_port(self) -> int:
+    def port(self) -> int:
         """Return the port where the nginx prometheus exporter is listening to present the metrics.
 
         This is the port at which an external application would scrape /metrics.
@@ -910,7 +910,7 @@ class NginxPrometheusExporter:
                     "nginx-prometheus-exporter": {
                         "override": "replace",
                         "summary": "nginx prometheus exporter",
-                        "command": f"nginx-prometheus-exporter --no-nginx.ssl-verify --web.listen-address=:{self.exporter_port}  --nginx.scrape-uri={scheme}://127.0.0.1:{self.options['nginx_port']}/status",
+                        "command": f"nginx-prometheus-exporter --no-nginx.ssl-verify --web.listen-address=:{self.port}  --nginx.scrape-uri={scheme}://127.0.0.1:{self.options['nginx_port']}/status",
                         "startup": "enabled",
                     }
                 },

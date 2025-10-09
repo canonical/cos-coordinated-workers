@@ -1,7 +1,6 @@
 """Test the coordinated-worker deploys correctly to a service mesh."""
 
 import logging
-from dataclasses import asdict
 
 import lightkube
 import pytest
@@ -11,7 +10,7 @@ from helpers import (
     assert_request_returns_http_code,
     deploy_coordinated_worker_solution,
 )
-from jubilant import Juju, all_active, all_blocked
+from jubilant import Juju, all_active
 from lightkube.resources.core_v1 import Pod
 from pytest_jubilant.main import TempModelFactory
 
