@@ -323,11 +323,27 @@ class Coordinator(ops.Object):
             worker_ports=worker_ports,
         )
 
+        self.nginx = Nginx(
+            self._charm,
+            options=nginx_options,
+        )
+        self.nginx_exporter = NginxPrometheusExporter(self._charm, options=nginx_options)
+
         self._certificates = TLSCertificatesRequiresV4(
             self._charm,
             relationship_name=self._endpoints["certificates"],
             certificate_requests=[self._certificate_request_attributes],
         )
+
+        self._upstreams_to_addresses = self.cluster.gather_addresses_by_role()
+        self._proxy_worker_telemetry_port: Optional[int] = None
+        # keep below _certificates as tls_available check needs _certificates
+        if worker_telemetry_proxy_config:
+            self._proxy_worker_telemetry_port = (
+                worker_telemetry_proxy_config.https_port
+                if self.tls_available
+                else worker_telemetry_proxy_config.http_port
+            )
 
         self.s3_requirer = S3Requirer(self._charm, self._endpoints["s3"])
         self.datasource_exchange = DatasourceExchange(
@@ -354,6 +370,13 @@ class Coordinator(ops.Object):
             relation_name=self._endpoints["logging"],
             alert_rules_path=str(CONSOLIDATED_LOGS_ALERT_RULES_PATH),
         )
+        self._scraping = MetricsEndpointProvider(
+            self._charm,
+            relation_name=self._endpoints["metrics"],
+            alert_rules_path=str(CONSOLIDATED_METRICS_ALERT_RULES_PATH),
+            jobs=self._scrape_jobs,
+            external_url=self._external_url,
+        )
         self.charm_tracing = TracingEndpointRequirer(
             self._charm,
             relation_name=self._endpoints["charm-tracing"],
@@ -363,35 +386,6 @@ class Coordinator(ops.Object):
             self._charm,
             relation_name=self._endpoints["workload-tracing"],
             protocols=workload_tracing_protocols,
-        )
-
-        self._upstreams_to_addresses = self.cluster.gather_addresses_by_role()
-
-        self._proxy_worker_telemetry_port: Optional[int] = None
-        if worker_telemetry_proxy_config:
-            self._proxy_worker_telemetry_port = (
-                worker_telemetry_proxy_config.https_port
-                if self.tls_available
-                else worker_telemetry_proxy_config.http_port
-            )
-
-        # NOTE: setup nginx after tracing requirers as it uses logging and tracing endpoints
-        # for config building
-        self.nginx = Nginx(
-            self._charm,
-            config_getter=partial(self._nginx_config.get_config, self._upstreams_to_addresses),
-            tls_config_getter=lambda: self.tls_config,
-            options=nginx_options,
-        )
-        self.nginx_exporter = NginxPrometheusExporter(self._charm, options=nginx_options)
-
-        # NOTE: setup metrics after nginx as scrape jobs include nginx scrape jobs as well
-        self._scraping = MetricsEndpointProvider(
-            self._charm,
-            relation_name=self._endpoints["metrics"],
-            alert_rules_path=str(CONSOLIDATED_METRICS_ALERT_RULES_PATH),
-            jobs=self._scrape_jobs,
-            external_url=self._external_url,
         )
 
         # Resources patch
@@ -465,11 +459,10 @@ class Coordinator(ops.Object):
         self._setup_charm_tracing()
 
         # reconcile workloads
-        self._reconcile_worker_telemetry()  # keep this above nginx.reconcile() since it modifies the nginx config
-        self.nginx.reconcile()
+        self._reconcile_worker_telemetry()  # keep this above nginx.reconcile() since it modifies the nginx config and upstreams
         self.nginx.reconcile(
             nginx_config=self._nginx_config.get_config(
-                upstreams_to_addresses=self.cluster.gather_addresses_by_role(),
+                upstreams_to_addresses=self._upstreams_to_addresses,
                 listen_tls=self.tls_available,
                 # TODO: pass tracing_config once https://github.com/canonical/cos-coordinated-workers/issues/77 is addressed
                 tracing_config=None,

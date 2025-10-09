@@ -110,6 +110,8 @@ def mock_coordinator_reconcile_charm_labels(request):
     else:
         with patch("coordinated_workers.coordinator.reconcile_charm_labels") as mocked:
             yield mocked
+
+
 @pytest.fixture
 def nginx_container():
     return Container(

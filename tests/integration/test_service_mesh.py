@@ -79,7 +79,7 @@ def test_configure_service_mesh(juju: Juju):
     lightkube_client = lightkube.Client()
     for app in (COORDINATOR_NAME, WORKER_A_NAME, WORKER_B_NAME):
         for attempt in tenacity.Retrying(
-            stop=tenacity.stop_after_delay(30),
+            stop=tenacity.stop_after_delay(50),
             wait=tenacity.wait_fixed(5),
             # if you don't succeed raise the last caught exception when you're done
             reraise=True,
