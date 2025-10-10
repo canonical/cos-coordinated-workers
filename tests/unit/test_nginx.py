@@ -395,7 +395,7 @@ def test_generate_nginx_config_with_extra_http_variables():
                     target_variable="$connection_upgrade",
                     value_mappings={
                         "default": ["upgrade"],
-                        "''": ["close"],
+                        "": ["close"],
                     },
                 )
             ],

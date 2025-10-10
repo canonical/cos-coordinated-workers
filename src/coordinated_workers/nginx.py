@@ -280,14 +280,14 @@ class NginxMapConfig:
         target_variable="$connection_upgrade",
         value_mappings={
             "default": ["upgrade"],
-            "''": ["close"],
+            "": ["close"],
         },
     )
     will result in the following `map` block:
 
     map $http_upgrade $connection_upgrade {
         default upgrade;
-        "''" close;
+        '' close;
     }
     """
 
@@ -372,12 +372,12 @@ class NginxConfig:
                     ]
                 },
                 map_configs=[
-                    NginxConfigVariable(
+                    NginxMapConfig(
                         source_variable="$http_upgrade",
                         target_variable="$connection_upgrade",
                         value_mappings={
                             "default": ["upgrade"],
-                            "''": ["close"],
+                            "": ["close"],
                         },
                     )
                 ],
