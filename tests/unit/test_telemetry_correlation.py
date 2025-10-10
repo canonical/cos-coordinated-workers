@@ -22,23 +22,23 @@ def charm():
             },
             "provides": {
                 "my-grafana-source": {"interface": "grafana_dashboard"},
-                "my-ds-exchange-provide": {"interface": "grafana_datasource_exchange"},
+                "my-ds-exchange": {"interface": "grafana_datasource_exchange"},
             },
         }
 
         def __init__(self, framework: ops.Framework):
             super().__init__(framework)
             self._telemetry_correlation = TelemetryCorrelation(
-                charm=self,
-                grafana_ds_endpoint="my-grafana-source",
-                grafana_dsx_endpoint="my-ds-exchange-provide",
+                app_name=self.app.name,
+                grafana_source_relations=self.model.relations["my-grafana-source"],
+                datasource_exchange_relations=self.model.relations["my-ds-exchange"],
             )
 
-        def get_correlated_datasource(self, endpoint=None):
+        def get_correlated_datasource(self, endpoint_relations=None):
             return self._telemetry_correlation.find_correlated_datasource(
                 datasource_type="prometheus",
                 correlation_feature="traces-to-metrics",
-                endpoint=endpoint,
+                endpoint_relations=endpoint_relations,
             )
 
     return MyCorrelationCharm
@@ -71,7 +71,7 @@ def _grafana_datasource_exchange_relation(
     ],
 ):
     return Relation(
-        "my-ds-exchange-provide",
+        "my-ds-exchange",
         remote_app_name=remote_name,
         remote_app_data={"datasources": json.dumps(datasources)},
     )
@@ -178,8 +178,10 @@ def test_no_matching_datasource_with_endpoint(context):
     with context(context.on.update_status(), state_in) as mgr:
         mgr.run()
         charm = mgr.charm
-        # AND we call find_correlated_datasource with an additional endpoint to filter datasources with
-        correlated_datasource = charm.get_correlated_datasource(endpoint="my-custom-endpoint")
+        # AND we call find_correlated_datasource with additional endpoint_relations to filter datasources with
+        correlated_datasource = charm.get_correlated_datasource(
+            endpoint_relations=charm.model.relations["my-custom-endpoint"]
+        )
         # THEN no matching datasources are found
         assert not correlated_datasource
 
@@ -221,8 +223,10 @@ def test_matching_datasource_found_with_endpoint(context):
     with context(context.on.update_status(), state_in) as mgr:
         mgr.run()
         charm = mgr.charm
-        # AND we call find_correlated_datasource with an additional endpoint to filter datasources with
-        correlated_datasource = charm.get_correlated_datasource(endpoint="my-custom-endpoint")
+        # AND we call find_correlated_datasource with additional endpoint_relations to filter datasources with
+        correlated_datasource = charm.get_correlated_datasource(
+            endpoint_relations=charm.model.relations["my-custom-endpoint"]
+        )
         # THEN we find a matching datasource
         assert correlated_datasource
         # AND this datasource.uid matches the one we obtain from ds-exchange
