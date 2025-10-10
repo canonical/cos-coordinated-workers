@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pydantic
 import pytest
-import yaml
 
 from probes.cluster_consistency import bundle
 
@@ -39,9 +38,8 @@ def check_bundle(bndl, worker_charm):
     )
 
 
-
 @pytest.fixture(params=("tempo", "foobar-k8s"))
-def worker_charm(request:pytest.FixtureRequest):
+def worker_charm(request: pytest.FixtureRequest):
     return request.param
 
 
@@ -60,16 +58,13 @@ def base_bundle(worker_charm):
     return {
         "bundle": "kubernetes",
         "applications": {
-            coordinator_name: {
-                "charm": "coordinator",
-                "scale": 1,
-                "options": {}
-            },
-            **workers
+            coordinator_name: {"charm": "coordinator", "scale": 1, "options": {}},
+            **workers,
         },
         "relations": [
-            [f"{coordinator_name}:something-cluster", f"{worker}:something-cluster"] for worker in worker_names
-        ]
+            [f"{coordinator_name}:something-cluster", f"{worker}:something-cluster"]
+            for worker in worker_names
+        ],
     }
 
 
@@ -86,14 +81,14 @@ def test_bundle_less_ingesters(base_bundle, worker_charm):
     ]
 
 
-def test_bundle_missing_queriers(base_bundle,worker_charm):
+def test_bundle_missing_queriers(base_bundle, worker_charm):
     del base_bundle["applications"][f"{worker_charm}-querier"]
     with pytest.raises(RuntimeError) as exc:
         check_bundle(base_bundle, worker_charm)
     assert exc.value.args[1] == [f"{worker_charm} deployment is missing required role: querier"]
 
 
-def test_bundle_all_roles(base_bundle,worker_charm):
+def test_bundle_all_roles(base_bundle, worker_charm):
     del base_bundle["applications"][f"{worker_charm}-querier"]
     del base_bundle["applications"][f"{worker_charm}-metrics-generator"]
 
@@ -105,7 +100,7 @@ def test_bundle_all_roles(base_bundle,worker_charm):
     check_bundle(base_bundle, worker_charm)
 
 
-def test_bundle_all_only(base_bundle,worker_charm):
+def test_bundle_all_only(base_bundle, worker_charm):
     all_worker = base_bundle["applications"].pop(f"{worker_charm}-querier")
     # replace all applications with a single scale-3 ALL worker
     all_worker["scale"] = 3
@@ -115,7 +110,7 @@ def test_bundle_all_only(base_bundle,worker_charm):
     check_bundle(base_bundle, worker_charm)
 
 
-def test_bundle_all_but_too_few(base_bundle,worker_charm):
+def test_bundle_all_but_too_few(base_bundle, worker_charm):
     all_worker = base_bundle["applications"].pop(f"{worker_charm}-querier")
     # replace all applications with a single scale-2 ALL worker
     all_worker["scale"] = 2

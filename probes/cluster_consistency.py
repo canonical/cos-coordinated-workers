@@ -118,9 +118,7 @@ def bundle(
             errors.extend(_errors)
 
         if not charm_found:
-            raise RuntimeError(
-                f"worker_charm {worker_charm!r} not found in the bundle"
-            )
+            raise RuntimeError(f"worker_charm {worker_charm!r} not found in the bundle")
 
     # now we check if each recommended role, is satisfied by the explicitly counted roles
     for role in recommended_deployment:
