@@ -99,10 +99,6 @@ def bundle(
     for bndl in bundles.values():
         for app_name, app in bndl["applications"].items():
             charm = app["charm"]
-            if charm.startswith("local:"):
-                # in bundle export, the charm name looks like: local:tempo-worker-k8s-1
-                # for whatever reason
-                charm = "-".join(charm.split(":")[1].split("-")[:-1])
             if charm != worker_charm:
                 continue
             charm_found = True
