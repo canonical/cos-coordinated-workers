@@ -48,6 +48,7 @@ class _WorkerTelemetryNginxConfigSpec:
     location_upstream_tls: bool
     location_modifier: Optional[str] = None
     location_rewrite: Optional[List[str]] = None
+    extra_directives: Optional[Dict[str, List[str]]] = None
     is_grpc: bool = False
 
 
@@ -271,6 +272,9 @@ def _generate_nginx_config_from_spec(
         if spec.location_rewrite:
             location_kwargs["rewrite"] = spec.location_rewrite  # type: ignore
 
+        if spec.extra_directives:
+            location_kwargs["extra_directives"] = spec.extra_directives  # type: ignore
+
         locations.append(NginxLocationConfig(**location_kwargs))  # type: ignore
 
     return upstreams, locations
@@ -298,6 +302,11 @@ def _generate_worker_metrics_nginx_config(
                 location_backend_url="/metrics",
                 location_upstream_tls=tls_available,
                 location_modifier="=",
+                # force http1.1 especially to support modern service meshes
+                extra_directives={
+                    "proxy_http_version": ["1.1"],
+                    "proxy_set_header": ["Connection", ""],
+                },
             )
         )
 
@@ -330,6 +339,11 @@ def _generate_remote_write_endpoints_nginx_config(
                 location_backend_url=parsed_address.path,
                 location_upstream_tls=parsed_address.scheme.endswith("s"),
                 location_modifier="=",
+                # force http1.1 especially to support modern service meshes
+                extra_directives={
+                    "proxy_http_version": ["1.1"],
+                    "proxy_set_header": ["Connection", ""],
+                },
             )
         )
 
@@ -358,6 +372,11 @@ def _generate_loki_endpoints_nginx_config(
                 location_backend_url=parsed_address.path,
                 location_upstream_tls=parsed_address.scheme.endswith("s"),
                 location_modifier="=",
+                # force http1.1 especially to support modern service meshes
+                extra_directives={
+                    "proxy_http_version": ["1.1"],
+                    "proxy_set_header": ["Connection", ""],
+                },
             )
         )
 
@@ -395,6 +414,11 @@ def _generate_tracing_urls_nginx_config(
                     location_backend_url=parsed_address.path,
                     location_upstream_tls=parsed_address.scheme.endswith("s"),
                     location_rewrite=[f"^{location_path}(.*)", "/$1", "break"],
+                    # force http1.1 especially to support modern service meshes
+                    extra_directives={
+                        "proxy_http_version": ["1.1"],
+                        "proxy_set_header": ["Connection", ""],
+                    },
                 )
             )
 
