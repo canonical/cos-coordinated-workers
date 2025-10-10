@@ -99,10 +99,10 @@ def _get_policy_resource_manager(
     """Return a PolicyResourceManager for the given mesh_type."""
     return PolicyResourceManager(
         charm=charm,
-        lightkube_client=Client(field_manager=charm.app.name),  # type: ignore
+        lightkube_client=Client(field_manager=f"{charm.app.name}-{charm.model.name}"),  # type: ignore
         labels={
-            "app.kubernetes.io/instance": f"{charm.app.name}",
-            "kubernetes-resource-handler-scope": f"{charm.app.name}-cluster-internal",
+            "app.kubernetes.io/instance": f"{charm.app.name}-{charm.model.name}",
+            "kubernetes-resource-handler-scope": f"{charm.app.name}-{charm.model.name}-cluster-internal",
         },
         logger=logger,
     )
