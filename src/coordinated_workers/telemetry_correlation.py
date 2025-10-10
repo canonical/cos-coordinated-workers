@@ -19,72 +19,66 @@ logger = logging.getLogger(__name__)
 
 
 class TelemetryCorrelation:
-    """Manages telemetry correlations between this charm's datasource and those obtained through datasource_exchange."""
+    """Manages telemetry correlations between this charm's datasource and those obtained through grafana_datasource_exchange."""
 
     def __init__(
         self,
-        charm: ops.CharmBase,
-        grafana_ds_endpoint: str,
-        grafana_dsx_endpoint: str,
+        app_name: str,
+        grafana_source_relations: List[ops.Relation],
+        datasource_exchange_relations: List[ops.Relation],
     ):
-        self._charm = charm
-        self._grafana_ds_endpoint = grafana_ds_endpoint
-        self._grafana_dsx_endpoint = grafana_dsx_endpoint
+        self._app_name = app_name
+        self._grafana_source_relations = grafana_source_relations
+        self._datasource_exchange_relations = datasource_exchange_relations
 
     def find_correlated_datasource(
         self,
         datasource_type: str,
         correlation_feature: str,
-        endpoint: Optional[str] = None,
+        endpoint_relations: Optional[List[ops.Relation]] = None,
     ) -> Optional[GrafanaDatasource]:
-        """Find a datasource (from datasource_exchange) that should be correlated with this charm's datasource.
+        """Find a datasource (from grafana_datasource_exchange) that should be correlated with this charm's datasource.
 
         The correlated datasource is one of type `datasource_type`, connected to the
-        same grafana instance(s) as this charm. If `endpoint` is provided, the search is
-        narrowed down to datasources that this charm is related to over this `endpoint`.
+        same grafana instance(s) as this charm. If `endpoint_relations` is provided, the search is
+        narrowed down to datasources that this charm is also related to through those specific `endpoint_relations`.
 
         Args:
             datasource_type: The type of the datasource to correlate with (e.g. "loki")
             correlation_feature: The correlation feature being configured (e.g. "traces-to-logs")
-            endpoint: Optional relation endpoint (e.g. "send-remote-write") to narrow down
-                the search to a datasource that this charm is related to over this endpoint
+            endpoint_relations: Optional extra filter to narrow the search to datasources integrated
+                with this charm also through the specified endpoint relations. If not provided, this filter
+                is ignored when choosing the correlated datasource.
 
         Returns:
             The correlated Grafana datasource if found, otherwise None.
         """
-        all_dsx_relations = {
-            relation.app.name: relation
-            for relation in self._charm.model.relations.get(self._grafana_dsx_endpoint, [])
-        }
-
-        remote_apps_on_endpoint: Set[str] = (
-            {
+        dsx_relations = [
+            rel for rel in self._datasource_exchange_relations if rel.app and rel.data
+        ]
+        endpoint_name = endpoint_relations[0].name if endpoint_relations else ""
+        endpoint_remote_apps = set()
+        filtered_dsx_relations = dsx_relations
+        if endpoint_relations:
+            # apps this charm is integrated with over the extra given endpoint
+            endpoint_remote_apps: Set[str] = {
                 relation.app.name
-                for relation in self._charm.model.relations.get(endpoint, [])
+                for relation in endpoint_relations
                 if relation.app and relation.data
             }
-            if endpoint
-            else set()
-        )
-
-        # relations that this charm connects to via both datasource-exchange and the given endpoint, if provided
-        filtered_dsx_relations = (
-            [
-                all_dsx_relations[app_name]
-                for app_name in set(all_dsx_relations).intersection(remote_apps_on_endpoint)
+            # relations that this charm connects to via both datasource-exchange and the extra given endpoint
+            filtered_dsx_relations = [
+                rel for rel in dsx_relations if rel.app.name in endpoint_remote_apps
             ]
-            if endpoint
-            else list(all_dsx_relations.values())
-        )
 
         # grafana UIDs that are connected to this charm.
         my_connected_grafana_uids = set(self._get_grafana_source_uids())
 
-        endpoint_dsx_databags: List[DSExchangeAppData] = []
+        filtered_dsx_databags: List[DSExchangeAppData] = []
         for relation in sorted(filtered_dsx_relations, key=lambda x: x.id):
             try:
                 datasource = DSExchangeAppData.load(relation.data[relation.app])
-                endpoint_dsx_databags.append(datasource)
+                filtered_dsx_databags.append(datasource)
             except DataValidationError:
                 # load() already logs
                 continue
@@ -92,7 +86,7 @@ class TelemetryCorrelation:
         # filter datasources by the desired datasource type
         matching_type_datasources = [
             datasource
-            for databag in endpoint_dsx_databags
+            for databag in filtered_dsx_databags
             for datasource in databag.datasources
             if datasource.type == datasource_type
         ]
@@ -105,12 +99,12 @@ class TelemetryCorrelation:
         if not matching_grafana_datasources:
             # take good care of logging exactly why this happening, as the logic is quite complex and debugging this will be hell
             missing_rels: List[str] = []
-            if not remote_apps_on_endpoint and endpoint:
-                missing_rels.append(endpoint)
             if not my_connected_grafana_uids:
-                missing_rels.append("grafana-source")
-            if not all_dsx_relations:
-                missing_rels.append("receive-datasource")
+                missing_rels.append("grafana_datasource")
+            if not dsx_relations:
+                missing_rels.append("grafana_datasource_exchange")
+            if endpoint_relations and not endpoint_remote_apps:
+                missing_rels.append(endpoint_name)
 
             if missing_rels and not filtered_dsx_relations:
                 logger.info(
@@ -118,31 +112,28 @@ class TelemetryCorrelation:
                     correlation_feature,
                     missing_rels,
                 )
-            elif endpoint and not filtered_dsx_relations:
+            elif endpoint_relations and not filtered_dsx_relations:
                 logger.info(
-                    "%s disabled. There are no '%s' relations "
+                    "%s disabled. There are no grafana_datasource_exchange relations "
                     "with a '%s' that %s is related to on '%s'.",
                     correlation_feature,
-                    self._grafana_dsx_endpoint,
                     datasource_type,
-                    self._charm.app.name,
-                    endpoint,
+                    self._app_name,
+                    endpoint_name,
                 )
             elif not matching_type_datasources:
                 logger.info(
-                    "%s disabled. '%s' relations exist, "
+                    "%s disabled. There are grafana_datasource_exchange relations, "
                     "but none of the datasources are of the type %s.",
                     correlation_feature,
-                    self._grafana_dsx_endpoint,
                     datasource_type,
                 )
             else:
                 logger.info(
-                    "%s disabled. '%s' relations exist, "
+                    "%s disabled. There are grafana_datasource_exchange relations, "
                     "but none of the datasources are connected to the same Grafana instances as %s.",
                     correlation_feature,
-                    self._grafana_dsx_endpoint,
-                    self._charm.app.name,
+                    self._app_name,
                 )
             return None
 
@@ -164,7 +155,7 @@ class TelemetryCorrelation:
         is not yet initialised.
         """
         uids: Dict[str, Dict[str, str]] = {}
-        for rel in self._charm.model.relations.get(self._grafana_ds_endpoint, []):
+        for rel in self._grafana_source_relations:
             if not rel:
                 continue
             app_databag = rel.data[rel.app]
