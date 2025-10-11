@@ -132,6 +132,9 @@ class ClusterProviderAppData(cosl.interfaces.utils.DatabagModel):
     privkey_secret_id: Optional[str] = None
     s3_tls_ca_chain: Optional[str] = None
 
+    ### mesh
+    worker_labels: Optional[Dict[str, str]] = None
+
 
 class TLSData(NamedTuple):
     """Section of the cluster data that concerns TLS information."""
@@ -233,6 +236,7 @@ class ClusterProvider(Object):
         charm_tracing_receivers: Optional[Dict[str, str]] = None,
         workload_tracing_receivers: Optional[Dict[str, str]] = None,
         remote_write_endpoints: Optional[List[RemoteWriteEndpoint]] = None,
+        worker_labels: Optional[Dict[str, str]] = None,
     ) -> None:
         """Publish the config to all related worker clusters."""
         for relation in self._relations:
@@ -256,6 +260,7 @@ class ClusterProvider(Object):
                     remote_write_endpoints=remote_write_endpoints,
                     s3_tls_ca_chain=s3_tls_ca_chain,
                     worker_ports=_worker_ports,
+                    worker_labels=worker_labels,
                 )
                 local_app_databag.dump(relation.data[self.model.app])
 
@@ -287,7 +292,7 @@ class ClusterProvider(Object):
             try:
                 worker_app_data = ClusterRequirerAppData.load(relation.data[relation.app])
             except cosl.interfaces.utils.DataValidationError as e:
-                log.info(f"invalid databag contents: {e}")
+                log.info(f"invalid databag contents for ClusterRequirerAppData: {e}")
                 continue
 
             for worker_unit in relation.units:
@@ -297,8 +302,16 @@ class ClusterProvider(Object):
                     for role in self._expand_roles(worker_app_data.role):
                         data[role].add(unit_address)
                 except cosl.interfaces.utils.DataValidationError as e:
-                    log.info(f"invalid databag contents: {e}")
+                    log.info(f"invalid databag contents for ClusterRequirerUnitData: {e}")
                     continue
+        return data
+
+    def gather_addresses_by_unit(self) -> Dict[str, Set[str]]:
+        """Go through the worker's unit databags to collect addresses by individual unit."""
+        data: Dict[str, Set[str]] = {}
+        for worker in self.gather_topology():
+            unit_name = worker["unit"]
+            data[unit_name] = {worker["address"]}
         return data
 
     def gather_addresses(self) -> Tuple[str, ...]:
@@ -497,7 +510,7 @@ class ClusterRequirer(Object):
                 coordinator_databag = ClusterProviderAppData.load(databag)
                 data = coordinator_databag
             except cosl.interfaces.utils.DataValidationError as e:
-                log.info(f"invalid databag contents: {e}")
+                log.info(f"invalid databag contents: {e}", exc_info=True)
                 return None  # explicit is better than implicit
 
         return data
@@ -561,3 +574,10 @@ class ClusterRequirer(Object):
         if data:
             return data.remote_write_endpoints or []
         return []
+
+    def get_worker_labels(self) -> Dict[str, str]:
+        """Fetch the additional labels for the worker pods from the coordinator databag."""
+        data = self._get_data_from_coordinator()
+        if data:
+            return data.worker_labels or {}
+        return {}

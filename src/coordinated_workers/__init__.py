@@ -11,6 +11,7 @@ __all__ = [
     "NginxConfig",
     "NginxPrometheusExporter",
     "Worker",
+    "WorkerTelemetryProxyConfig",
     "NginxTracingConfig",
 ]
 
@@ -38,4 +39,5 @@ NginxConfig = _LazyModule(".nginx")
 Nginx = _LazyModule(".nginx")
 NginxPrometheusExporter = _LazyModule(".nginx")
 Worker = _LazyModule(".worker")
+WorkerTelemetryProxyConfig = _LazyModule(".worker_telemetry")
 NginxTracingConfig = _LazyModule(".nginx")
