@@ -6,7 +6,7 @@
 
 import json
 import logging
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set
 
 import ops
 from cosl.interfaces.datasource_exchange import (
@@ -35,7 +35,7 @@ class TelemetryCorrelation:
         self,
         datasource_type: str,
         correlation_feature: str,
-        endpoint_relations: Optional[Tuple[str, List[ops.Relation]]] = None,
+        endpoint_relations: Optional[List[ops.Relation]] = None,
     ) -> Optional[GrafanaDatasource]:
         """Find a datasource (from grafana_datasource_exchange) that should be correlated with this charm's datasource.
 
@@ -46,9 +46,8 @@ class TelemetryCorrelation:
         Args:
             datasource_type: The type of the datasource to correlate with (e.g. "loki")
             correlation_feature: The correlation feature being configured (e.g. "traces-to-logs")
-            endpoint_relations: Optional tuple of (endpoint_name, relations) used as an extra
-                filter to narrow the search to datasources integrated with this charm
-                also through the specified endpoint relations. If not provided, this filter
+            endpoint_relations: Optional extra filter to narrow the search to datasources integrated
+                with this charm also through the specified endpoint relations. If not provided, this filter
                 is ignored when choosing the correlated datasource.
 
         Returns:
@@ -58,12 +57,12 @@ class TelemetryCorrelation:
             rel for rel in self._datasource_exchange_relations if rel.app and rel.data
         ]
         filtered_dsx_relations = dsx_relations
-        endpoint_remote_apps = set()
-        endpoint_name, endpoint_rels = endpoint_relations or ("", [])
-        if endpoint_relations:
+        if endpoint_relations is not None:
             # apps this charm is integrated with over the extra given endpoint
             endpoint_remote_apps: Set[str] = {
-                relation.app.name for relation in endpoint_rels if relation.app and relation.data
+                relation.app.name
+                for relation in endpoint_relations
+                if relation.app and relation.data
             }
             # relations that this charm connects to via both datasource-exchange and the extra given endpoint
             filtered_dsx_relations = [
@@ -102,14 +101,17 @@ class TelemetryCorrelation:
                 missing_rels.append("grafana_datasource")
             if not dsx_relations:
                 missing_rels.append("grafana_datasource_exchange")
-            if endpoint_relations and not endpoint_remote_apps:
-                missing_rels.append(endpoint_name)
 
             if missing_rels and not filtered_dsx_relations:
                 logger.info(
                     "%s disabled. Missing relations: %s.",
                     correlation_feature,
                     missing_rels,
+                )
+            elif endpoint_relations is not None and not endpoint_relations:
+                logger.info(
+                    "%s disabled. 'endpoint_relations' is an empty list. Perhaps there's missing relation on this endpoint.",
+                    correlation_feature,
                 )
             elif endpoint_relations and not filtered_dsx_relations:
                 logger.info(
@@ -118,7 +120,7 @@ class TelemetryCorrelation:
                     correlation_feature,
                     datasource_type,
                     self._app_name,
-                    endpoint_name,
+                    endpoint_relations[0].name,
                 )
             elif not matching_type_datasources:
                 logger.info(
