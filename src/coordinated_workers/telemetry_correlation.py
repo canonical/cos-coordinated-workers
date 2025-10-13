@@ -56,10 +56,8 @@ class TelemetryCorrelation:
         dsx_relations = [
             rel for rel in self._datasource_exchange_relations if rel.app and rel.data
         ]
-        endpoint_name = endpoint_relations[0].name if endpoint_relations else ""
-        endpoint_remote_apps = set()
         filtered_dsx_relations = dsx_relations
-        if endpoint_relations:
+        if endpoint_relations is not None:
             # apps this charm is integrated with over the extra given endpoint
             endpoint_remote_apps: Set[str] = {
                 relation.app.name
@@ -103,14 +101,18 @@ class TelemetryCorrelation:
                 missing_rels.append("grafana_datasource")
             if not dsx_relations:
                 missing_rels.append("grafana_datasource_exchange")
-            if endpoint_relations and not endpoint_remote_apps:
-                missing_rels.append(endpoint_name)
 
             if missing_rels and not filtered_dsx_relations:
                 logger.info(
                     "%s disabled. Missing relations: %s.",
                     correlation_feature,
                     missing_rels,
+                )
+            elif endpoint_relations is not None and not endpoint_relations:
+                logger.info(
+                    "%s disabled. The `endpoint_relations` parameter you passed to `find_correlated_datasource` is an empty list. "
+                     "Verify the integrations currently active on the charm.",
+                    correlation_feature,
                 )
             elif endpoint_relations and not filtered_dsx_relations:
                 logger.info(
@@ -119,7 +121,7 @@ class TelemetryCorrelation:
                     correlation_feature,
                     datasource_type,
                     self._app_name,
-                    endpoint_name,
+                    endpoint_relations[0].name,
                 )
             elif not matching_type_datasources:
                 logger.info(
