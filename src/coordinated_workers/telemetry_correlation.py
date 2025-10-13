@@ -110,7 +110,8 @@ class TelemetryCorrelation:
                 )
             elif endpoint_relations is not None and not endpoint_relations:
                 logger.info(
-                    "%s disabled. 'endpoint_relations' is an empty list. Perhaps there's a missing relation on this endpoint.",
+                    "%s disabled. The `endpoint_relations` parameter you passed to `find_correlated_datasource` is an empty list. "
+                     "Verify the integrations currently active on the charm.",
                     correlation_feature,
                 )
             elif endpoint_relations and not filtered_dsx_relations:
