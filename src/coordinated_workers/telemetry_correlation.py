@@ -103,7 +103,7 @@ class TelemetryCorrelation:
                 missing_rels.append("grafana_datasource")
             if not dsx_relations:
                 missing_rels.append("grafana_datasource_exchange")
-            if endpoint_relations and not endpoint_remote_apps:
+            if endpoint_relations is not None and not endpoint_remote_apps:
                 missing_rels.append(endpoint_name)
 
             if missing_rels and not filtered_dsx_relations:
@@ -112,7 +112,7 @@ class TelemetryCorrelation:
                     correlation_feature,
                     missing_rels,
                 )
-            elif endpoint_relations and not filtered_dsx_relations:
+            elif endpoint_relations is not None and not filtered_dsx_relations:
                 logger.info(
                     "%s disabled. There are no grafana_datasource_exchange relations "
                     "with a '%s' that %s is related to on '%s'.",
