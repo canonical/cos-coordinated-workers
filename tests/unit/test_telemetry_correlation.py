@@ -162,14 +162,12 @@ def test_no_matching_datasource_with_the_wrong_grafana(context):
         assert not correlated_datasource
 
 
-def test_no_matching_datasource_with_endpoint(context):
+def test_no_matching_datasource_with_endpoint_but_no_relation(context):
     # GIVEN a relation over grafana-source
     # AND a relation over ds-exchange to a remote app "remote"
-    # AND a custom-endpoint relation to a different remote app "remote2"
     relations = {
         _grafana_source_relation(),
         _grafana_datasource_exchange_relation(remote_name="remote"),
-        _custom_endpoint_relation(remote_name="remote2"),
     }
 
     state_in = State(relations=relations)
@@ -180,7 +178,7 @@ def test_no_matching_datasource_with_endpoint(context):
         charm = mgr.charm
         # AND we call find_correlated_datasource with additional endpoint_relations to filter datasources with
         correlated_datasource = charm.get_correlated_datasource(
-            endpoint_relations=charm.model.relations["my-custom-endpoint"]
+            endpoint_relations=("my-custom-endpoint", charm.model.relations["my-custom-endpoint"]),
         )
         # THEN no matching datasources are found
         assert not correlated_datasource
@@ -225,7 +223,7 @@ def test_matching_datasource_found_with_endpoint(context):
         charm = mgr.charm
         # AND we call find_correlated_datasource with additional endpoint_relations to filter datasources with
         correlated_datasource = charm.get_correlated_datasource(
-            endpoint_relations=charm.model.relations["my-custom-endpoint"]
+            endpoint_relations=("my-custom-endpoint", charm.model.relations["my-custom-endpoint"]),
         )
         # THEN we find a matching datasource
         assert correlated_datasource
