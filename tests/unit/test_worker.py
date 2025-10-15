@@ -32,7 +32,6 @@ class MyCharm(ops.CharmBase):
             "foo",
             lambda _: self.layer,
             {"cluster": "cluster"},
-            readiness_check_endpoint="http://localhost:3200/ready",
         )
 
 

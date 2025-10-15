@@ -164,22 +164,6 @@ def test_status_check_no_config(ctx, base_state, caplog):
     assert state_out.unit_status == ops.WaitingStatus(
         "Waiting for coordinator to publish a config"
     )
-    # AND THEN the charm logs that the config isn't on disk
-    assert "Config file not on disk. Skipping status check." in caplog.messages
-
-
-@k8s_patch()
-def test_status_check_starting(ctx, base_state, tls):
-    # GIVEN getting the status returns "Starting: X"
-    with endpoint_starting(tls):
-        # AND GIVEN that the config is on disk
-        with config_on_disk():
-            # AND GIVEN that the container can connect (default in base_state)
-            state = base_state
-            # WHEN we run any event
-            state_out = ctx.run(ctx.on.update_status(), state)
-    # THEN the charm sets waiting: Starting...
-    assert state_out.unit_status == ops.WaitingStatus("Starting...")
 
 
 @k8s_patch()
