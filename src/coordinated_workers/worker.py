@@ -365,17 +365,9 @@ class Worker(ops.Object):
             statuses.append(
                 BlockedStatus("Invalid or no roles assigned: please configure some valid roles")
             )
-        if self._readiness_check_endpoint:
-            if self._is_readiness_check_failing():
-                logger.error(
-                    "The worker service appears to be down and we don't know why. "
-                    "Please check the pebble services' status and their logs."
-                )
-                statuses.append(
-                    BlockedStatus(f"Pebble checks [{self.readiness_check_name}] are 'DOWN'.")
-                )
         # TODO: remove this check once readiness_check_endpoint becomes required in the next major version
-        else:
+        # keeping the below block for backwards compatibilty if "readiness_check_endpoint" is None
+        if not self._readiness_check_endpoint:
             # if none of the conditions above applies, the worker should in principle be either up or starting
             if not statuses:
                 try:
@@ -398,13 +390,15 @@ class Worker(ops.Object):
                         "be coming up and not ready to serve."
                     )
 
-        statuses.append(
-            ActiveStatus(
-                "(all roles) ready."
-                if ",".join(self.roles) == "all"
-                else f"{','.join(self.roles)} ready."
+        # if still there are no statuses, we report we're all ready
+        if not statuses:
+            statuses.append(
+                ActiveStatus(
+                    "(all roles) ready."
+                    if ",".join(self.roles) == "all"
+                    else f"{','.join(self.roles)} ready."
+                )
             )
-        )
 
         # report all applicable statuses to the model
         for status in statuses:
@@ -495,10 +489,11 @@ class Worker(ops.Object):
             self.readiness_check_name,
             {
                 # if this ready check fails, k8s will mark the container as not ready
+                # what that will do for us is that juju will set the charm's app status to waiting that the workload is not ready yet
                 "level": "ready",
                 "override": "replace",
-                # leave some time for the worker processes to start
-                "threshold": 8,
+                # threshold gets added automatically by pebble
+                "threshold": 3,
                 "http": {"url": self._readiness_check_endpoint(self)},
             },
         )
