@@ -13,6 +13,7 @@ __all__ = [
     "Worker",
     "WorkerTelemetryProxyConfig",
     "NginxTracingConfig",
+    "TelemetryCorrelation",
 ]
 
 current_package = __package__
@@ -41,3 +42,4 @@ NginxPrometheusExporter = _LazyModule(".nginx")
 Worker = _LazyModule(".worker")
 WorkerTelemetryProxyConfig = _LazyModule(".worker_telemetry")
 NginxTracingConfig = _LazyModule(".nginx")
+TelemetryCorrelation = _LazyModule(".telemetry_correlation")
