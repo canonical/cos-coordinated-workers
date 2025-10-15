@@ -411,7 +411,8 @@ class ResourcePatcher:
         """Return the resource limits that are in effect for the container in the given pod."""
         pod = self.client.get(Pod, name=pod_name, namespace=self.namespace)
         podspec = self._get_container(
-            self.container_name, pod.spec.containers  # type: ignore[attr-defined]
+            self.container_name,
+            pod.spec.containers,  # type: ignore[attr-defined]
         )
         return podspec.resources
 
@@ -489,7 +490,7 @@ class ResourcePatcher:
             and sts.status.readyReplicas < sts.spec.replicas
         ):
             logger.debug(
-                f"Waiting for {sts.spec.replicas-sts.status.readyReplicas} pods to be ready..."
+                f"Waiting for {sts.spec.replicas - sts.status.readyReplicas} pods to be ready..."
             )
             return True
 
@@ -532,7 +533,8 @@ class ResourcePatcher:
             bool: A boolean indicating if the service patch has been applied and is in effect.
         """
         return self.is_patched(resource_reqs) and equals_canonically(  # pyright: ignore
-            resource_reqs, self.get_actual(pod_name)  # pyright: ignore
+            resource_reqs,
+            self.get_actual(pod_name),  # pyright: ignore
         )
 
     def apply(self, resource_reqs: ResourceRequirements, dry_run=False) -> None:
