@@ -408,11 +408,9 @@ def test_nginx_config_worker_telemetry_proxy_directives(
                     {"url": "http://prometheus-0:9090/api/v1/write"}
                 ]
 
-                # Call reconcile to set up worker telemetry configuration
-                coordinator._reconcile_worker_telemetry()
-
-                # Get the nginx config
-                nginx_config = coordinator._nginx_config.get_config(
+                # Build the nginx config to test worker telemetry configuration
+                nginx_config_obj = coordinator._build_nginx_config()
+                nginx_config = nginx_config_obj.get_config(
                     coordinator._upstreams_to_addresses, listen_tls=False
                 )
 
@@ -458,16 +456,16 @@ def test_nginx_upstream_keys_match_address_mapping(
                     {"url": "http://prometheus-0:9090/api/v1/write"}
                 ]
 
-                # Call reconcile to set up worker telemetry configuration
-                coordinator._reconcile_worker_telemetry()
+                # Build the nginx config to test worker telemetry configuration
+                nginx_config_obj = coordinator._build_nginx_config()
 
                 # THEN every nginx upstream config has a corresponding key in upstreams_to_addresses
                 # Get all upstream configs from nginx config that require address lookup
                 nginx_upstream_keys = set()
-                for upstream in coordinator._nginx_config._upstream_configs:
+                for upstream in nginx_config_obj.upstream_configs:
                     # Skip upstreams that are configured to ignore address lookup
-                    if not getattr(upstream, "ignore_address_lookup", False):
-                        nginx_upstream_keys.add(upstream.address_lookup_key)
+                    if not getattr(upstream, "ignore_worker_role", False):
+                        nginx_upstream_keys.add(upstream.worker_role)
 
                 # Get all keys from upstreams_to_addresses mapping
                 address_mapping_keys = set(coordinator._upstreams_to_addresses.keys())

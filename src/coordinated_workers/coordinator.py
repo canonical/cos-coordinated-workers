@@ -293,7 +293,7 @@ class Coordinator(ops.Object):
         self._worker_metrics_port = worker_metrics_port
         self._endpoints = endpoints
         # the charm owned nginx config is preserved and deep copied for patching with worker telemetry config (if enabled)
-        self._nginx_config = nginx_config.copy()
+        self._charm_nginx_config = nginx_config
         self._roles_config = roles_config
         self._workload_tracing_protocols = workload_tracing_protocols
         self._container_name = container_name
@@ -450,7 +450,7 @@ class Coordinator(ops.Object):
             logger.debug("Resource patch not ready yet. Skipping cluster update step.")
             return
 
-        # reconcile the custom lables added to the application pods.
+        # reconcile the custom labels added to the application pods.
         self._reconcile_charm_labels()
 
         # certificates must be synced before we reconcile the workloads; otherwise changes in the certs may go unnoticed.
@@ -459,9 +459,9 @@ class Coordinator(ops.Object):
         self._setup_charm_tracing()
 
         # reconcile workloads
-        self._reconcile_worker_telemetry()  # keep this above nginx.reconcile() since it modifies the nginx config and upstreams
+        nginx_config = self._build_nginx_config()
         self.nginx.reconcile(
-            nginx_config=self._nginx_config.get_config(
+            nginx_config=nginx_config.get_config(
                 upstreams_to_addresses=self._upstreams_to_addresses,
                 listen_tls=self.tls_available,
                 # TODO: pass tracing_config once https://github.com/canonical/cos-coordinated-workers/issues/77 is addressed
@@ -1078,37 +1078,54 @@ class Coordinator(ops.Object):
                 ca=self.tls_config.ca_cert if self.tls_config else None,
             )
 
-    def _reconcile_worker_telemetry(self):
-        """Update the nginx config to route all the worker telemetry via the coordinator."""
-        if not self._proxy_worker_telemetry_port:
-            return
+    def _build_nginx_config(self) -> NginxConfig:
+        """Return the cumulative nginx configuration combining charm config and worker telemetry config."""
+        upstream_configs = list(self._charm_nginx_config.upstream_configs)
+        server_ports_to_locations = dict(self._charm_nginx_config.server_ports_to_locations)
+        worker_topology = self.cluster.gather_topology()
 
-        # NOTE: use actual upstream telemetry addresses here! Or you will be proxying the proxy addresses.
-        worker_telemetry.configure(
-            nginx_config=self._nginx_config,
-            tls_available=self.tls_available,
-            workload_tracing_protocols=self._workload_tracing_protocols or [],
-            worker_topology=self.cluster.gather_topology(),
-            worker_metrics_port=self._worker_metrics_port,
-            charm_tracing_receivers_urls=self._tracing_receivers_urls(
-                self.charm_tracing, "charm-tracing", ignore_proxy=True
-            ),
-            workload_tracing_receivers_urls=self._tracing_receivers_urls(
-                self.workload_tracing, "workload-tracing", ignore_proxy=True
-            ),
-            loki_endpoints_by_unit=self._upstream_loki_endpoints_by_unit,
-            remote_write_endpoints_getter=self._remote_write_endpoints_getter,
-            proxy_worker_telemetry_port=self._proxy_worker_telemetry_port,
-        )
-        worker_telemetry.configure_upstreams(
-            upstreams_to_addresses=self._upstreams_to_addresses,
-            addresses_by_unit=self.cluster.gather_addresses_by_unit(),
-            remote_write_endpoints_getter=self._remote_write_endpoints_getter,
-            charm_tracing_receivers_urls=self._tracing_receivers_urls(
-                self.charm_tracing, "charm-tracing", ignore_proxy=True
-            ),
-            workload_tracing_receivers_urls=self._tracing_receivers_urls(
-                self.workload_tracing, "workload-tracing", ignore_proxy=True
-            ),
-            loki_endpoints_by_unit=self._upstream_loki_endpoints_by_unit,
+        # If worker topology is discovered and proxy telemetry port is defined, include worker telemetry proxying directives.
+        if worker_topology and self._proxy_worker_telemetry_port:
+            # NOTE: use actual upstream telemetry addresses here! Or you will be proxying the proxy addresses.
+            # Get the required nginx directives for proxying worker telemetry.
+            common_args = {
+                "charm_tracing_receivers_urls": self._tracing_receivers_urls(
+                    self.charm_tracing, "charm-tracing", ignore_proxy=True
+                ),
+                "workload_tracing_receivers_urls": self._tracing_receivers_urls(
+                    self.workload_tracing, "workload-tracing", ignore_proxy=True
+                ),
+                "loki_endpoints_by_unit": self._upstream_loki_endpoints_by_unit,
+                "remote_write_endpoints_getter": self._remote_write_endpoints_getter,
+            }
+            worker_telemetry_upstreams_to_addresses = worker_telemetry.get_upstreams_to_addresses(
+                unit_addresses={w["unit"]: w["address"] for w in worker_topology},
+                **common_args,  # type: ignore
+            )
+            worker_telemetry_upstream_configs, worker_telemetry_server_ports_to_locations = (
+                worker_telemetry.get_nginx_upstreams_and_locations(
+                    tls_available=self.tls_available,
+                    workload_tracing_protocols=self._workload_tracing_protocols or [],
+                    worker_topology=worker_topology,
+                    worker_metrics_port=self._worker_metrics_port,
+                    proxy_worker_telemetry_port=self._proxy_worker_telemetry_port,
+                    **common_args,  # type: ignore
+                )
+            )
+            # Cumulate the worker telemetry and charm specific nginx directives
+            self._upstreams_to_addresses.update(worker_telemetry_upstreams_to_addresses)
+            upstream_configs.extend(worker_telemetry_upstream_configs)
+            for port, locations in worker_telemetry_server_ports_to_locations.items():
+                if port in server_ports_to_locations:
+                    server_ports_to_locations[port] = server_ports_to_locations[port] + locations
+                else:
+                    server_ports_to_locations[port] = locations
+
+        return NginxConfig(
+            server_name=self._charm_nginx_config.server_name,
+            upstream_configs=upstream_configs,
+            server_ports_to_locations=server_ports_to_locations,
+            map_configs=self._charm_nginx_config.map_configs,
+            enable_health_check=self._charm_nginx_config.enable_health_check,
+            enable_status_page=self._charm_nginx_config.enable_status_page,
         )

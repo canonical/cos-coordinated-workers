@@ -11,7 +11,7 @@ import ops
 from charms.tempo_coordinator_k8s.v0.tracing import ReceiverProtocol
 
 from coordinated_workers.interfaces.cluster import RemoteWriteEndpoint
-from coordinated_workers.nginx import NginxConfig, NginxLocationConfig, NginxUpstream
+from coordinated_workers.nginx import NginxLocationConfig, NginxUpstream
 
 WorkerTopology = List[Dict[str, str]]
 RemoteWriteEndpointGetter = Optional[Callable[[], List[RemoteWriteEndpoint]]]
@@ -52,30 +52,29 @@ class _WorkerTelemetryNginxConfigSpec:
     is_grpc: bool = False
 
 
-def configure_upstreams(
-    upstreams_to_addresses: Dict[str, Set[str]],
-    addresses_by_unit: Dict[str, Set[str]],
-    remote_write_endpoints_getter: RemoteWriteEndpointGetter,
+def get_upstreams_to_addresses(
+    unit_addresses: Dict[str, str],
     charm_tracing_receivers_urls: Dict[str, str],
     workload_tracing_receivers_urls: Dict[str, str],
     loki_endpoints_by_unit: Dict[str, str],
-) -> None:
-    """Update upstream name to address mapper to include the required servers/clients that send/receive worker telemetry.
+    remote_write_endpoints_getter: RemoteWriteEndpointGetter,
+) -> Dict[str, Set[str]]:
+    """Return the upstream name to address mapper with the required servers/clients that send/receive worker telemetry.
 
-    This function updates the `upstreams_to_addresses` object inplace to include the upstream logging, tracing, and remote_write endpoints with corresponding upstream names.
     The endpoints used in this mapping are upstream endpoints that actually receive the telemetry.
 
     Args:
-        upstreams_to_addresses (dict): The upstreams_to_addresses to update with the telemetry upstream information
-        addresses_by_unit (dict): The address of all the worker units
-        remote_write_endpoints_getter (callable): A function that returns the upstream remote_write endpoints
+        unit_addresses (dict): The address of all the worker units
         charm_tracing_receivers_urls (dict): The upstream charm tracings urls per tracing protocol
         workload_tracing_receivers_urls (dict): The upstream workload tracing urls per tracing protocol
         loki_endpoints_by_unit (dict): The upstream push endpoint addresses for log forwarding
+        remote_write_endpoints_getter (callable): A function that returns the upstream remote_write endpoints
     """
-    # Merge role-based and unit-based addresses collection for nginx config
+    upstreams_to_addresses: Dict[str, Set[str]] = {}
     # Every unit will get its own upstream for metric proxying
-    upstreams_to_addresses.update(addresses_by_unit)
+    upstreams_to_addresses.update(
+        {unit_name: {address} for unit_name, address in unit_addresses.items()}
+    )
 
     # loki upstream to address mapper
     for loki_unit, address in loki_endpoints_by_unit.items():
@@ -101,108 +100,35 @@ def configure_upstreams(
             upstream_name = f"{PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX}-{tracing_type}-{protocol}"
             upstreams_to_addresses[upstream_name] = {p.hostname}  # type: ignore
 
+    return upstreams_to_addresses
 
-def configure(
+
+def get_nginx_upstreams_and_locations(
     tls_available: bool,
-    nginx_config: NginxConfig,
-    worker_topology: WorkerTopology,
     workload_tracing_protocols: List[ReceiverProtocol],
-    remote_write_endpoints_getter: RemoteWriteEndpointGetter,
+    worker_topology: WorkerTopology,
     worker_metrics_port: int,
+    proxy_worker_telemetry_port: int,
     charm_tracing_receivers_urls: Dict[str, str],
     workload_tracing_receivers_urls: Dict[str, str],
     loki_endpoints_by_unit: Dict[str, str],
-    proxy_worker_telemetry_port: int,
-) -> None:
-    """Modify nginx configuration to proxy worker telemetry via the coordinator.
-
-    This function updates the `nginx_config` object inplace to include the required nginx configurations that will route the telemetry data from the workers via the coordinator.
+    remote_write_endpoints_getter: RemoteWriteEndpointGetter,
+) -> Tuple[List[NginxUpstream], Dict[int, List[NginxLocationConfig]]]:
+    """Return the required NginxUpstreams and NginxLocationConfigs for proxying worker telemetry.
 
     Args:
         tls_available (bool): If TLS is enabled.
-        nginx_config (NginxConfig): The nginx configuration of the coordinator to update with the required worker telemetry routes
-        worker_topology (WorkerTopology): information about the workers in the cluster
         workload_tracing_protocols (list): List of tracing protocols used by the workers workloads to forward traces
-        remote_write_endpoints_getter (callable): A function that returns the upstream remote_write endpoints
+        worker_topology (WorkerTopology): information about the workers in the cluster
         worker_metrics_port (int): The port on which the workers expose their metrics
+        proxy_worker_telemetry_port (int): The port on the coordinator that listens for worker telemetry data
         charm_tracing_receivers_urls (dict): The upstream charm tracings urls per tracing protocol
         workload_tracing_receivers_urls (dict): The upstream workload tracing urls per tracing protocol
         loki_endpoints_by_unit (dict): The upstream push endpoint addresses for log forwarding
-        proxy_worker_telemetry_port (int): The port on the coordinator that listens for worker telemetry data
+        remote_write_endpoints_getter (callable): A function that returns the upstream remote_write endpoints
     """
     _validate_proxy_worker_telemetry_setup(workload_tracing_protocols)
-    _setup_proxy_worker_telemetry(
-        tls_available=tls_available,
-        nginx_config=nginx_config,
-        worker_topology=worker_topology,
-        worker_metrics_port=worker_metrics_port,
-        remote_write_endpoints_getter=remote_write_endpoints_getter,
-        charm_tracing_receivers_urls=charm_tracing_receivers_urls,
-        workload_tracing_receivers_urls=workload_tracing_receivers_urls,
-        loki_endpoints_by_unit=loki_endpoints_by_unit,
-        proxy_worker_telemetry_port=proxy_worker_telemetry_port,
-    )
 
-
-def _validate_proxy_worker_telemetry_setup(
-    workload_tracing_protocols: List[ReceiverProtocol],
-) -> None:
-    """Check if a valid proxy setup for worker telemetry is possible."""
-    # if no workload protocol is defined, let the TracingEndpointRequirer handle this
-    # FIXME: GRPC should be allowed. Create an issue and link here.
-    # bail out for now, this is bad and we can't fix it.
-    for protocol in workload_tracing_protocols:
-        if "grpc" in protocol:
-            raise RuntimeError(
-                "bad config. This coordinator is requesting grpc workload tracing endpoints, "
-                "but that won't work with the current telemetry proxy configuration."
-            )
-
-
-def _setup_proxy_worker_telemetry(
-    nginx_config: NginxConfig,
-    tls_available: bool,
-    worker_topology: WorkerTopology,
-    worker_metrics_port: int,
-    charm_tracing_receivers_urls: Dict[str, str],
-    workload_tracing_receivers_urls: Dict[str, str],
-    loki_endpoints_by_unit: Dict[str, str],
-    proxy_worker_telemetry_port: int,
-    remote_write_endpoints_getter: RemoteWriteEndpointGetter,
-) -> None:
-    """Extend the nginx configuration with configurations required proxying worker telemetry.
-
-    The proxying is done for worker telemetry that is both pulled and pushed.
-    """
-    # check if the worker telemetry can be validly proxied, if not log it as an error
-
-    # Extend nginx config with worker metrics if enabled
-    if worker_topology:
-        telemetry_upstreams, telemetry_locations = _generate_worker_telemetry_nginx_config(
-            worker_metrics_port=worker_metrics_port,
-            worker_topology=worker_topology,
-            remote_write_endpoints_getter=remote_write_endpoints_getter,
-            charm_tracing_receivers_urls=charm_tracing_receivers_urls,
-            workload_tracing_receivers_urls=workload_tracing_receivers_urls,
-            loki_endpoints_by_unit=loki_endpoints_by_unit,
-            proxy_worker_telemetry_port=proxy_worker_telemetry_port,
-            tls_available=tls_available,
-        )
-        nginx_config.extend_upstream_configs(telemetry_upstreams)
-        nginx_config.update_server_ports_to_locations(telemetry_locations, overwrite=False)
-
-
-def _generate_worker_telemetry_nginx_config(
-    worker_topology: List[Dict[str, str]],
-    remote_write_endpoints_getter: RemoteWriteEndpointGetter,
-    worker_metrics_port: int,
-    charm_tracing_receivers_urls: Dict[str, str],
-    workload_tracing_receivers_urls: Dict[str, str],
-    loki_endpoints_by_unit: Dict[str, str],
-    proxy_worker_telemetry_port: int,
-    tls_available: bool,
-) -> Tuple[List[NginxUpstream], Dict[int, List[NginxLocationConfig]]]:
-    """Generate nginx upstreams and locations for proxying worker telemetry."""
     upstreams_worker_metrics, locations_worker_metrics = _generate_worker_metrics_nginx_config(
         worker_topology, worker_metrics_port=worker_metrics_port, tls_available=tls_available
     )
@@ -219,22 +145,35 @@ def _generate_worker_telemetry_nginx_config(
         workload_tracing_receivers_urls=workload_tracing_receivers_urls,
     )
 
-    upstreams: List[NginxUpstream] = [
+    telemetry_upstreams: List[NginxUpstream] = [
         *upstreams_worker_metrics,
         *upstreams_loki_endpoints,
         *upstreams_remote_write_endpoints,
         *upstreams_tracing_urls,
     ]
-    locations: Dict[int, List[NginxLocationConfig]] = {
-        proxy_worker_telemetry_port: [  # type: ignore
+    telemetry_locations: Dict[int, List[NginxLocationConfig]] = {
+        proxy_worker_telemetry_port: [
             *locations_worker_metrics,
             *locations_loki_endpoints,
             *locations_remote_write_endpoints,
             *locations_tracing_urls,
         ]
     }
+    return telemetry_upstreams, telemetry_locations
 
-    return upstreams, locations
+
+def _validate_proxy_worker_telemetry_setup(
+    workload_tracing_protocols: List[ReceiverProtocol],
+) -> None:
+    """Check if a valid proxy setup for worker telemetry is possible."""
+    # if no workload protocol is defined, let the TracingEndpointRequirer handle this
+    # FIXME: GRPC should be allowed. See: https://github.com/canonical/cos-coordinated-workers/issues/106
+    for protocol in workload_tracing_protocols:
+        if "grpc" in protocol:
+            raise RuntimeError(
+                "bad config. This coordinator is requesting grpc workload tracing endpoints, "
+                "but that won't work with the current telemetry proxy configuration."
+            )
 
 
 def _generate_nginx_config_from_spec(
@@ -252,7 +191,8 @@ def _generate_nginx_config_from_spec(
                 NginxUpstream(
                     name=spec.upstream_name,
                     port=spec.upstream_port,
-                    address_lookup_key=spec.upstream_lookup_key,
+                    # FIXME: worker_role is used as address lookup key here, see #105.
+                    worker_role=spec.upstream_lookup_key,
                 )
             )
             created_upstreams.add(spec.upstream_name)

@@ -151,7 +151,6 @@ Any charm can instantiate `NginxConfig` to generate its own Nginx configuration 
 
 """
 
-import copy
 import logging
 import subprocess
 from dataclasses import dataclass, field
@@ -259,16 +258,23 @@ class NginxUpstream:
 
     Our coordinators assume that all servers under an upstream share the same port.
     """
-    address_lookup_key: str
-    """The address lookup key that corresponds to this upstream.
+    worker_role: str
+    """The worker role that corresponds to this upstream.
 
-    This key will be used to look up backend server addresses for this upstream.
-    Can be a worker role (e.g., 'compactor') or individual unit identifier (e.g., 'worker-metrics-unit-0').
+    This role will be used to look up workers (backend server) addresses for this upstream.
+
+    TODO: This class is now used outside of the context of pure coordinated-workers.
+    This arg hence must be renamed to have a more generic name for eg. `address_lookup_key`.
+    See: https://github.com/canonical/cos-coordinated-workers/issues/105
     """
-    ignore_address_lookup: bool = False
-    """If True, overrides `address_lookup_key` and routes to all available backend servers.
+    ignore_worker_role: bool = False
+    """If True, overrides `worker_role` and routes to all available backend servers.
 
     Use this when the upstream should be generic and include any available backend.
+
+    TODO: This class is now used outside of the context of pure coordinated-workers.
+    This arg hence must be renamed to have a more generic name for eg. `ignore_address_lookup`.
+    See: https://github.com/canonical/cos-coordinated-workers/issues/105
     """
 
 
@@ -385,47 +391,14 @@ class NginxConfig:
                 ],
             )
         """
-        self._server_name = server_name
-        self._upstream_configs = upstream_configs
-        self._server_ports_to_locations = server_ports_to_locations
-        self._map_configs = map_configs or []
-        self._enable_health_check = enable_health_check
-        self._enable_status_page = enable_status_page
+        self.server_name = server_name
+        self.upstream_configs = upstream_configs
+        self.server_ports_to_locations = server_ports_to_locations
+        self.map_configs = map_configs or []
+        self.enable_health_check = enable_health_check
+        self.enable_status_page = enable_status_page
         self._dns_IP_address = self._get_dns_ip_address()
         self._ipv6_enabled = is_ipv6_enabled()
-
-    def copy(self) -> "NginxConfig":
-        """Return a deep copy of this NginxConfig."""
-        return NginxConfig(
-            server_name=self._server_name,
-            upstream_configs=copy.deepcopy(self._upstream_configs),
-            server_ports_to_locations=copy.deepcopy(self._server_ports_to_locations),
-            enable_health_check=self._enable_health_check,
-            enable_status_page=self._enable_status_page,
-        )
-
-    def extend_upstream_configs(self, upstream_configs: List[NginxUpstream]):
-        """Add upstreams to existing configuration."""
-        self._upstream_configs.extend(upstream_configs)
-
-    def update_server_ports_to_locations(
-        self,
-        server_ports_to_locations: Dict[int, List[NginxLocationConfig]],
-        overwrite: bool = True,
-    ):
-        """Add locations to existing port configurations.
-
-        Args:
-            server_ports_to_locations: Dictionary mapping ports to location configs
-            overwrite: If True, replace existing locations for each port.
-                      If False, extend existing locations for each port.
-        """
-        for port, locations in server_ports_to_locations.items():
-            if overwrite or port not in self._server_ports_to_locations:
-                self._server_ports_to_locations[port] = locations.copy()
-            else:
-                # Extend existing locations for this port
-                self._server_ports_to_locations[port].extend(locations.copy())
 
     def get_config(
         self,
@@ -504,7 +477,7 @@ class NginxConfig:
                             '$remote_addr - $remote_user [$time_local]  $status "$request" $body_bytes_sent "$http_referer" "$http_user_agent" "$http_x_forwarded_for"',
                         ],
                     },
-                    *[self._build_map(variable) for variable in self._map_configs],
+                    *[self._build_map(variable) for variable in self.map_configs],
                     self._build_map(self._logging_by_status_map_config),
                     {"directive": "access_log", "args": ["/dev/stderr"]},
                     {"directive": "sendfile", "args": ["on"]},
@@ -560,14 +533,14 @@ class NginxConfig:
     def _upstreams(self, upstreams_to_addresses: Dict[str, Set[str]]) -> List[Any]:
         nginx_upstreams: List[Any] = []
 
-        for upstream_config in self._upstream_configs:
-            if upstream_config.ignore_address_lookup:
+        for upstream_config in self.upstream_configs:
+            if upstream_config.ignore_worker_role:
                 # include all available addresses
                 addresses: Optional[Set[str]] = set()
                 for address_set in upstreams_to_addresses.values():
                     addresses.update(address_set)
             else:
-                addresses = upstreams_to_addresses.get(upstream_config.address_lookup_key)
+                addresses = upstreams_to_addresses.get(upstream_config.worker_role)
 
             # don't add an upstream block if there are no addresses
             if addresses:
@@ -602,7 +575,7 @@ class NginxConfig:
         self, backends: List[str], listen_tls: bool = False, root_path: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         servers: List[Dict[str, Any]] = []
-        for port, locations in self._server_ports_to_locations.items():
+        for port, locations in self.server_ports_to_locations.items():
             server_config = self._build_server_config(
                 port,
                 locations,
@@ -638,7 +611,7 @@ class NginxConfig:
                         "directive": "proxy_set_header",
                         "args": ["X-Scope-OrgID", "$ensured_x_scope_orgid"],
                     },
-                    {"directive": "server_name", "args": [self._server_name]},
+                    {"directive": "server_name", "args": [self.server_name]},
                     *(
                         [
                             {"directive": "ssl_certificate", "args": [CERT_PATH]},
@@ -670,7 +643,7 @@ class NginxConfig:
     ) -> List[Dict[str, Any]]:
         nginx_locations: List[Dict[str, Any]] = []
 
-        if self._enable_health_check:
+        if self.enable_health_check:
             nginx_locations.append(
                 {
                     "directive": "location",
@@ -687,7 +660,7 @@ class NginxConfig:
                     ],
                 },
             )
-        if self._enable_status_page:
+        if self.enable_status_page:
             nginx_locations.append(
                 {
                     "directive": "location",
