@@ -2,7 +2,7 @@ import dataclasses
 import json
 from contextlib import ExitStack, contextmanager, nullcontext
 from pathlib import Path
-from unittest.mock import PropertyMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 from urllib.parse import urlparse
 
 import ops
@@ -27,6 +27,16 @@ from tests.unit.test_worker import MyCharm
 
 MOCK_CERTS_DATA = "<TLS_STUFF>"
 MOCK_TLS_CONFIG = TLSConfig(MOCK_CERTS_DATA, MOCK_CERTS_DATA, MOCK_CERTS_DATA)
+
+
+@pytest.fixture(autouse=True)
+def mock_policy_resource_manager():
+    """Mock _get_policy_resource_manager to prevent lightkube Client instantiation in all tests."""
+    with patch("coordinated_workers.service_mesh._get_policy_resource_manager") as mock_get_prm:
+        # Create a mock PolicyResourceManager with the necessary methods
+        mock_prm = MagicMock()
+        mock_get_prm.return_value = mock_prm
+        yield mock_get_prm
 
 
 @pytest.fixture
@@ -72,6 +82,7 @@ def coordinator_state(nginx_container, nginx_prometheus_exporter_container):
         remote_units_data={
             0: ClusterRequirerUnitData(
                 juju_topology={
+                    "model": "test-model",
                     "application": "reader",
                     "unit": "reader/0",
                     "charm_name": "test-reader",
@@ -87,12 +98,22 @@ def coordinator_state(nginx_container, nginx_prometheus_exporter_container):
         remote_units_data={
             0: ClusterRequirerUnitData(
                 juju_topology={
+                    "model": "test-model",
                     "application": "writer",
                     "unit": "writer/0",
                     "charm_name": "test-writer",
                 },
                 address="something",
-            ).dump()
+            ).dump(),
+            1: ClusterRequirerUnitData(
+                juju_topology={
+                    "model": "test-model",
+                    "application": "writer",
+                    "unit": "writer/1",
+                    "charm_name": "test-writer",
+                },
+                address="something",
+            ).dump(),
         },
     )
     requires_relations["cluster_worker2"] = testing.Relation(
@@ -102,6 +123,7 @@ def coordinator_state(nginx_container, nginx_prometheus_exporter_container):
         remote_units_data={
             0: ClusterRequirerUnitData(
                 juju_topology={
+                    "model": "test-model",
                     "application": "backender",
                     "unit": "backender/0",
                     "charm_name": "test-backender",
@@ -141,11 +163,14 @@ def coordinator_charm(request):
                 "my-workload-tracing": {"interface": "tracing", "limit": 1},
                 "my-s3": {"interface": "s3"},
                 "my-ds-exchange-require": {"interface": "grafana_datasource_exchange"},
+                "my-service-mesh": {"interface": "service_mesh", "limit": 1},
+                "my-service-mesh-require-cmr-mesh": {"interface": "cross_model_mesh"},
             },
             "provides": {
                 "my-dashboards": {"interface": "grafana_dashboard"},
                 "my-metrics": {"interface": "prometheus_scrape"},
                 "my-ds-exchange-provide": {"interface": "grafana_datasource_exchange"},
+                "my-service-mesh-provide-cmr-mesh": {"interface": "cross_model_mesh"},
             },
             "containers": {
                 "nginx": {"type": "oci-image"},
@@ -189,8 +214,11 @@ def coordinator_charm(request):
                     "send-datasource": "my-ds-exchange-provide",
                     "receive-datasource": "my-ds-exchange-require",
                     "catalogue": None,
+                    "service-mesh": "my-service-mesh",
+                    "service-mesh-provide-cmr-mesh": "my-service-mesh-provide-cmr-mesh",
+                    "service-mesh-require-cmr-mesh": "my-service-mesh-require-cmr-mesh",
                 },
-                nginx_config=NginxConfig("localhost", {}, {}),
+                nginx_config=NginxConfig("localhost", [], {}),
                 workers_config=lambda coordinator: f"workers configuration for {coordinator._charm.meta.name}",
                 worker_ports=self._worker_ports,
                 # nginx_options: Optional[NginxMappingOverrides] = None,
@@ -659,7 +687,7 @@ def test_catalogue_integration(coordinator_state: testing.State):
                     "receive-datasource": "my-ds-exchange-require",
                     "catalogue": "my-catalogue",
                 },
-                nginx_config=NginxConfig("localhost", {}, {}),
+                nginx_config=NginxConfig("localhost", [], {}),
                 workers_config=lambda coordinator: f"workers configuration for {coordinator._charm.meta.name}",
                 worker_ports=self._worker_ports,
                 catalogue_item=CatalogueItem("foo", "bar", "baz", "qux"),
@@ -747,6 +775,7 @@ def test_rendered_alert_rules(
                 remote_units_data={
                     0: ClusterRequirerUnitData(
                         juju_topology={
+                            "model": "test-model",
                             "application": f"all-{worker_no}",
                             "unit": f"all-{worker_no}/0",
                             "charm_name": "test-all",
@@ -793,3 +822,301 @@ def test_rendered_alert_rules(
         sum(len(group["rules"]) for group in alert_rules["groups"])
         == total_worker_rules_no + coordinator_rules_no
     )
+
+
+def test_coordinator_passes_service_mesh_labels_to_workers(
+    mock_policy_resource_manager,
+    coordinator_state: testing.State,
+    coordinator_charm: ops.CharmBase,
+):
+    """Test that the Coordinator passes service mesh labels to the Workers via the Cluster relation."""
+    # GIVEN a coordinator_charm
+    ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
+
+    # AND a coordinator_state that is valid and includes a populated service mesh relation
+    expected_labels = {"label1": "value1", "label2": "value2"}
+    service_mesh_relation = testing.Relation(
+        endpoint="my-service-mesh",
+        interface="service_mesh",
+        remote_app_data={
+            "labels": json.dumps(expected_labels),
+            "mesh_type": json.dumps("istio"),
+        },
+    )
+    relations_with_service_mesh = [*coordinator_state.relations, service_mesh_relation]
+    state_with_service_mesh = dataclasses.replace(
+        coordinator_state, relations=relations_with_service_mesh
+    )
+    state_with_service_mesh = dataclasses.replace(state_with_service_mesh, leader=True)
+
+    # WHEN we process any event
+    state_out = ctx.run(ctx.on.update_status(), state=state_with_service_mesh)
+    # THEN the service mesh labels are correctly distributed to the workers via the Cluster relation
+    cluster = state_out.get_relations("my-cluster")
+    for relation in cluster:
+        labels = json.loads(relation.local_app_data.get("worker_labels", "{}"))
+        for key, value in expected_labels.items():
+            assert labels[key] == value
+
+
+def test_coordinator_passes_solution_labels_to_worker(
+    coordinator_state: testing.State, coordinator_charm: ops.CharmBase
+):
+    """Test that the Coordinator passes the solution-level labels to the Workers via the Cluster relation."""
+    # GIVEN a coordinator_charm
+    ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
+    expected_labels = {"app.kubernetes.io/part-of": coordinator_charm.META["name"]}
+
+    # AND a coordinator_state that is valid and complete with this unit being the leader
+    state = coordinator_state
+    state = dataclasses.replace(state, leader=True)
+
+    # WHEN we process any event
+    state_out = ctx.run(ctx.on.update_status(), state=state)
+    # THEN the solution-level labels are correctly distributed to the workers via the Cluster relation
+    cluster = state_out.get_relations("my-cluster")
+    for relation in cluster:
+        labels = json.loads(relation.local_app_data.get("worker_labels", "{}"))
+        for key, value in expected_labels.items():
+            assert labels[key] == value
+
+
+def test_coordinator_creates_and_reconcilies_policy_resource_managers(
+    mock_policy_resource_manager,
+    coordinator_state: testing.State,
+    coordinator_charm: ops.CharmBase,
+):
+    """Test that the Coordinator creates and calls the reconcile of PolicyResourceManager the right number of times."""
+    # GIVEN a coordinator_charm
+    ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
+
+    # AND a coordinator_state that is valid and includes a populated service mesh relation
+    mesh_labels = {"label1": "value1", "label2": "value2"}
+    mesh_type = "istio"
+    service_mesh_relation = testing.Relation(
+        endpoint="my-service-mesh",
+        interface="service_mesh",
+        remote_app_data={
+            "labels": json.dumps(mesh_labels),
+            "mesh_type": json.dumps(mesh_type),
+        },
+    )
+    relations_with_service_mesh = [*coordinator_state.relations, service_mesh_relation]
+    state_with_service_mesh = dataclasses.replace(
+        coordinator_state, relations=relations_with_service_mesh
+    )
+    state_with_service_mesh = dataclasses.replace(state_with_service_mesh, leader=True)
+
+    # WHEN we process any event
+    with ctx(ctx.on.update_status(), state=state_with_service_mesh) as mgr:
+        coordinator = mgr.charm.coordinator
+
+        # AND when we reconcile mesh policies
+        coordinator._reconcile_mesh_policies()
+
+        # THEN _get_policy_resource_manager is called and reconcile is called
+        mock_policy_resource_manager.assert_called_once()
+        mock_policy_resource_manager.return_value.reconcile.assert_called_once()
+
+
+def test_cluster_internal_mesh_policies(
+    mock_policy_resource_manager,
+    coordinator_state: testing.State,
+    coordinator_charm: ops.CharmBase,
+):
+    """Test that the correct mesh policies are created and passed to reconcile."""
+    # GIVEN a coordinator_charm
+    ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
+
+    # AND a coordinator_state that is valid and includes a populated service mesh relation
+    mesh_labels = {"label1": "value1", "label2": "value2"}
+    mesh_type = "istio"
+    service_mesh_relation = testing.Relation(
+        endpoint="my-service-mesh",
+        interface="service_mesh",
+        remote_app_data={
+            "labels": json.dumps(mesh_labels),
+            "mesh_type": json.dumps(mesh_type),
+        },
+    )
+    relations_with_service_mesh = [*coordinator_state.relations, service_mesh_relation]
+    state_with_service_mesh = dataclasses.replace(
+        coordinator_state, relations=relations_with_service_mesh
+    )
+    state_with_service_mesh = dataclasses.replace(state_with_service_mesh, leader=True)
+
+    # WHEN we process any event
+    with ctx(ctx.on.update_status(), state=state_with_service_mesh) as mgr:
+        coordinator = mgr.charm.coordinator
+
+        # WHEN we reconcile mesh policies
+        coordinator._reconcile_mesh_policies()
+
+        # with the correct mesh policies are passed to reconcile
+        reconcile_calls = mock_policy_resource_manager.return_value.reconcile.call_args_list
+
+        # Extract policies from all reconcile calls
+        all_policies = []
+        for call in reconcile_calls:
+            policies = call[0][0]
+            all_policies.extend(policies)
+
+        # THEN we should have 7 policies total
+        # 1. coordinator to all cluster units
+        # 2. reader to all cluster units
+        # 3. writer to all cluster units
+        # 4. backender to all cluster units
+        # 5. reader to coordinator's service
+        # 6. writer to coordinator's service
+        # 7. backender to coordinator's service
+        assert len(all_policies) == 7
+
+        # AND all policies should target the coordinator model
+        for policy in all_policies:
+            assert policy.target_namespace in [mgr.charm.model.name]
+            if policy.target_type == "unit":
+                assert policy.target_selector_labels == {"app.kubernetes.io/part-of": "foo-app"}
+            if policy.target_type == "app":
+                assert policy.target_app_name == "foo-app"
+
+        # AND policies should be from the expected sources
+        source_apps = {policy.source_app_name for policy in all_policies}
+        expected_source_apps = {"foo-app", "reader", "writer", "backender"}
+        assert source_apps == expected_source_apps
+
+
+def test_mesh_policies_deletion_when_mesh_disconnected(
+    mock_policy_resource_manager,
+    coordinator_state: testing.State,
+    coordinator_charm: ops.CharmBase,
+):
+    """Test that mesh policies are deleted when service mesh is disconnected."""
+    # GIVEN a coordinator_charm
+    ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
+
+    # AND a coordinator_state without service mesh relation (mesh disconnected)
+    state_without_service_mesh = dataclasses.replace(coordinator_state, leader=True)
+
+    # WHEN we process any event
+    with ctx(ctx.on.update_status(), state=state_without_service_mesh) as mgr:
+        coordinator = mgr.charm.coordinator
+        # WHEN we reconcile mesh policies
+        coordinator._reconcile_mesh_policies()
+        # THEN prm.delete() is called for cleanup
+        mock_policy_resource_manager.return_value.delete.assert_called()
+        # AND reconcile is not called
+        mock_policy_resource_manager.return_value.reconcile.assert_not_called()
+
+
+def test_coordinator_charm_mesh_policies_passed_to_service_mesh_consumer(
+    coordinator_state: testing.State,
+):
+    """Test that charm_mesh_policies are properly passed to ServiceMeshConsumer."""
+    from charms.istio_beacon_k8s.v0.service_mesh import AppPolicy, Endpoint, UnitPolicy
+
+    # Create custom charm mesh policies
+    charm_app_policy = AppPolicy(
+        relation="custom-relation",
+        endpoints=[
+            Endpoint(
+                ports=[8080],
+            )
+        ],
+    )
+
+    charm_unit_policy = UnitPolicy(
+        relation="custom-relation",
+        ports=[8080, 9090],
+    )
+
+    charm_policies = [charm_app_policy, charm_unit_policy]
+
+    class MyCoordinatorWithPolicies(ops.CharmBase):
+        META = {
+            "name": "foo-app",
+            "requires": {
+                "my-certificates": {"interface": "certificates"},
+                "my-cluster": {"interface": "cluster"},
+                "my-logging": {"interface": "loki_push_api"},
+                "my-charm-tracing": {"interface": "tracing", "limit": 1},
+                "my-workload-tracing": {"interface": "tracing", "limit": 1},
+                "my-s3": {"interface": "s3"},
+                "my-ds-exchange-require": {"interface": "grafana_datasource_exchange"},
+                "my-service-mesh": {"interface": "service_mesh", "limit": 1},
+                "my-service-mesh-require-cmr-mesh": {"interface": "cross_model_mesh"},
+            },
+            "provides": {
+                "my-dashboards": {"interface": "grafana_dashboard"},
+                "my-metrics": {"interface": "prometheus_scrape"},
+                "my-ds-exchange-provide": {"interface": "grafana_datasource_exchange"},
+                "my-service-mesh-provide-cmr-mesh": {"interface": "cross_model_mesh"},
+            },
+            "containers": {
+                "nginx": {"type": "oci-image"},
+                "nginx-prometheus-exporter": {"type": "oci-image"},
+            },
+        }
+
+        def __init__(self, framework: ops.Framework):
+            super().__init__(framework)
+            self.coordinator = Coordinator(
+                charm=self,
+                roles_config=ClusterRolesConfig(
+                    roles={"all", "read", "write", "backend"},
+                    meta_roles={"all": {"all", "read", "write", "backend"}},
+                    minimal_deployment={"read", "write", "backend"},
+                    recommended_deployment={"read": 3, "write": 3, "backend": 3},
+                ),
+                external_url="https://foo.example.com",
+                worker_metrics_port=123,
+                endpoints={
+                    "certificates": "my-certificates",
+                    "cluster": "my-cluster",
+                    "grafana-dashboards": "my-dashboards",
+                    "logging": "my-logging",
+                    "metrics": "my-metrics",
+                    "charm-tracing": "my-charm-tracing",
+                    "workload-tracing": "my-workload-tracing",
+                    "s3": "my-s3",
+                    "send-datasource": "my-ds-exchange-provide",
+                    "receive-datasource": "my-ds-exchange-require",
+                    "catalogue": None,
+                    "service-mesh": "my-service-mesh",
+                    "service-mesh-provide-cmr-mesh": "my-service-mesh-provide-cmr-mesh",
+                    "service-mesh-require-cmr-mesh": "my-service-mesh-require-cmr-mesh",
+                },
+                nginx_config=NginxConfig("localhost", [], {}),
+                workers_config=lambda coordinator: f"workers configuration for {coordinator._charm.meta.name}",
+                worker_ports=None,
+                charm_mesh_policies=charm_policies,  # Pass custom policies here
+            )
+
+    # Test with ServiceMesh relation present
+    ctx = testing.Context(MyCoordinatorWithPolicies, meta=MyCoordinatorWithPolicies.META)
+
+    service_mesh_relation = testing.Relation(
+        endpoint="my-service-mesh",
+        interface="service_mesh",
+        remote_app_data={
+            "labels": json.dumps({"label1": "value1"}),
+            "mesh_type": json.dumps("istio"),
+        },
+    )
+
+    relations = [*coordinator_state.relations, service_mesh_relation]
+    state = dataclasses.replace(coordinator_state, relations=relations, leader=True)
+
+    with patch("coordinated_workers.service_mesh.ServiceMeshConsumer") as mock_mesh_consumer:
+        ctx.run(ctx.on.update_status(), state=state)
+
+        # Verify ServiceMeshConsumer was called with the combined policies
+        mock_mesh_consumer.assert_called_once()
+        call_args = mock_mesh_consumer.call_args
+
+        # Check that policies parameter includes our custom policies
+        policies_arg = call_args[1]["policies"]
+        assert (
+            len(policies_arg) == 3
+        )  # Should have both custom policies and the default metrics policy
+        assert charm_app_policy in policies_arg
+        assert charm_unit_policy in policies_arg
