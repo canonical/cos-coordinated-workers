@@ -784,7 +784,7 @@ class Coordinator(ops.Object):
                 continue
 
             relation.data[self._charm.unit]["local-ip"] = self._local_ip
-            relation.data[self._charm.unit]["hostaname"] = self.hostname
+            relation.data[self._charm.unit]["hostname"] = self.hostname
 
 
 
