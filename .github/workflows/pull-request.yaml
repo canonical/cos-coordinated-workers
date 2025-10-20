@@ -71,7 +71,7 @@ jobs:
       CONCIERGE_CHARMCRAFT_CHANNEL: 3.x/candidate
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Install dependencies
         run: |
           sudo snap install concierge --classic
