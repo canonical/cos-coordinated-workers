@@ -681,6 +681,8 @@ class Coordinator(ops.Object):
                      }
                 ],
             }
+            if self.tls_available:
+                job["scheme"] = "https"  # pyright: ignore
             scrape_jobs.append(job)
 
         return scrape_jobs
