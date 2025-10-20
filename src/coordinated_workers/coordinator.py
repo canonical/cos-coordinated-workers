@@ -672,7 +672,6 @@ class Coordinator(ops.Object):
     def _nginx_scrape_jobs(self) -> List[Dict[str, Any]]:
         """The Prometheus scrape job for Nginx."""
         scrape_jobs: List[Dict[str, Any]] = []
-        breakpoint()
         for unit, hostname in self.peer_hostnames.items():
             job = {
                 "static_configs": [
@@ -778,7 +777,6 @@ class Coordinator(ops.Object):
         return endpoints
 
     def _reconcile_peers_relation(self):
-        breakpoint()
         relations: List[ops.Relation] = self.model.relations.get(self._coordinator_peers_relation, [])
 
         for relation in relations:
@@ -787,7 +785,6 @@ class Coordinator(ops.Object):
 
             relation.data[self._charm.unit]["local-ip"] = self._local_ip
             relation.data[self._charm.unit]["hostname"] = self.hostname
-
 
 
     def _reconcile_cluster_relations(self):
