@@ -601,6 +601,23 @@ class Coordinator(ops.Object):
         return addresses
 
     @property
+    def peer_hostnames(self) -> List[str]:
+        """If a peer relation is present, return the hostnames of the peers."""
+        peers = self._peers
+        relation = self.model.get_relation(self._coordinator_peers_relation)
+        # get unit hostnames for all the other units from a databag
+        hostnames = []
+        if peers and relation:
+            hostnames = [relation.data.get(unit, {}).get("hostname") for unit in peers]
+            hostnames = list(filter(None, hostnames))
+
+        # add own address
+        if self._local_ip:
+            hostnames.append(self._local_ip)
+
+        return hostnames
+
+    @property
     def _local_ip(self) -> Optional[str]:
         """Local IP of the peers binding."""
         try:
@@ -655,13 +672,17 @@ class Coordinator(ops.Object):
     @property
     def _nginx_scrape_jobs(self) -> List[Dict[str, Any]]:
         """The Prometheus scrape job for Nginx."""
-        job: Dict[str, Any] = {
-            "static_configs": [
-                {"targets": [f"{self.hostname}:{self.nginx.options['nginx_exporter_port']}"]}
-            ]
-        }
+        scrape_jobs: List[Dict[str, Any]] = []
 
-        return [job]
+        for hostname in self.peer_hostnames:
+            job = {
+                "static_configs": [
+                    {"targets": [f"{hostname}:{self.nginx.options['nginx_exporter_port']}"]}
+                ]
+            }
+            scrape_jobs.append(job)
+
+        return scrape_jobs
 
     @property
     def _scrape_jobs(self) -> List[Dict[str, Any]]:
@@ -763,6 +784,7 @@ class Coordinator(ops.Object):
                 continue
 
             relation.data[self._charm.unit]["local-ip"] = self._local_ip
+            relation.data[self._charm.unit]["hostaname"] = self.hostname
 
 
 
