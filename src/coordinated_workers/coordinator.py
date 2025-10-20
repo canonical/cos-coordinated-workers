@@ -591,7 +591,7 @@ class Coordinator(ops.Object):
         # get unit addresses for all the other units from a databag
         addresses = []
         if peers and relation:
-            addresses = [relation.data.get(unit, {}).get("local-ip") for unit in peers]
+            addresses = [relation.data.get(unit, {}).get("hostname") for unit in peers]
             addresses = list(filter(None, addresses))
 
         # add own address
