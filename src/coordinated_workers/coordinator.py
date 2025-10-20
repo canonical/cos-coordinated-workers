@@ -87,6 +87,7 @@ CONSOLIDATED_METRICS_ALERT_RULES_PATH = Path("src/prometheus_alert_rules/consoli
 ORIGINAL_LOGS_ALERT_RULES_PATH = Path("src/loki_alert_rules")
 CONSOLIDATED_LOGS_ALERT_RULES_PATH = Path("src/loki_alert_rules/consolidated_rules")
 
+COORDINATOR_PEERS_RELATION = "peers"
 
 class S3NotFoundError(Exception):
     """Raised when the s3 integration is not present or not ready."""
@@ -225,6 +226,7 @@ class Coordinator(ops.Object):
         remote_write_endpoints: Optional[Callable[[], List[RemoteWriteEndpoint]]] = None,
         workload_tracing_protocols: Optional[List[ReceiverProtocol]] = None,
         catalogue_item: Optional[CatalogueItem] = None,
+        coordinator_peers_relation: str = COORDINATOR_PEERS_RELATION,
     ):
         """Constructor for a Coordinator object.
 
@@ -254,6 +256,7 @@ class Coordinator(ops.Object):
             workload_tracing_protocols: A list of protocols that the worker intends to send
                 workload traces with.
             catalogue_item: A catalogue application entry to be sent to catalogue.
+            coordinator_peers_relation: The name of the peers relation for the coordinator.
 
         Raises:
         ValueError:
@@ -271,6 +274,7 @@ class Coordinator(ops.Object):
         self._container_name = container_name
         self._resources_limit_options = resources_limit_options or {}
         self._catalogue_item = catalogue_item
+        self._coordinator_peers_relation = coordinator_peers_relation
         self._catalogue = (
             CatalogueConsumer(self._charm, relation_name=endpoint)
             if (endpoint := self._endpoints.get("catalogue"))
@@ -582,7 +586,7 @@ class Coordinator(ops.Object):
     def peer_addresses(self) -> List[str]:
         """If a peer relation is present, return the addresses of the peers."""
         peers = self._peers
-        relation = self.model.get_relation("peers")
+        relation = self.model.get_relation(self._coordinator_peers_relation)
         # get unit addresses for all the other units from a databag
         addresses = []
         if peers and relation:
@@ -599,7 +603,7 @@ class Coordinator(ops.Object):
     def _local_ip(self) -> Optional[str]:
         """Local IP of the peers binding."""
         try:
-            binding = self.model.get_binding("peers")
+            binding = self.model.get_binding(self._coordinator_peers_relation)
             if not binding:
                 logger.error(
                     "unable to get local IP at this time: "
@@ -720,7 +724,7 @@ class Coordinator(ops.Object):
     ###################
     @property
     def _peers(self) -> Optional[Set[ops.model.Unit]]:
-        relation = self.model.get_relation("peers")
+        relation = self.model.get_relation(self._coordinator_peers_relation)
         if not relation:
             return None
 
