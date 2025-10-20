@@ -1112,7 +1112,7 @@ class Coordinator(ops.Object):
                     **common_args,  # type: ignore
                 )
             )
-            # Cumulate the worker telemetry and charm specific nginx directives
+            # merge the worker telemetry and charm specific nginx directives
             self._upstreams_to_addresses.update(worker_telemetry_upstreams_to_addresses)
             upstream_configs.extend(worker_telemetry_upstream_configs)
             for port, locations in worker_telemetry_server_ports_to_locations.items():
