@@ -673,7 +673,7 @@ class Coordinator(ops.Object):
     def _nginx_scrape_jobs(self) -> List[Dict[str, Any]]:
         """The Prometheus scrape job for Nginx."""
         scrape_jobs: List[Dict[str, Any]] = []
-
+        breakpoint())
         for hostname in self.peer_hostnames:
             job = {
                 "static_configs": [
