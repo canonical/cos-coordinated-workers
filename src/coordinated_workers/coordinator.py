@@ -22,6 +22,8 @@ from typing import (
     Sequence,
     Set,
     TypedDict,
+    Union,
+    cast,
 )
 from urllib.parse import urlparse
 
@@ -31,10 +33,15 @@ import ops_tracing
 import pydantic
 import yaml
 from cosl.interfaces.datasource_exchange import DatasourceExchange
+from lightkube import Client
 from opentelemetry import trace
 from ops import StatusBase
 
-from coordinated_workers import worker
+from coordinated_workers import (
+    service_mesh,
+    worker,
+    worker_telemetry,
+)
 from coordinated_workers.helpers import check_libs_installed
 from coordinated_workers.interfaces.cluster import ClusterProvider, RemoteWriteEndpoint
 from coordinated_workers.nginx import (
@@ -53,11 +60,17 @@ check_libs_installed(
     "charms.observability_libs.v0.kubernetes_compute_resources_patch",
     "charms.tls_certificates_interface.v4.tls_certificates",
     "charms.catalogue_k8s.v1.catalogue",
+    "charms.istio_beacon_k8s.v0.service_mesh",
 )
 
 from charms.catalogue_k8s.v1.catalogue import CatalogueConsumer, CatalogueItem
 from charms.data_platform_libs.v0.s3 import S3Requirer
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
+from charms.istio_beacon_k8s.v0.service_mesh import (
+    AppPolicy,
+    UnitPolicy,
+    reconcile_charm_labels,
+)
 from charms.loki_k8s.v1.loki_push_api import LogForwarder, LokiPushApiConsumer
 from charms.observability_libs.v0.kubernetes_compute_resources_patch import (
     KubernetesComputeResourcesPatch,
@@ -128,7 +141,7 @@ class ClusterRolesConfig:
     minimal_deployment: Iterable[str]
     """The minimal set of roles that need to be allocated for the deployment to be considered consistent."""
     recommended_deployment: Dict[str, int]
-    """The set of roles that need to be allocated for the deployment to be considered robust according to the official recommendations/guidelines.."""
+    """The set of roles that need to be allocated for the deployment to be considered robust according to the official recommendations/guidelines."""
 
     def __post_init__(self):
         """Ensure the various role specifications are consistent with one another."""
@@ -181,6 +194,9 @@ _EndpointMapping = TypedDict(
         "send-datasource": Optional[str],
         "receive-datasource": Optional[str],
         "catalogue": Optional[str],
+        "service-mesh": Optional[str],
+        "service-mesh-provide-cmr-mesh": Optional[str],
+        "service-mesh-require-cmr-mesh": Optional[str],
     },
     total=True,
 )
@@ -225,6 +241,10 @@ class Coordinator(ops.Object):
         remote_write_endpoints: Optional[Callable[[], List[RemoteWriteEndpoint]]] = None,
         workload_tracing_protocols: Optional[List[ReceiverProtocol]] = None,
         catalogue_item: Optional[CatalogueItem] = None,
+        worker_telemetry_proxy_config: Optional[
+            worker_telemetry.WorkerTelemetryProxyConfig
+        ] = None,
+        charm_mesh_policies: Optional[List[Union[AppPolicy, UnitPolicy]]] = None,
     ):
         """Constructor for a Coordinator object.
 
@@ -254,6 +274,11 @@ class Coordinator(ops.Object):
             workload_tracing_protocols: A list of protocols that the worker intends to send
                 workload traces with.
             catalogue_item: A catalogue application entry to be sent to catalogue.
+            worker_telemetry_proxy_config: Configuration including HTTP and HTTPS ports for proxying workers telemetry data via coordinator.
+                Leaving it blank disables the worker telemetry proxying.
+            charm_mesh_policies: Charm specific service mesh policies.
+                These policies will only govern the traffic incoming to the coordinator.
+                These policies will be added to the Coordinator defined policies that are common for all coordinated-workers charms.
 
         Raises:
         ValueError:
@@ -267,7 +292,10 @@ class Coordinator(ops.Object):
         self._external_url = external_url
         self._worker_metrics_port = worker_metrics_port
         self._endpoints = endpoints
+        # the charm owned nginx config is preserved and deep copied for patching with worker telemetry config (if enabled)
+        self._charm_nginx_config = nginx_config
         self._roles_config = roles_config
+        self._workload_tracing_protocols = workload_tracing_protocols
         self._container_name = container_name
         self._resources_limit_options = resources_limit_options or {}
         self._catalogue_item = catalogue_item
@@ -295,7 +323,6 @@ class Coordinator(ops.Object):
             worker_ports=worker_ports,
         )
 
-        self._nginx_config = nginx_config
         self.nginx = Nginx(
             self._charm,
             options=nginx_options,
@@ -307,6 +334,16 @@ class Coordinator(ops.Object):
             relationship_name=self._endpoints["certificates"],
             certificate_requests=[self._certificate_request_attributes],
         )
+
+        self._upstreams_to_addresses = self.cluster.gather_addresses_by_role()
+        self._proxy_worker_telemetry_port: Optional[int] = None
+        # keep below _certificates as tls_available check needs _certificates
+        if worker_telemetry_proxy_config:
+            self._proxy_worker_telemetry_port = (
+                worker_telemetry_proxy_config.https_port
+                if self.tls_available
+                else worker_telemetry_proxy_config.http_port
+            )
 
         self.s3_requirer = S3Requirer(self._charm, self._endpoints["s3"])
         self.datasource_exchange = DatasourceExchange(
@@ -333,7 +370,6 @@ class Coordinator(ops.Object):
             relation_name=self._endpoints["logging"],
             alert_rules_path=str(CONSOLIDATED_LOGS_ALERT_RULES_PATH),
         )
-
         self._scraping = MetricsEndpointProvider(
             self._charm,
             relation_name=self._endpoints["metrics"],
@@ -361,6 +397,16 @@ class Coordinator(ops.Object):
             )
             if self._resources_requests_getter
             else None
+        )
+
+        # service mesh
+        self._mesh = service_mesh.initialize(
+            endpoints=self._endpoints,
+            charm=self._charm,
+            nginx_exporter_port=self.nginx_exporter.port,
+            proxy_worker_telemetry_paths=worker_telemetry.PROXY_WORKER_TELEMETRY_PATHS,
+            proxy_worker_telemetry_port=self._proxy_worker_telemetry_port,
+            charm_mesh_policies=charm_mesh_policies,
         )
 
         ## Observers
@@ -404,15 +450,19 @@ class Coordinator(ops.Object):
             logger.debug("Resource patch not ready yet. Skipping cluster update step.")
             return
 
+        # reconcile the custom labels added to the application pods.
+        self._reconcile_charm_labels()
+
         # certificates must be synced before we reconcile the workloads; otherwise changes in the certs may go unnoticed.
         self._certificates.sync()
         # keep this on top right after certificates sync
         self._setup_charm_tracing()
 
         # reconcile workloads
+        nginx_config = self._build_nginx_config()
         self.nginx.reconcile(
-            nginx_config=self._nginx_config.get_config(
-                upstreams_to_addresses=self.cluster.gather_addresses_by_role(),
+            nginx_config=nginx_config.get_config(
+                upstreams_to_addresses=self._upstreams_to_addresses,
                 listen_tls=self.tls_available,
                 # TODO: pass tracing_config once https://github.com/canonical/cos-coordinated-workers/issues/77 is addressed
                 tracing_config=None,
@@ -423,6 +473,7 @@ class Coordinator(ops.Object):
 
         # reconcile relations
         self._reconcile_cluster_relations()
+        self._reconcile_mesh_policies()
         self._consolidate_alert_rules()
         self._scraping.set_scrape_job_spec()  # type: ignore
         self._worker_logging.reload_alerts()
@@ -434,19 +485,156 @@ class Coordinator(ops.Object):
     # UTILITY PROPERTIES #
     ######################
 
+    def _tracing_receivers_urls(
+        self,
+        requirer: TracingEndpointRequirer,
+        _type: str,
+        ignore_proxy: bool = False,
+    ) -> Dict[str, str]:
+        """Return the trace receiving urls per requested protocol."""
+        endpoints = requirer.get_all_endpoints()  # type: ignore
+        receivers = endpoints.receivers if endpoints else ()
+
+        if (proxy_worker_telemetry_port := self._proxy_worker_telemetry_port) and not ignore_proxy:
+            return worker_telemetry.proxy_tracing_receivers_urls(
+                hostname=self.app_hostname(
+                    self.hostname, self._charm.app.name, self._charm.model.name
+                ),
+                proxy_worker_telemetry_port=proxy_worker_telemetry_port,
+                tls_available=self.tls_available,
+                tracing_target_type=_type,
+                protocols=[receiver.protocol.name for receiver in receivers],  # type: ignore
+            )
+
+        return {receiver.protocol.name: receiver.url for receiver in receivers}  # type: ignore
+
     @property
     def _charm_tracing_receivers_urls(self) -> Dict[str, str]:
-        """Returns the charm tracing enabled receivers with their corresponding endpoints."""
-        endpoints = self.charm_tracing.get_all_endpoints()
-        receivers = endpoints.receivers if endpoints else ()
-        return {receiver.protocol.name: receiver.url for receiver in receivers}
+        """Return the charm tracing receiver urls per receiver protocol.
+
+        When worker telemetry proxy is enabled (when not self tracing), returns the coordinator's proxy url which maps to the upstream.
+
+        Returns:
+            A dictionary of tracing protocols and the respective tracing receiver urls.
+            {
+                "otlp_http": "http://tempo.tempo.svc.cluster.local:4318",
+            }
+
+            Or when worker telemetry proxy is enabled,
+            {
+                "otlp_http": "http://tempo-0.tempo-endpoints.tempo.svc.cluster.local:3300/proxy/charm-tracing/otlp_http/",
+            }
+        """
+        return self._tracing_receivers_urls(self.charm_tracing, "charm-tracing")
 
     @property
     def _workload_tracing_receivers_urls(self) -> Dict[str, str]:
-        """Returns the workload tracing enabled receivers with their corresponding endpoints."""
-        endpoints = self.workload_tracing.get_all_endpoints()
-        receivers = endpoints.receivers if endpoints else ()
-        return {receiver.protocol.name: receiver.url for receiver in receivers}
+        """Return the workload tracing receiver urls per receiver protocol.
+
+        When worker telemetry proxy is enabled (when not self tracing), returns the coordinator's proxy url which maps to the upstream.
+
+        Returns:
+            A dictionary of tracing protocols and the respective tracing receiver urls.
+            {
+                "otlp_http": "http://tempo.tempo.svc.cluster.local:4318",
+            }
+
+            Or when worker telemetry proxy is enabled,
+            {
+                "otlp_http": "http://tempo-0.tempo-endpoints.tempo.svc.cluster.local:3300/proxy/workload-tracing/otlp_http/",
+            }
+        """
+        return self._tracing_receivers_urls(self.workload_tracing, "workload-tracing")
+
+    @property
+    def remote_write_endpoints(self) -> Optional[List[RemoteWriteEndpoint]]:
+        """Return the remote write endpoints.
+
+        When worker telemetry proxy is enabled, returns the coordinator's proxy url which maps to the upstream.
+
+        Returns:
+            A list of remote write endpoints:
+            [
+                http://prometheus-0.prometheus-endpoints.tempo.svc.cluster.local:9090/api/v1/write,
+            ]
+
+            Or when the worker telemetry proxy is enabled,
+            [
+                http://tempo-0.tempo-endpoints.tempo.svc.cluster.local:3300/proxy/remote-write/prometheus-0/write,
+            ]
+        """
+        if not self._remote_write_endpoints_getter:
+            return None
+
+        endpoints = self._remote_write_endpoints_getter()
+        if proxy_worker_telemetry_port := self._proxy_worker_telemetry_port:
+            return worker_telemetry.proxy_remote_write_endpoints(
+                hostname=self.app_hostname(
+                    self.hostname, self._charm.app.name, self._charm.model.name
+                ),
+                proxy_worker_telemetry_port=proxy_worker_telemetry_port,
+                tls_available=self.tls_available,
+                endpoints=endpoints,
+            )
+        return endpoints
+
+    @property
+    def _upstream_loki_endpoints_by_unit(self) -> Dict[str, str]:
+        """Return the Loki endpoints obtained from the `logging` relation per loki unit.
+
+        Returns:
+            A dictionary of remote units and the respective Loki endpoint.
+            {
+                "loki/0": "http://loki:3100/loki/api/v1/push",
+                "another-loki/0": "http://another-loki:3100/loki/api/v1/push",
+            }
+        """
+        endpoints: Dict[str, str] = {}
+        relations: List[ops.Relation] = self.model.relations.get(self._endpoints["logging"], [])
+        for relation in relations:
+            for unit in relation.units:
+                unit_databag = relation.data.get(unit, {})
+                if "endpoint" not in unit_databag:
+                    continue
+                endpoint = unit_databag["endpoint"]
+                deserialized_endpoint = json.loads(endpoint)
+                url = deserialized_endpoint["url"]
+                endpoints[unit.name] = url
+        return endpoints
+
+    @property
+    def loki_endpoints_by_unit(self) -> Dict[str, str]:
+        """Return the Loki endpoints per loki unit.
+
+        When worker telemetry proxy is enabled, returns the coordinator's proxy url which maps to the upstream.
+
+        Returns:
+            A dictionary of remote units and the respective Loki endpoint.
+            {
+                "loki/0": "http://loki:3100/loki/api/v1/push",
+                "another-loki/0": "http://another-loki:3100/loki/api/v1/push",
+            }
+
+            Or when worker telemetry proxy is enabled,
+            {
+                "loki/0": "http://tempo-0.temo-endpoints.tempo.svc.cluster.local:3300/proxy/loki/loki-0/push",
+                "another-loki/0": "http://tempo-0.temo-endpoints.tempo.svc.cluster.local:3300/proxy/loki/another-loki-0/push",
+            }
+        """
+        relations: List[ops.Relation] = self.model.relations.get(self._endpoints["logging"], [])
+
+        if proxy_worker_telemetry_port := self._proxy_worker_telemetry_port:
+            return worker_telemetry.proxy_loki_endpoints_by_unit(  # type: ignore
+                hostname=self.app_hostname(
+                    self.hostname, self._charm.app.name, self._charm.model.name
+                ),
+                proxy_worker_telemetry_port=proxy_worker_telemetry_port,
+                tls_available=self.tls_available,
+                logging_relations=relations,
+            )
+
+        else:
+            return self._upstream_loki_endpoints_by_unit
 
     @property
     def is_coherent(self) -> bool:
@@ -622,10 +810,27 @@ class Coordinator(ops.Object):
         scrape_jobs: List[Dict[str, Any]] = []
 
         for worker_topology in self.cluster.gather_topology():
+            if self._proxy_worker_telemetry_port:
+                # when proxied through nginx
+                # address: address of the coordinator
+                # path: location used in the nginx config for proxying worker metric
+
+                targets = [
+                    f"{self.app_hostname(self.hostname, self._charm.app.name, self._charm.model.name)}:{self._proxy_worker_telemetry_port}"
+                ]
+                metrics_path = worker_telemetry.PROXY_WORKER_TELEMETRY_PATHS["metrics"].format(
+                    unit=worker_topology["unit"].replace("/", "-"),
+                )
+            else:
+                # Direct access to worker metrics endpoints
+                targets = [f"{worker_topology['address']}:{self._worker_metrics_port}"]
+                metrics_path = "/metrics"
+
             job = {
+                "metrics_path": metrics_path,
                 "static_configs": [
                     {
-                        "targets": [f"{worker_topology['address']}:{self._worker_metrics_port}"],
+                        "targets": targets,
                     }
                 ],
                 # setting these as "labels" in the static config gets some of them
@@ -651,9 +856,7 @@ class Coordinator(ops.Object):
     def _nginx_scrape_jobs(self) -> List[Dict[str, Any]]:
         """The Prometheus scrape job for Nginx."""
         job: Dict[str, Any] = {
-            "static_configs": [
-                {"targets": [f"{self.hostname}:{self.nginx.options['nginx_exporter_port']}"]}
-            ]
+            "static_configs": [{"targets": [f"{self.hostname}:{self.nginx_exporter.port}"]}]
         }
 
         return [job]
@@ -679,6 +882,19 @@ class Coordinator(ops.Object):
                 )
             ),
         )
+
+    @property
+    def _coordinated_workers_solution_labels(self) -> Dict[str, str]:
+        """Labels to be applied to all pods in this coordinated-workers solution."""
+        return {"app.kubernetes.io/part-of": f"{self._charm.app.name}"}
+
+    @property
+    def _worker_labels(self) -> Dict[str, str]:
+        """Labels to be applied to worker pods."""
+        labels = self._coordinated_workers_solution_labels
+        if self._mesh and (mesh_labels := cast(Dict[str, str], self._mesh.labels())):  # type: ignore
+            labels.update(mesh_labels)
+        return labels
 
     ##################
     # EVENT HANDLERS #
@@ -727,31 +943,25 @@ class Coordinator(ops.Object):
         # self is not included in relation.units
         return relation.units
 
-    @property
-    def loki_endpoints_by_unit(self) -> Dict[str, str]:
-        """Loki endpoints from relation data in the format needed for Pebble log forwarding.
+    def _reconcile_charm_labels(self) -> None:
+        """Update any custom pod labels we require."""
+        reconcile_charm_labels(
+            client=Client(namespace=self._charm.model.name),
+            app_name=self._charm.app.name,
+            namespace=self._charm.model.name,
+            label_configmap_name=f"{self._charm.app.name}-pod-labels",
+            labels=self._coordinated_workers_solution_labels,
+        )
 
-        Returns:
-            A dictionary of remote units and the respective Loki endpoint.
-            {
-                "loki/0": "http://loki:3100/loki/api/v1/push",
-                "another-loki/0": "http://another-loki:3100/loki/api/v1/push",
-            }
-        """
-        endpoints: Dict[str, str] = {}
-        relations: List[ops.Relation] = self.model.relations.get(self._endpoints["logging"], [])
-
-        for relation in relations:
-            for unit in relation.units:
-                unit_databag = relation.data.get(unit, {})
-                if "endpoint" not in unit_databag:
-                    continue
-                endpoint = unit_databag["endpoint"]
-                deserialized_endpoint = json.loads(endpoint)
-                url = deserialized_endpoint["url"]
-                endpoints[unit.name] = url
-
-        return endpoints
+    def _reconcile_mesh_policies(self) -> None:
+        """Reconcile all the cluster internal mesh policies."""
+        service_mesh.reconcile_cluster_internal_mesh_policies(
+            mesh=self._mesh,
+            cluster=self.cluster,
+            charm=self._charm,
+            target_selector_labels=self._coordinated_workers_solution_labels,
+            logger=logger,
+        )
 
     def _reconcile_cluster_relations(self):
         """Build the workers config and distribute it to the relations."""
@@ -775,12 +985,9 @@ class Coordinator(ops.Object):
             ),
             charm_tracing_receivers=self._charm_tracing_receivers_urls,
             workload_tracing_receivers=self._workload_tracing_receivers_urls,
-            remote_write_endpoints=(
-                self._remote_write_endpoints_getter()
-                if self._remote_write_endpoints_getter
-                else None
-            ),
+            remote_write_endpoints=self.remote_write_endpoints,
             s3_tls_ca_chain=self.s3_connection_info.ca_cert,
+            worker_labels=self._worker_labels,
         )
 
     def _consolidate_workers_alert_rules(self):
@@ -870,3 +1077,55 @@ class Coordinator(ops.Object):
                 url=endpoint + "/v1/traces",
                 ca=self.tls_config.ca_cert if self.tls_config else None,
             )
+
+    def _build_nginx_config(self) -> NginxConfig:
+        """Return the cumulative nginx configuration combining charm config and worker telemetry config."""
+        upstream_configs = list(self._charm_nginx_config.upstream_configs)
+        server_ports_to_locations = dict(self._charm_nginx_config.server_ports_to_locations)
+        worker_topology = self.cluster.gather_topology()
+
+        # If worker topology is discovered and proxy telemetry port is defined, include worker telemetry proxying directives.
+        if worker_topology and self._proxy_worker_telemetry_port:
+            # NOTE: use actual upstream telemetry addresses here! Or you will be proxying the proxy addresses.
+            # Get the required nginx directives for proxying worker telemetry.
+            common_args = {
+                "charm_tracing_receivers_urls": self._tracing_receivers_urls(
+                    self.charm_tracing, "charm-tracing", ignore_proxy=True
+                ),
+                "workload_tracing_receivers_urls": self._tracing_receivers_urls(
+                    self.workload_tracing, "workload-tracing", ignore_proxy=True
+                ),
+                "loki_endpoints_by_unit": self._upstream_loki_endpoints_by_unit,
+                "remote_write_endpoints_getter": self._remote_write_endpoints_getter,
+            }
+            worker_telemetry_upstreams_to_addresses = worker_telemetry.get_upstreams_to_addresses(
+                unit_addresses={w["unit"]: w["address"] for w in worker_topology},
+                **common_args,  # type: ignore
+            )
+            worker_telemetry_upstream_configs, worker_telemetry_server_ports_to_locations = (
+                worker_telemetry.get_nginx_upstreams_and_locations(
+                    tls_available=self.tls_available,
+                    workload_tracing_protocols=self._workload_tracing_protocols or [],
+                    worker_topology=worker_topology,
+                    worker_metrics_port=self._worker_metrics_port,
+                    proxy_worker_telemetry_port=self._proxy_worker_telemetry_port,
+                    **common_args,  # type: ignore
+                )
+            )
+            # merge the worker telemetry and charm specific nginx directives
+            self._upstreams_to_addresses.update(worker_telemetry_upstreams_to_addresses)
+            upstream_configs.extend(worker_telemetry_upstream_configs)
+            for port, locations in worker_telemetry_server_ports_to_locations.items():
+                if port in server_ports_to_locations:
+                    server_ports_to_locations[port] = server_ports_to_locations[port] + locations
+                else:
+                    server_ports_to_locations[port] = locations
+
+        return NginxConfig(
+            server_name=self._charm_nginx_config.server_name,
+            upstream_configs=upstream_configs,
+            server_ports_to_locations=server_ports_to_locations,
+            map_configs=self._charm_nginx_config.map_configs,
+            enable_health_check=self._charm_nginx_config.enable_health_check,
+            enable_status_page=self._charm_nginx_config.enable_status_page,
+        )

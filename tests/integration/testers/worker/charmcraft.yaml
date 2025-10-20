@@ -1,0 +1,46 @@
+# Copyright 2025 Canonical Ltd.
+# See LICENSE file for licensing details.
+name: worker-tester
+description: tester charm for the Worker
+summary: tester charm for the Worker
+type: charm
+platforms:
+  ubuntu@24.04:amd64:
+
+config:
+  options:
+    role-a:
+      type: boolean
+      default: false
+      description: |
+        Configure the application to run with this role
+
+    role-b:
+      type: boolean
+      default: false
+      description: |
+        Configure the application to run with this role
+
+
+requires:
+  cluster:
+    interface: cluster
+    description: |
+      Coordinator's relation to Worker
+
+containers:
+  server:
+    resource: server-image
+
+resources:
+  server-image:
+    type: oci-image
+    description: OCI image for example app that provides /metrics.  See https://github.com/brancz/prometheus-example-app
+    upstream-source: quay.io/brancz/prometheus-example-app@sha256:10025acb391cbbc23e0db3d041df02edae53f7c1723fdf485e69d43d3ce2cef9
+
+parts:
+  charm:
+    plugin: uv
+    source: .
+    build-packages: [git] # handy for git+ dependencies during development
+    build-snaps: [astral-uv]

@@ -262,11 +262,19 @@ class NginxUpstream:
     """The worker role that corresponds to this upstream.
 
     This role will be used to look up workers (backend server) addresses for this upstream.
+
+    TODO: This class is now used outside of the context of pure coordinated-workers.
+    This arg hence must be renamed to have a more generic name for eg. `address_lookup_key`.
+    See: https://github.com/canonical/cos-coordinated-workers/issues/105
     """
     ignore_worker_role: bool = False
     """If True, overrides `worker_role` and routes to all available backend servers.
 
     Use this when the upstream should be generic and include any available backend.
+
+    TODO: This class is now used outside of the context of pure coordinated-workers.
+    This arg hence must be renamed to have a more generic name for eg. `ignore_address_lookup`.
+    See: https://github.com/canonical/cos-coordinated-workers/issues/105
     """
 
 
@@ -383,12 +391,12 @@ class NginxConfig:
                 ],
             )
         """
-        self._server_name = server_name
-        self._upstream_configs = upstream_configs
-        self._server_ports_to_locations = server_ports_to_locations
-        self._map_configs = map_configs or []
-        self._enable_health_check = enable_health_check
-        self._enable_status_page = enable_status_page
+        self.server_name = server_name
+        self.upstream_configs = upstream_configs
+        self.server_ports_to_locations = server_ports_to_locations
+        self.map_configs = map_configs or []
+        self.enable_health_check = enable_health_check
+        self.enable_status_page = enable_status_page
         self._dns_IP_address = self._get_dns_ip_address()
         self._ipv6_enabled = is_ipv6_enabled()
 
@@ -469,7 +477,7 @@ class NginxConfig:
                             '$remote_addr - $remote_user [$time_local]  $status "$request" $body_bytes_sent "$http_referer" "$http_user_agent" "$http_x_forwarded_for"',
                         ],
                     },
-                    *[self._build_map(variable) for variable in self._map_configs],
+                    *[self._build_map(variable) for variable in self.map_configs],
                     self._build_map(self._logging_by_status_map_config),
                     {"directive": "access_log", "args": ["/dev/stderr"]},
                     {"directive": "sendfile", "args": ["on"]},
@@ -525,7 +533,7 @@ class NginxConfig:
     def _upstreams(self, upstreams_to_addresses: Dict[str, Set[str]]) -> List[Any]:
         nginx_upstreams: List[Any] = []
 
-        for upstream_config in self._upstream_configs:
+        for upstream_config in self.upstream_configs:
             if upstream_config.ignore_worker_role:
                 # include all available addresses
                 addresses: Optional[Set[str]] = set()
@@ -567,7 +575,7 @@ class NginxConfig:
         self, backends: List[str], listen_tls: bool = False, root_path: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         servers: List[Dict[str, Any]] = []
-        for port, locations in self._server_ports_to_locations.items():
+        for port, locations in self.server_ports_to_locations.items():
             server_config = self._build_server_config(
                 port,
                 locations,
@@ -603,7 +611,7 @@ class NginxConfig:
                         "directive": "proxy_set_header",
                         "args": ["X-Scope-OrgID", "$ensured_x_scope_orgid"],
                     },
-                    {"directive": "server_name", "args": [self._server_name]},
+                    {"directive": "server_name", "args": [self.server_name]},
                     *(
                         [
                             {"directive": "ssl_certificate", "args": [CERT_PATH]},
@@ -635,7 +643,7 @@ class NginxConfig:
     ) -> List[Dict[str, Any]]:
         nginx_locations: List[Dict[str, Any]] = []
 
-        if self._enable_health_check:
+        if self.enable_health_check:
             nginx_locations.append(
                 {
                     "directive": "location",
@@ -652,7 +660,7 @@ class NginxConfig:
                     ],
                 },
             )
-        if self._enable_status_page:
+        if self.enable_status_page:
             nginx_locations.append(
                 {
                     "directive": "location",
@@ -1023,6 +1031,14 @@ class NginxPrometheusExporter:
         )
 
     @property
+    def port(self) -> int:
+        """Return the port where the nginx prometheus exporter is listening to present the metrics.
+
+        This is the port at which an external application would scrape /metrics.
+        """
+        return self.options["nginx_exporter_port"]
+
+    @property
     def layer(self) -> pebble.Layer:
         """Return the Pebble layer for Nginx Prometheus exporter."""
         scheme = "https" if self.are_certificates_on_disk else "http"  # type: ignore
@@ -1034,7 +1050,7 @@ class NginxPrometheusExporter:
                     "nginx-prometheus-exporter": {
                         "override": "replace",
                         "summary": "nginx prometheus exporter",
-                        "command": f"nginx-prometheus-exporter --no-nginx.ssl-verify --web.listen-address=:{self.options['nginx_exporter_port']}  --nginx.scrape-uri={scheme}://127.0.0.1:{self.options['nginx_port']}/status",
+                        "command": f"nginx-prometheus-exporter --no-nginx.ssl-verify --web.listen-address=:{self.port}  --nginx.scrape-uri={scheme}://127.0.0.1:{self.options['nginx_port']}/status",
                         "startup": "enabled",
                     }
                 },
