@@ -46,7 +46,7 @@ class MyCoordCharm(ops.CharmBase):
                 "catalogue": None,
                 "receive-datasource": "my-ds-exchange-require",
             },
-            nginx_config=NginxConfig("localhost", {}, {}),
+            nginx_config=NginxConfig("localhost", [], {}),
             workers_config=lambda _: "worker config",
             resources_requests=lambda _: {"cpu": "50m", "memory": "100Mi"},
             container_name="nginx",

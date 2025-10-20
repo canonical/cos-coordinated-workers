@@ -13,12 +13,16 @@ readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
 dependencies = [
+#    NOTE: always replicate any changes in dependencies to Coordinator and Worker tester charms
+#          as they should always match this
     "crossplane",
     "ops[tracing]",
     "pydantic",
     "lightkube>=v0.15.4",
     # charms.tls_certificates_interface.v4.tls_certificates
     "cryptography",
+    "charmed-service-mesh-helpers>=0.2.0",
+    "lightkube-extensions",
     "cosl>=1.3.1",
 ]
 classifiers = [
@@ -31,7 +35,7 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Typing :: Typed",
 ]
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     # UNIT TESTS
     "pytest",
@@ -41,6 +45,11 @@ dev = [
     # LINTING
     "pyright",
     "ruff",
+    # INTEGRATION TESTS
+    "jubilant",
+    "pytest-jubilant",
+    "sh",
+    "tenacity",
     "juju-doctor"
 ]
 [project.urls]
@@ -106,7 +115,11 @@ reportIncompatibleMethodOverride = false
 reportImportCycles = false
 reportTypeCommentUsage = false
 
-
 [tool.hatch.metadata]
 # allow git+ dependencies in pyproject
 allow-direct-references = true
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+log_cli_level = "INFO"
+log_format = "%(asctime)s %(levelname)-9s %(module)s:%(filename)s:%(lineno)d %(message)s"
