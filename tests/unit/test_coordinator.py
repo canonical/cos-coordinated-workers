@@ -147,6 +147,11 @@ def coordinator_charm(request):
                 "my-metrics": {"interface": "prometheus_scrape"},
                 "my-ds-exchange-provide": {"interface": "grafana_datasource_exchange"},
             },
+            "peers": {
+                "my-peers": {
+                    "interface": "coordinated_workers_peers",
+                },
+            },
             "containers": {
                 "nginx": {"type": "oci-image"},
                 "nginx-prometheus-exporter": {"type": "oci-image"},
@@ -196,6 +201,7 @@ def coordinator_charm(request):
                 # nginx_options: Optional[NginxMappingOverrides] = None,
                 # is_coherent: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
                 # is_recommended: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
+                coordinator_peers_relation="my-peers",
             )
 
     return MyCoordinator
@@ -611,6 +617,11 @@ def test_catalogue_integration(coordinator_state: testing.State):
                 "my-ds-exchange-require": {"interface": "grafana_datasource_exchange"},
                 "my-catalogue": {"interface": "catalogue"},
             },
+            "peers": {
+                "my-peers": {
+                    "interface": "coordinated_workers_peers",
+                },
+            },
             "provides": {
                 "my-dashboards": {"interface": "grafana_dashboard"},
                 "my-metrics": {"interface": "prometheus_scrape"},
@@ -663,6 +674,7 @@ def test_catalogue_integration(coordinator_state: testing.State):
                 workers_config=lambda coordinator: f"workers configuration for {coordinator._charm.meta.name}",
                 worker_ports=self._worker_ports,
                 catalogue_item=CatalogueItem("foo", "bar", "baz", "qux"),
+                coordinator_peers_relation="my-peers",
                 # nginx_options: Optional[NginxMappingOverrides] = None,
                 # is_coherent: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
                 # is_recommended: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
