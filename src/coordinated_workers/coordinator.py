@@ -398,7 +398,7 @@ class Coordinator(ops.Object):
 
         observe_events(self._charm, all_events, self._reconcile)
 
-    def _reconcile(self, event):
+    def _reconcile(self):
         """Run all logic that is independent of what event we're processing."""
         # There could be a race between the resource patch and pebble operations
         # i.e., charm code proceeds beyond a can_connect guard, and then lightkube patches the statefulset
@@ -426,7 +426,7 @@ class Coordinator(ops.Object):
         self.nginx_exporter.reconcile()
 
         # reconcile relations
-        self._reconcile_peers_relation(event)
+        self._reconcile_peers_relation()
         self._reconcile_cluster_relations()
         self._consolidate_alert_rules()
         self._scraping.set_scrape_job_spec()  # type: ignore
@@ -754,10 +754,16 @@ class Coordinator(ops.Object):
 
         return endpoints
 
-    def _reconcile_peers_relation(self, event):
+    def _reconcile_peers_relation(self):
         breakpoint()
-        if self._local_ip:
-            event.relation.data[self._charm.unit]["local-ip"] = self._local_ip
+        relations: List[ops.Relation] = self.model.relations.get(self._coordinator_peers_relation, [])
+
+        for relation in relations:
+            if not self._local_ip:
+                continue
+
+            relation.data[self._charm.unit]["local-ip"] = self._local_ip
+
 
 
     def _reconcile_cluster_relations(self):
