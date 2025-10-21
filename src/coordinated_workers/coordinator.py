@@ -788,43 +788,11 @@ class Coordinator(ops.Object):
         return cast(Dict[ops.model.Unit, str], result)
 
     @property
-    def peer_addresses(self) -> List[str]:
-        """Return the list of peer IP addresses, including our own."""
-        data = self._get_peer_data("local-ip")
-        addresses = list(data.values())
-
-        if self._local_ip:
-            addresses.append(self._local_ip)
-
-        return addresses
-
-    @property
     def peer_hostnames(self) -> Dict[ops.model.Unit, str]:
         """Return the mapping of peer units to their hostnames, including ours."""
         hostnames = self._get_peer_data("hostname")
         hostnames[self._charm.unit] = self.hostname
         return hostnames
-
-    @property
-    def _local_ip(self) -> Optional[str]:
-        """Local IP of the peers binding."""
-        try:
-            binding = self.model.get_binding(self._coordinator_peers_relation)
-            if not binding:
-                logger.error(
-                    "unable to get local IP at this time: "
-                    "peers binding not active yet. It could be that the charm "
-                    "is still being set up..."
-                )
-                return None
-            return str(binding.network.bind_address)
-        except (ops.ModelError, KeyError) as e:
-            logger.debug("failed to obtain local ip from peers binding", exc_info=True)
-            logger.error(
-                f"unable to get local IP at this time: failed with {type(e)}; "
-                f"see debug log for more info"
-            )
-            return None
 
     @property
     def _workers_scrape_jobs(self) -> List[Dict[str, Any]]:
@@ -995,10 +963,6 @@ class Coordinator(ops.Object):
         relations: List[ops.Relation] = self.model.relations.get(self._coordinator_peers_relation, [])
 
         for relation in relations:
-            if not self._local_ip:
-                continue
-
-            relation.data[self._charm.unit]["local-ip"] = self._local_ip
             relation.data[self._charm.unit]["hostname"] = self.hostname
 
 
