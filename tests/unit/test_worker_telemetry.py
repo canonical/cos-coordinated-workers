@@ -36,6 +36,11 @@ def coordinator_charm_with_proxy():
                 "my-dashboards": {"interface": "grafana_dashboard"},
                 "my-ds-exchange-provide": {"interface": "grafana_datasource_exchange"},
             },
+            "peers": {
+                "my-peers": {
+                    "interface": "coordinated_workers_peers",
+                },
+            },
             "containers": {
                 "nginx": {"type": "oci-image"},
                 "nginx-prometheus-exporter": {"type": "oci-image"},
@@ -75,6 +80,7 @@ def coordinator_charm_with_proxy():
                 worker_telemetry_proxy_config=WorkerTelemetryProxyConfig(
                     http_port=8080, https_port=8443
                 ),
+                peer_relation="my-peers",
             )
 
     return MyCoordinatorWithProxy
@@ -100,6 +106,11 @@ def coordinator_charm_no_proxy():
                 "my-metrics": {"interface": "prometheus_scrape"},
                 "my-dashboards": {"interface": "grafana_dashboard"},
                 "my-ds-exchange-provide": {"interface": "grafana_datasource_exchange"},
+            },
+            "peers": {
+                "my-peers": {
+                    "interface": "coordinated_workers_peers",
+                },
             },
             "containers": {
                 "nginx": {"type": "oci-image"},
@@ -137,6 +148,7 @@ def coordinator_charm_no_proxy():
                 },
                 nginx_config=NginxConfig("localhost", [], {}),
                 workers_config=lambda coordinator: f"config for {coordinator._charm.meta.name}",
+                peer_relation="my-peers",
             )
 
     return MyCoordinatorNoProxy

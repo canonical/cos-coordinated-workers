@@ -50,7 +50,7 @@ class MyCoordCharm(ops.CharmBase):
             workers_config=lambda _: "worker config",
             resources_requests=lambda _: {"cpu": "50m", "memory": "100Mi"},
             container_name="nginx",
-            coordinator_peers_relation="my-peers",
+            peer_relation="my-peers",
         )
 
 

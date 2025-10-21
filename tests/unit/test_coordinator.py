@@ -229,7 +229,7 @@ def coordinator_charm(request):
                 # nginx_options: Optional[NginxMappingOverrides] = None,
                 # is_coherent: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
                 # is_recommended: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
-                coordinator_peers_relation="my-peers",
+                peer_relation="my-peers",
             )
 
     return MyCoordinator
@@ -702,7 +702,7 @@ def test_catalogue_integration(coordinator_state: testing.State):
                 workers_config=lambda coordinator: f"workers configuration for {coordinator._charm.meta.name}",
                 worker_ports=self._worker_ports,
                 catalogue_item=CatalogueItem("foo", "bar", "baz", "qux"),
-                coordinator_peers_relation="my-peers",
+                peer_relation="my-peers",
                 # nginx_options: Optional[NginxMappingOverrides] = None,
                 # is_coherent: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
                 # is_recommended: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
@@ -1063,6 +1063,11 @@ def test_coordinator_charm_mesh_policies_passed_to_service_mesh_consumer(
                 "my-ds-exchange-provide": {"interface": "grafana_datasource_exchange"},
                 "my-service-mesh-provide-cmr-mesh": {"interface": "cross_model_mesh"},
             },
+            "peers": {
+                "my-peers": {
+                    "interface": "coordinated_workers_peers",
+                },
+            },
             "containers": {
                 "nginx": {"type": "oci-image"},
                 "nginx-prometheus-exporter": {"type": "oci-image"},
@@ -1101,6 +1106,7 @@ def test_coordinator_charm_mesh_policies_passed_to_service_mesh_consumer(
                 workers_config=lambda coordinator: f"workers configuration for {coordinator._charm.meta.name}",
                 worker_ports=None,
                 charm_mesh_policies=charm_policies,  # Pass custom policies here
+                peer_relation="my-peers",
             )
 
     # Test with ServiceMesh relation present
