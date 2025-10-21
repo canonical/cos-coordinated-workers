@@ -246,7 +246,7 @@ class Coordinator(ops.Object):
             worker_telemetry.WorkerTelemetryProxyConfig
         ] = None,
         charm_mesh_policies: Optional[List[Union[AppPolicy, UnitPolicy]]] = None,
-        coordinator_peers_relation: str = COORDINATOR_PEERS_RELATION,
+        peer_relation: str = PEER_RELATION_DEFAULT_NAME,
 
     ):
         """Constructor for a Coordinator object.
