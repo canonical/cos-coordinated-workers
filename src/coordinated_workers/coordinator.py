@@ -100,7 +100,7 @@ CONSOLIDATED_METRICS_ALERT_RULES_PATH = Path("src/prometheus_alert_rules/consoli
 ORIGINAL_LOGS_ALERT_RULES_PATH = Path("src/loki_alert_rules")
 CONSOLIDATED_LOGS_ALERT_RULES_PATH = Path("src/loki_alert_rules/consolidated_rules")
 
-COORDINATOR_PEERS_RELATION = "peers"
+PEER_RELATION_DEFAULT_NAME = "peers"
 
 class S3NotFoundError(Exception):
     """Raised when the s3 integration is not present or not ready."""
