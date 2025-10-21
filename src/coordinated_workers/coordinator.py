@@ -303,7 +303,7 @@ class Coordinator(ops.Object):
         self._container_name = container_name
         self._resources_limit_options = resources_limit_options or {}
         self._catalogue_item = catalogue_item
-        self._coordinator_peers_relation = coordinator_peers_relation
+        self._coordinator_peers_relation = peer_relation
         self._catalogue = (
             CatalogueConsumer(self._charm, relation_name=endpoint)
             if (endpoint := self._endpoints.get("catalogue"))
@@ -772,18 +772,27 @@ class Coordinator(ops.Object):
         except S3NotFoundError:
             return False
 
-    @property
-    def peer_addresses(self) -> List[str]:
-        """If a peer relation is present, return the addresses of the peers."""
+    def _get_peer_data(self, field: str) -> Dict[ops.model.Unit, str]:
+        """Return a mapping of unit -> field value for all peers."""
         peers = self._peers
         relation = self.model.get_relation(self._coordinator_peers_relation)
-        # get unit addresses for all the other units from a databag
-        addresses = []
-        if peers and relation:
-            addresses = [relation.data.get(unit, {}).get("local-ip") for unit in peers]
-            addresses = list(filter(None, addresses))
 
-        # add own address
+        if not (peers and relation):
+            return {}
+
+        result = {
+            unit: relation.data.get(unit, {}).get(field)
+            for unit in peers
+            if relation.data.get(unit, {}).get(field) is not None
+        }
+        return cast(Dict[ops.model.Unit, str], result)
+
+    @property
+    def peer_addresses(self) -> List[str]:
+        """Return the list of peer IP addresses, including our own."""
+        data = self._get_peer_data("local-ip")
+        addresses = list(data.values())
+
         if self._local_ip:
             addresses.append(self._local_ip)
 
@@ -791,18 +800,9 @@ class Coordinator(ops.Object):
 
     @property
     def peer_hostnames(self) -> Dict[ops.model.Unit, str]:
-        """If a peer relation is present, return the hostnames of the peers."""
-        peers = self._peers
-        relation = self.model.get_relation(self._coordinator_peers_relation)
-        # get unit hostnames for all the other units from a databag
-        hostnames = {}
-        if peers and relation:
-            hostnames = {unit: relation.data.get(unit, {}).get("hostname") for unit in peers}
-            hostnames = {k: v for k, v in hostnames.items() if v is not None}
-
-        # add own hostname
+        """Return the mapping of peer units to their hostnames, including ours."""
+        hostnames = self._get_peer_data("hostname")
         hostnames[self._charm.unit] = self.hostname
-
         return hostnames
 
     @property
