@@ -282,7 +282,7 @@ class Coordinator(ops.Object):
             charm_mesh_policies: Charm specific service mesh policies.
                 These policies will only govern the traffic incoming to the coordinator.
                 These policies will be added to the Coordinator defined policies that are common for all coordinated-workers charms.
-            coordinator_peers_relation: The name of the peers relation for the coordinator.
+            peer_relation: The name of a peer relation that the coordinator will use to exchange addresses with its peer units.
 
         Raises:
         ValueError:
