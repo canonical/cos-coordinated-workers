@@ -788,7 +788,7 @@ class Coordinator(ops.Object):
         return cast(Dict[ops.model.Unit, str], result)
 
     @property
-    def peer_hostnames(self) -> Dict[ops.model.Unit, str]:
+    def _peer_hostnames(self) -> Dict[ops.model.Unit, str]:
         """Return the mapping of peer units to their hostnames, including ours."""
         hostnames = self._get_peer_data("hostname")
         hostnames[self._charm.unit] = self.hostname
@@ -846,7 +846,7 @@ class Coordinator(ops.Object):
     def _nginx_scrape_jobs(self) -> List[Dict[str, Any]]:
         """The Prometheus scrape job for Nginx."""
         scrape_jobs: List[Dict[str, Any]] = []
-        for unit, hostname in self.peer_hostnames.items():
+        for unit, hostname in self._peer_hostnames.items():
             job = {
                 "static_configs": [
                     {
