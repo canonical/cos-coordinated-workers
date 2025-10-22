@@ -773,7 +773,7 @@ class Coordinator(ops.Object):
             return False
 
     def _get_peer_data(self, field: str) -> Dict[ops.model.Unit, str]:
-        """Return a mapping of unit -> field value for all peers."""
+        """Return a mapping of unit -> <unit databag field value> for all units in the peer relation (excluding self)."""
         peers = self._peers
         relation = self.model.get_relation(self._peer_relation)
 
