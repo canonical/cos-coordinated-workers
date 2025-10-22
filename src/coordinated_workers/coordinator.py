@@ -303,7 +303,7 @@ class Coordinator(ops.Object):
         self._container_name = container_name
         self._resources_limit_options = resources_limit_options or {}
         self._catalogue_item = catalogue_item
-        self._coordinator_peers_relation = peer_relation
+        self._peer_relation = peer_relation
         self._catalogue = (
             CatalogueConsumer(self._charm, relation_name=endpoint)
             if (endpoint := self._endpoints.get("catalogue"))
@@ -477,7 +477,7 @@ class Coordinator(ops.Object):
         self.nginx_exporter.reconcile()
 
         # reconcile relations
-        self._reconcile_peers_relation()
+        self._reconcile_peer_relation()
         self._reconcile_cluster_relations()
         self._reconcile_mesh_policies()
         self._consolidate_alert_rules()
@@ -775,7 +775,7 @@ class Coordinator(ops.Object):
     def _get_peer_data(self, field: str) -> Dict[ops.model.Unit, str]:
         """Return a mapping of unit -> field value for all peers."""
         peers = self._peers
-        relation = self.model.get_relation(self._coordinator_peers_relation)
+        relation = self.model.get_relation(self._peer_relation)
 
         if not (peers and relation):
             return {}
@@ -932,7 +932,7 @@ class Coordinator(ops.Object):
     ###################
     @property
     def _peers(self) -> Optional[Set[ops.model.Unit]]:
-        relation = self.model.get_relation(self._coordinator_peers_relation)
+        relation = self.model.get_relation(self._peer_relation)
         if not relation:
             return None
 
@@ -959,8 +959,8 @@ class Coordinator(ops.Object):
             logger=logger,
         )
 
-    def _reconcile_peers_relation(self):
-        relations: List[ops.Relation] = self.model.relations.get(self._coordinator_peers_relation, [])
+    def _reconcile_peer_relation(self):
+        relations: List[ops.Relation] = self.model.relations.get(self._peer_relation, [])
 
         for relation in relations:
             relation.data[self._charm.unit]["hostname"] = self.hostname
