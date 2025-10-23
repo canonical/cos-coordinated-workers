@@ -679,6 +679,8 @@ def test_coordinator_scrape_jobs_generation_scaled(
     nginx_prometheus_exporter_container,
     mock_coordinator_get_peer_data_patch,
 ):
+    ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META, app_name="coordinator")
+    my_metrics_relation = testing.Relation(endpoint="my-metrics")
     # GIVEN: A coordinator with 3 units (local + 2 remote peers)
     scaled_peer_relation = testing.PeerRelation(endpoint="my-peers")
     scaled_state = testing.State(
