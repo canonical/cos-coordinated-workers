@@ -9,6 +9,11 @@ platforms:
 
 #config:
 
+
+peers:
+  tester-peers:
+    interface: tester_peers
+
 provides:
   cluster:
     interface: cluster

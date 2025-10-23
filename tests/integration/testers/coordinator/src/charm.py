@@ -83,6 +83,7 @@ class CoordinatorTester(CharmBase):
                 http_port=self._port,
                 https_port=self._port,
             ),
+            peer_relation="tester-peers",
         )
 
         self.unit.set_ports(self._port)

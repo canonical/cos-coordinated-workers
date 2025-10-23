@@ -2,7 +2,8 @@ import dataclasses
 import json
 from contextlib import ExitStack, contextmanager, nullcontext
 from pathlib import Path
-from unittest.mock import MagicMock, PropertyMock, patch
+from typing import Any, Dict, List
+from unittest.mock import MagicMock, Mock, PropertyMock, patch
 from urllib.parse import urlparse
 
 import ops
@@ -172,6 +173,11 @@ def coordinator_charm(request):
                 "my-ds-exchange-provide": {"interface": "grafana_datasource_exchange"},
                 "my-service-mesh-provide-cmr-mesh": {"interface": "cross_model_mesh"},
             },
+            "peers": {
+                "my-peers": {
+                    "interface": "coordinated_workers_peers",
+                },
+            },
             "containers": {
                 "nginx": {"type": "oci-image"},
                 "nginx-prometheus-exporter": {"type": "oci-image"},
@@ -224,6 +230,7 @@ def coordinator_charm(request):
                 # nginx_options: Optional[NginxMappingOverrides] = None,
                 # is_coherent: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
                 # is_recommended: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
+                peer_relation="my-peers",
             )
 
     return MyCoordinator
@@ -587,6 +594,111 @@ def test_invalid_app_or_unit_databag(
         assert isinstance(ctx.emitted_events[0], RelationChangedEvent)
 
 
+def _validate_scrape_jobs(
+    scrape_jobs: List[Dict[str, Any]],
+    expected_job_count: int,
+) -> None:
+    """Validate the structure and content of generated scrape jobs.
+
+    Args:
+        scrape_jobs: List of generated scrape jobs to validate
+        expected_job_count: Expected number of scrape jobs
+    """
+    # Verify number of jobs
+    assert len(scrape_jobs) == expected_job_count
+
+    # Verify job structure
+    for job in scrape_jobs:
+        assert "static_configs" in job
+        assert len(job["static_configs"]) == 1
+        assert "targets" in job["static_configs"][0]
+        assert "labels" in job["static_configs"][0]
+        assert "juju_unit" in job["static_configs"][0]["labels"]
+
+
+def test_coordinator_scrape_jobs_generation_single_unit(
+    coordinator_charm: ops.CharmBase,
+    nginx_container,
+    nginx_prometheus_exporter_container,
+    mock_coordinator_get_peer_data_patch,
+):
+    ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META, app_name="coordinator")
+    my_metrics_relation = testing.Relation(endpoint="my-metrics")
+
+    # SCENARIO 1: Single unit deployment
+    # GIVEN: A coordinator with a single unit (no remote peers)
+    peer_relation = testing.PeerRelation(endpoint="my-peers")
+    single_unit_state = testing.State(
+        leader=True,
+        relations=[peer_relation, my_metrics_relation],
+        containers={
+            nginx_container,
+            nginx_prometheus_exporter_container,
+        },
+    )
+
+    # WHEN: No remote peers are present (only local unit)
+    single_remote_peers = {}  # No remote peers
+    with mock_coordinator_get_peer_data_patch(single_remote_peers):
+        with ctx(ctx.on.update_status(), single_unit_state) as manager:
+            manager.run()
+            single_jobs = manager.charm.coordinator._scrape_jobs
+            _validate_scrape_jobs(single_jobs, 1)
+
+    # THEN: Exactly one scrape job should be generated for the local unit
+    assert single_jobs[0]["static_configs"][0]["labels"]["juju_unit"] == "coordinator/0"
+    # And: The target should use the correct port format (hostname:9113)
+    assert single_jobs[0]["static_configs"][0]["targets"][0].endswith(":9113")
+
+
+def test_coordinator_scrape_jobs_generation_scaled(
+    coordinator_charm: ops.CharmBase,
+    nginx_container,
+    nginx_prometheus_exporter_container,
+    mock_coordinator_get_peer_data_patch,
+):
+    ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META, app_name="coordinator")
+    my_metrics_relation = testing.Relation(endpoint="my-metrics")
+    # GIVEN: A coordinator with 3 units (local + 2 remote peers)
+    scaled_peer_relation = testing.PeerRelation(endpoint="my-peers")
+    scaled_state = testing.State(
+        leader=True,
+        relations=[scaled_peer_relation, my_metrics_relation],
+        containers={
+            nginx_container,
+            nginx_prometheus_exporter_container,
+        },
+    )
+
+    # WHEN: Two remote peers are available with their hostnames
+    scaled_remote_peers = {}
+    remote_unit_names = ["coordinator/1", "coordinator/2"]
+
+    for unit_name in remote_unit_names:
+        mock_unit = Mock()
+        mock_unit.name = unit_name
+        # Use simple hostname matching unit name pattern
+        hostname = unit_name.replace("coordinator/", "coord-") + ".local"
+        scaled_remote_peers[mock_unit] = hostname
+
+    with mock_coordinator_get_peer_data_patch(scaled_remote_peers):
+        with ctx(ctx.on.update_status(), scaled_state) as manager:
+            manager.run()
+            scaled_jobs = manager.charm.coordinator._scrape_jobs
+            _validate_scrape_jobs(scaled_jobs, 3)
+
+    # THEN: Three scrape jobs should be generated (one for each unit)
+    unit_labels = [job["static_configs"][0]["labels"]["juju_unit"] for job in scaled_jobs]
+    assert "coordinator/0" in unit_labels  # Local unit
+    assert "coordinator/1" in unit_labels  # Remote unit 1
+    assert "coordinator/2" in unit_labels  # Remote unit 2
+
+    # And: All targets should use the correct port format (hostname:9113)
+    targets = [job["static_configs"][0]["targets"][0] for job in scaled_jobs]
+    for target in targets:
+        assert target.endswith(":9113")
+
+
 @pytest.mark.parametrize(
     ("hostname", "expected_app_hostname"),
     (
@@ -638,6 +750,11 @@ def test_catalogue_integration(coordinator_state: testing.State):
                 "my-s3": {"interface": "s3"},
                 "my-ds-exchange-require": {"interface": "grafana_datasource_exchange"},
                 "my-catalogue": {"interface": "catalogue"},
+            },
+            "peers": {
+                "my-peers": {
+                    "interface": "coordinated_workers_peers",
+                },
             },
             "provides": {
                 "my-dashboards": {"interface": "grafana_dashboard"},
@@ -691,6 +808,7 @@ def test_catalogue_integration(coordinator_state: testing.State):
                 workers_config=lambda coordinator: f"workers configuration for {coordinator._charm.meta.name}",
                 worker_ports=self._worker_ports,
                 catalogue_item=CatalogueItem("foo", "bar", "baz", "qux"),
+                peer_relation="my-peers",
                 # nginx_options: Optional[NginxMappingOverrides] = None,
                 # is_coherent: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
                 # is_recommended: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
@@ -1051,6 +1169,11 @@ def test_coordinator_charm_mesh_policies_passed_to_service_mesh_consumer(
                 "my-ds-exchange-provide": {"interface": "grafana_datasource_exchange"},
                 "my-service-mesh-provide-cmr-mesh": {"interface": "cross_model_mesh"},
             },
+            "peers": {
+                "my-peers": {
+                    "interface": "coordinated_workers_peers",
+                },
+            },
             "containers": {
                 "nginx": {"type": "oci-image"},
                 "nginx-prometheus-exporter": {"type": "oci-image"},
@@ -1089,6 +1212,7 @@ def test_coordinator_charm_mesh_policies_passed_to_service_mesh_consumer(
                 workers_config=lambda coordinator: f"workers configuration for {coordinator._charm.meta.name}",
                 worker_ports=None,
                 charm_mesh_policies=charm_policies,  # Pass custom policies here
+                peer_relation="my-peers",
             )
 
     # Test with ServiceMesh relation present
