@@ -960,6 +960,8 @@ class Coordinator(ops.Object):
         )
 
     def _reconcile_peer_relation(self):
+        # there's only ever going to be only one peer relation, but this guards against situations where 
+        # the peer relation doesn't exist yet (can occur during the setup phase)
         relations: List[ops.Relation] = self.model.relations.get(self._peer_relation, [])
 
         for relation in relations:
