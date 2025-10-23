@@ -2,7 +2,8 @@ import dataclasses
 import json
 from contextlib import ExitStack, contextmanager, nullcontext
 from pathlib import Path
-from unittest.mock import MagicMock, PropertyMock, patch
+from typing import Any, Dict, List, Tuple
+from unittest.mock import MagicMock, Mock, PropertyMock, patch
 from urllib.parse import urlparse
 
 import ops
@@ -591,6 +592,125 @@ def test_invalid_app_or_unit_databag(
     else:
         assert len(ctx.emitted_events) == 1
         assert isinstance(ctx.emitted_events[0], RelationChangedEvent)
+
+
+def _execute_coordinator_scenario(
+    ctx: testing.Context,
+    state: testing.State,
+    mock_remote_peers: Dict[Mock, str],
+    mock_get_peer_data_patch: Any,
+) -> Tuple[testing.Manager, List[Dict[str, Any]]]:
+    """Execute a coordinator test scenario and return the manager and scrape jobs.
+
+    Args:
+        ctx: Testing context
+        state: Testing state with containers and relations
+        mock_remote_peers: Mock data for remote peers
+        mock_get_peer_data_patch: Fixture function for mocking peer data
+
+    Returns:
+        Tuple of (scenario manager, scrape jobs)
+    """
+    with mock_get_peer_data_patch(mock_remote_peers):
+        with ctx(ctx.on.update_status(), state) as manager:
+            manager.run()
+            jobs = manager.charm.coordinator._scrape_jobs
+            return manager, jobs
+
+
+def _validate_scrape_jobs(
+    scrape_jobs: List[Dict[str, Any]],
+    expected_job_count: int,
+) -> None:
+    """Validate the structure and content of generated scrape jobs.
+
+    Args:
+        scrape_jobs: List of generated scrape jobs to validate
+        expected_job_count: Expected number of scrape jobs
+    """
+    # Verify number of jobs
+    assert len(scrape_jobs) == expected_job_count
+
+    # Verify job structure
+    for job in scrape_jobs:
+        assert "static_configs" in job
+        assert len(job["static_configs"]) == 1
+        assert "targets" in job["static_configs"][0]
+        assert "labels" in job["static_configs"][0]
+        assert "juju_unit" in job["static_configs"][0]["labels"]
+
+
+def test_coordinator_scrape_jobs_generation_on_scaling(
+    coordinator_charm: ops.CharmBase,
+    nginx_container,
+    nginx_prometheus_exporter_container,
+    mock_coordinator_get_peer_data_patch,
+):
+    ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META, app_name="coordinator")
+    my_metrics_relation = testing.Relation(endpoint="my-metrics")
+
+    # SCENARIO 1: Single unit deployment
+    # GIVEN: A coordinator with a single unit (no remote peers)
+    peer_relation = testing.PeerRelation(endpoint="my-peers")
+    single_unit_state = testing.State(
+        leader=True,
+        relations=[peer_relation, my_metrics_relation],
+        containers={
+            nginx_container,
+            nginx_prometheus_exporter_container,
+        },
+    )
+
+    # WHEN: No remote peers are present (only local unit)
+    single_remote_peers = {}  # No remote peers
+    _, single_jobs = _execute_coordinator_scenario(
+        ctx, single_unit_state, single_remote_peers, mock_coordinator_get_peer_data_patch
+    )
+    _validate_scrape_jobs(single_jobs, 1)
+
+    # THEN: Exactly one scrape job should be generated for the local unit
+    assert single_jobs[0]["static_configs"][0]["labels"]["juju_unit"] == "coordinator/0"
+    # And: The target should use the correct port format (hostname:9113)
+    assert single_jobs[0]["static_configs"][0]["targets"][0].endswith(":9113")
+
+    # SCENARIO 2: Scaled deployment (3 units)
+    # GIVEN: A coordinator with 3 units (local + 2 remote peers)
+    scaled_peer_relation = testing.PeerRelation(endpoint="my-peers")
+    scaled_state = testing.State(
+        leader=True,
+        relations=[scaled_peer_relation, my_metrics_relation],
+        containers={
+            nginx_container,
+            nginx_prometheus_exporter_container,
+        },
+    )
+
+    # WHEN: Two remote peers are available with their hostnames
+    scaled_remote_peers = {}
+    remote_unit_names = ["coordinator/1", "coordinator/2"]
+
+    for unit_name in remote_unit_names:
+        mock_unit = Mock()
+        mock_unit.name = unit_name
+        # Use simple hostname matching unit name pattern
+        hostname = unit_name.replace("coordinator/", "coord-") + ".local"
+        scaled_remote_peers[mock_unit] = hostname
+
+    _, scaled_jobs = _execute_coordinator_scenario(
+        ctx, scaled_state, scaled_remote_peers, mock_coordinator_get_peer_data_patch
+    )
+    _validate_scrape_jobs(scaled_jobs, 3)
+
+    # THEN: Three scrape jobs should be generated (one for each unit)
+    unit_labels = [job["static_configs"][0]["labels"]["juju_unit"] for job in scaled_jobs]
+    assert "coordinator/0" in unit_labels  # Local unit
+    assert "coordinator/1" in unit_labels  # Remote unit 1
+    assert "coordinator/2" in unit_labels  # Remote unit 2
+
+    # And: All targets should use the correct port format (hostname:9113)
+    targets = [job["static_configs"][0]["targets"][0] for job in scaled_jobs]
+    for target in targets:
+        assert target.endswith(":9113")
 
 
 @pytest.mark.parametrize(

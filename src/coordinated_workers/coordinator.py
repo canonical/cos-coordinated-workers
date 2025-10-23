@@ -102,6 +102,7 @@ CONSOLIDATED_LOGS_ALERT_RULES_PATH = Path("src/loki_alert_rules/consolidated_rul
 
 PEER_RELATION_DEFAULT_NAME = "peers"
 
+
 class S3NotFoundError(Exception):
     """Raised when the s3 integration is not present or not ready."""
 
@@ -247,7 +248,6 @@ class Coordinator(ops.Object):
         ] = None,
         charm_mesh_policies: Optional[List[Union[AppPolicy, UnitPolicy]]] = None,
         peer_relation: str = PEER_RELATION_DEFAULT_NAME,
-
     ):
         """Constructor for a Coordinator object.
 
@@ -852,7 +852,7 @@ class Coordinator(ops.Object):
                     {
                         "targets": [f"{hostname}:{self.nginx.options['nginx_exporter_port']}"],
                         "labels": {"juju_unit": unit.name},
-                     }
+                    }
                 ],
             }
             if self.tls_available:
@@ -964,7 +964,6 @@ class Coordinator(ops.Object):
 
         for relation in relations:
             relation.data[self._charm.unit]["hostname"] = self.hostname
-
 
     def _reconcile_cluster_relations(self):
         """Build the workers config and distribute it to the relations."""
