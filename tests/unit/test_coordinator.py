@@ -673,7 +673,12 @@ def test_coordinator_scrape_jobs_generation_single_unit(
     # And: The target should use the correct port format (hostname:9113)
     assert single_jobs[0]["static_configs"][0]["targets"][0].endswith(":9113")
 
-    # SCENARIO 2: Scaled deployment (3 units)
+def test_coordinator_scrape_jobs_generation_scaled(
+    coordinator_charm: ops.CharmBase,
+    nginx_container,
+    nginx_prometheus_exporter_container,
+    mock_coordinator_get_peer_data_patch,
+):
     # GIVEN: A coordinator with 3 units (local + 2 remote peers)
     scaled_peer_relation = testing.PeerRelation(endpoint="my-peers")
     scaled_state = testing.State(
