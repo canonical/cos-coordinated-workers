@@ -640,7 +640,7 @@ def _validate_scrape_jobs(
         assert "juju_unit" in job["static_configs"][0]["labels"]
 
 
-def test_coordinator_scrape_jobs_generation_on_scaling(
+def test_coordinator_scrape_jobs_generation_single_unit(
     coordinator_charm: ops.CharmBase,
     nginx_container,
     nginx_prometheus_exporter_container,
