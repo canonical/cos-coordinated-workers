@@ -21,6 +21,7 @@ from typing import (
     Optional,
     Sequence,
     Set,
+    Tuple,
     TypedDict,
     Union,
     cast,
@@ -780,9 +781,9 @@ class Coordinator(ops.Object):
         if not peer_relation:
             return out
 
-        peer_data_items: list[tuple[ops.model.Unit, str]] = []
+        peer_data_items: List[Tuple[ops.model.Unit, str]] = []
         for unit in peer_relation.units:  # or self._units; they're equivalent
-            value = peer_relation.data.get(unit, {}).get(field)
+            value: Optional[str] = peer_relation.data.get(unit, {}).get(field)
             if value is not None:
                 peer_data_items.append((unit, value))
 
