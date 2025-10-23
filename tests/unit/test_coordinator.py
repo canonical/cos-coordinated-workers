@@ -2,7 +2,7 @@ import dataclasses
 import json
 from contextlib import ExitStack, contextmanager, nullcontext
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 from unittest.mock import MagicMock, Mock, PropertyMock, patch
 from urllib.parse import urlparse
 
@@ -594,30 +594,6 @@ def test_invalid_app_or_unit_databag(
         assert isinstance(ctx.emitted_events[0], RelationChangedEvent)
 
 
-def _execute_coordinator_scenario(
-    ctx: testing.Context,
-    state: testing.State,
-    mock_remote_peers: Dict[Mock, str],
-    mock_get_peer_data_patch: Any,
-) -> Tuple[testing.Manager, List[Dict[str, Any]]]:
-    """Execute a coordinator test scenario and return the manager and scrape jobs.
-
-    Args:
-        ctx: Testing context
-        state: Testing state with containers and relations
-        mock_remote_peers: Mock data for remote peers
-        mock_get_peer_data_patch: Fixture function for mocking peer data
-
-    Returns:
-        Tuple of (scenario manager, scrape jobs)
-    """
-    with mock_get_peer_data_patch(mock_remote_peers):
-        with ctx(ctx.on.update_status(), state) as manager:
-            manager.run()
-            jobs = manager.charm.coordinator._scrape_jobs
-            return manager, jobs
-
-
 def _validate_scrape_jobs(
     scrape_jobs: List[Dict[str, Any]],
     expected_job_count: int,
@@ -663,10 +639,11 @@ def test_coordinator_scrape_jobs_generation_single_unit(
 
     # WHEN: No remote peers are present (only local unit)
     single_remote_peers = {}  # No remote peers
-    _, single_jobs = _execute_coordinator_scenario(
-        ctx, single_unit_state, single_remote_peers, mock_coordinator_get_peer_data_patch
-    )
-    _validate_scrape_jobs(single_jobs, 1)
+    with mock_coordinator_get_peer_data_patch(single_remote_peers):
+        with ctx(ctx.on.update_status(), single_unit_state) as manager:
+            manager.run()
+            single_jobs = manager.charm.coordinator._scrape_jobs
+            _validate_scrape_jobs(single_jobs, 1)
 
     # THEN: Exactly one scrape job should be generated for the local unit
     assert single_jobs[0]["static_configs"][0]["labels"]["juju_unit"] == "coordinator/0"
@@ -704,10 +681,11 @@ def test_coordinator_scrape_jobs_generation_scaled(
         hostname = unit_name.replace("coordinator/", "coord-") + ".local"
         scaled_remote_peers[mock_unit] = hostname
 
-    _, scaled_jobs = _execute_coordinator_scenario(
-        ctx, scaled_state, scaled_remote_peers, mock_coordinator_get_peer_data_patch
-    )
-    _validate_scrape_jobs(scaled_jobs, 3)
+    with mock_coordinator_get_peer_data_patch(scaled_remote_peers):
+        with ctx(ctx.on.update_status(), scaled_state) as manager:
+            manager.run()
+            scaled_jobs = manager.charm.coordinator._scrape_jobs
+            _validate_scrape_jobs(scaled_jobs, 3)
 
     # THEN: Three scrape jobs should be generated (one for each unit)
     unit_labels = [job["static_configs"][0]["labels"]["juju_unit"] for job in scaled_jobs]
