@@ -673,6 +673,7 @@ def test_coordinator_scrape_jobs_generation_single_unit(
     # And: The target should use the correct port format (hostname:9113)
     assert single_jobs[0]["static_configs"][0]["targets"][0].endswith(":9113")
 
+
 def test_coordinator_scrape_jobs_generation_scaled(
     coordinator_charm: ops.CharmBase,
     nginx_container,

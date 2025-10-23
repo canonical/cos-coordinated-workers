@@ -774,18 +774,21 @@ class Coordinator(ops.Object):
 
     def _get_peer_data(self, field: str) -> Dict[ops.model.Unit, str]:
         """Return a mapping of unit -> <unit databag field value> for all units in the peer relation (excluding self)."""
-        peers = self._peers
-        relation = self.model.get_relation(self._peer_relation)
+        peer_relation = self.model.get_relation(self._peer_relation)
+        out: Dict[ops.model.Unit, str] = {}
 
-        if not (peers and relation):
-            return {}
+        if not peer_relation:
+            return out
 
-        result = {
-            unit: relation.data.get(unit, {}).get(field)
-            for unit in peers
-            if relation.data.get(unit, {}).get(field) is not None
-        }
-        return cast(Dict[ops.model.Unit, str], result)
+        peer_data_items: list[tuple[ops.model.Unit, str]] = []
+        for unit in peer_relation.units:  # or self._units; they're equivalent
+            value = peer_relation.data.get(unit, {}).get(field)
+            if value is not None:
+                peer_data_items.append((unit, value))
+
+        out.update(dict(peer_data_items))
+
+        return out
 
     @property
     def _peer_hostnames(self) -> Dict[ops.model.Unit, str]:
