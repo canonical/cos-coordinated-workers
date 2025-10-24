@@ -2,8 +2,8 @@ import dataclasses
 import json
 from contextlib import ExitStack, contextmanager, nullcontext
 from pathlib import Path
-from typing import Any, Dict, List
-from unittest.mock import MagicMock, Mock, PropertyMock, patch
+from typing import Any, Dict, List, Set, Type
+from unittest.mock import MagicMock, PropertyMock, patch
 from urllib.parse import urlparse
 
 import ops
@@ -141,13 +141,15 @@ def coordinator_state(nginx_container, nginx_prometheus_exporter_container):
             "my-metrics": {"interface": "prometheus_scrape"},
         }.items()
     }
-
+    peer_relations = [testing.PeerRelation(endpoint="my-peers")]
     return testing.State(
         containers={
             nginx_container,
             nginx_prometheus_exporter_container,
         },
-        relations=list(requires_relations.values()) + list(provides_relations.values()),
+        relations=list(requires_relations.values())
+        + list(provides_relations.values())
+        + peer_relations,
     )
 
 
@@ -248,7 +250,8 @@ def test_worker_roles_subset_of_minimal_deployment(
     missing_backend_worker_relation = {
         relation
         for relation in coordinator_state.relations
-        if relation.remote_app_name != "worker2"
+        # exclude peer relations from the search
+        if isinstance(relation, ops.testing.Relation) and relation.remote_app_name != "worker2"
     }
 
     # WHEN we process any event
@@ -594,107 +597,115 @@ def test_invalid_app_or_unit_databag(
         assert isinstance(ctx.emitted_events[0], RelationChangedEvent)
 
 
-def _validate_scrape_jobs(
-    scrape_jobs: List[Dict[str, Any]],
+def _check_coordinator_scrape_jobs(
+    state: ops.testing.State,
     expected_job_count: int,
-) -> None:
+    n_worker_units: int = 4,  # they are 4 in the default coordinator_state
+) -> List[Dict[str, Any]]:
     """Validate the structure and content of generated scrape jobs.
 
     Args:
-        scrape_jobs: List of generated scrape jobs to validate
-        expected_job_count: Expected number of scrape jobs
+        state: scenario.State
+        expected_job_count: Expected number of scrape jobs for the coordinator only
+        n_worker_units: Number of worker units
     """
+    rel = state.get_relations("my-metrics")[0]
+    jobs = json.loads(rel.local_app_data["scrape_jobs"])
+
     # Verify number of jobs
-    assert len(scrape_jobs) == expected_job_count
+    # n jobs will always be there: those are the worker jobs for the roles we
+    # defined in the default coordinator_state
+    assert len(jobs) == expected_job_count + n_worker_units
+
+    # assumption: jobs without relabel_configs are coordinator jobs; all others are worker jobs
+    coordinator_jobs = [j for j in jobs if not j.get("relabel_configs")]
+    assert len(coordinator_jobs) == expected_job_count
 
     # Verify job structure
-    for job in scrape_jobs:
+    for job in coordinator_jobs:
         assert "static_configs" in job
         assert len(job["static_configs"]) == 1
         assert "targets" in job["static_configs"][0]
         assert "labels" in job["static_configs"][0]
         assert "juju_unit" in job["static_configs"][0]["labels"]
 
+    return coordinator_jobs
 
+
+@pytest.mark.parametrize(
+    "event",
+    (
+        testing.CharmEvents.update_status(),
+        testing.CharmEvents.start(),
+        testing.CharmEvents.install(),
+        testing.CharmEvents.config_changed(),
+    ),
+)
 def test_coordinator_scrape_jobs_generation_single_unit(
-    coordinator_charm: ops.CharmBase,
-    nginx_container,
-    nginx_prometheus_exporter_container,
-    mock_coordinator_get_peer_data_patch,
+    event,
+    coordinator_charm: Type[ops.CharmBase],
+    coordinator_state: ops.testing.State,
 ):
+    """Test that in a single coordinator unit deployment, a single metric scrape job is published."""
     ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META, app_name="coordinator")
-    my_metrics_relation = testing.Relation(endpoint="my-metrics")
+    # GIVEN: A coordinator with a single unit (no remote peers) (this is the default coordinator_state)
+    # WHEN: we receive any event
+    state_out = ctx.run(event, dataclasses.replace(coordinator_state, leader=True))
 
-    # SCENARIO 1: Single unit deployment
-    # GIVEN: A coordinator with a single unit (no remote peers)
-    peer_relation = testing.PeerRelation(endpoint="my-peers")
-    single_unit_state = testing.State(
-        leader=True,
-        relations=[peer_relation, my_metrics_relation],
-        containers={
-            nginx_container,
-            nginx_prometheus_exporter_container,
-        },
-    )
-
-    # WHEN: No remote peers are present (only local unit)
-    single_remote_peers = {}  # No remote peers
-    with mock_coordinator_get_peer_data_patch(single_remote_peers):
-        with ctx(ctx.on.update_status(), single_unit_state) as manager:
-            manager.run()
-            single_jobs = manager.charm.coordinator._scrape_jobs
-            _validate_scrape_jobs(single_jobs, 1)
+    # THEN we have one job for the local unit, the rest are workers
+    jobs = _check_coordinator_scrape_jobs(state_out, 1)
 
     # THEN: Exactly one scrape job should be generated for the local unit
-    assert single_jobs[0]["static_configs"][0]["labels"]["juju_unit"] == "coordinator/0"
+    assert jobs[0]["static_configs"][0]["labels"]["juju_unit"] == "coordinator/0"
     # And: The target should use the correct port format (hostname:9113)
-    assert single_jobs[0]["static_configs"][0]["targets"][0].endswith(":9113")
+    assert jobs[0]["static_configs"][0]["targets"][0].endswith(":9113")
 
 
+@pytest.mark.parametrize(
+    "event",
+    (
+        testing.CharmEvents.update_status(),
+        testing.CharmEvents.start(),
+        testing.CharmEvents.install(),
+        testing.CharmEvents.config_changed(),
+    ),
+)
 def test_coordinator_scrape_jobs_generation_scaled(
-    coordinator_charm: ops.CharmBase,
-    nginx_container,
-    nginx_prometheus_exporter_container,
-    mock_coordinator_get_peer_data_patch,
+    event,
+    coordinator_charm: Type[ops.CharmBase],
+    coordinator_state: ops.testing.State,
 ):
     ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META, app_name="coordinator")
-    my_metrics_relation = testing.Relation(endpoint="my-metrics")
     # GIVEN: A coordinator with 3 units (local + 2 remote peers)
-    scaled_peer_relation = testing.PeerRelation(endpoint="my-peers")
-    scaled_state = testing.State(
-        leader=True,
-        relations=[scaled_peer_relation, my_metrics_relation],
-        containers={
-            nginx_container,
-            nginx_prometheus_exporter_container,
+    # replace the default peer relation (in coordinator_state) with one which has some peer data
+    relations: Set[ops.testing.RelationBase] = set(coordinator_state.relations)
+    peer_relation: ops.testing.PeerRelation = coordinator_state.get_relations("my-peers")[0]
+    relations.remove(peer_relation)
+
+    # GIVEN: Two remote peers are available with their hostnames
+    scaled_peer_relation = dataclasses.replace(
+        peer_relation,
+        peers_data={
+            1: {"hostname": "peer1.com"},
+            2: {"hostname": "peer2.com"},
         },
     )
+    relations.add(scaled_peer_relation)
 
-    # WHEN: Two remote peers are available with their hostnames
-    scaled_remote_peers = {}
-    remote_unit_names = ["coordinator/1", "coordinator/2"]
+    scaled_state = dataclasses.replace(coordinator_state, leader=True, relations=relations)
 
-    for unit_name in remote_unit_names:
-        mock_unit = Mock()
-        mock_unit.name = unit_name
-        # Use simple hostname matching unit name pattern
-        hostname = unit_name.replace("coordinator/", "coord-") + ".local"
-        scaled_remote_peers[mock_unit] = hostname
-
-    with mock_coordinator_get_peer_data_patch(scaled_remote_peers):
-        with ctx(ctx.on.update_status(), scaled_state) as manager:
-            manager.run()
-            scaled_jobs = manager.charm.coordinator._scrape_jobs
-            _validate_scrape_jobs(scaled_jobs, 3)
+    # WHEN any event occurs
+    state_out = ctx.run(ctx.on.update_status(), scaled_state)
+    jobs = _check_coordinator_scrape_jobs(state_out, 3)
 
     # THEN: Three scrape jobs should be generated (one for each unit)
-    unit_labels = [job["static_configs"][0]["labels"]["juju_unit"] for job in scaled_jobs]
+    unit_labels = [job["static_configs"][0]["labels"]["juju_unit"] for job in jobs]
     assert "coordinator/0" in unit_labels  # Local unit
     assert "coordinator/1" in unit_labels  # Remote unit 1
     assert "coordinator/2" in unit_labels  # Remote unit 2
 
     # And: All targets should use the correct port format (hostname:9113)
-    targets = [job["static_configs"][0]["targets"][0] for job in scaled_jobs]
+    targets = [job["static_configs"][0]["targets"][0] for job in jobs]
     for target in targets:
         assert target.endswith(":9113")
 

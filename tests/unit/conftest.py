@@ -127,20 +127,3 @@ def nginx_prometheus_exporter_container():
         "nginx-prometheus-exporter",
         can_connect=True,
     )
-
-
-@pytest.fixture
-def mock_coordinator_get_peer_data_patch():
-    """Fixture to patch coordinator _get_peer_data method with given mock peers.
-
-    This allows us to mock the peer data at a lower level, letting _peer_hostnames
-    use its real logic to add the local unit's hostname automatically.
-    """
-
-    def _patch_get_peer_data(mock_peers):
-        """Patch _get_peer_data with the provided mock peers."""
-        return patch(
-            "coordinated_workers.coordinator.Coordinator._get_peer_data", return_value=mock_peers
-        )
-
-    return _patch_get_peer_data
