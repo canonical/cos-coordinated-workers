@@ -50,6 +50,7 @@ class MyCoordCharm(ops.CharmBase):
             workers_config=lambda _: "worker config",
             resources_requests=lambda _: {"cpu": "50m", "memory": "100Mi"},
             container_name="nginx",
+            peer_relation="my-peers",
         )
 
 
@@ -78,6 +79,11 @@ def ctx(coord_charm):
                 "grafana-dashboard": {"interface": "grafana_dashboard"},
                 "metrics-endpoint": {"interface": "prometheus_scrape"},
                 "my-ds-exchange-provide": {"interface": "grafana_datasource_exchange"},
+            },
+            "peers": {
+                "my-peers": {
+                    "interface": "coordinated_workers_peers",
+                },
             },
             "containers": {
                 "nginx": {"type": "oci-image"},

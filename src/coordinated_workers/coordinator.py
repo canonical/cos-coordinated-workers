@@ -21,6 +21,7 @@ from typing import (
     Optional,
     Sequence,
     Set,
+    Tuple,
     TypedDict,
     Union,
     cast,
@@ -99,6 +100,8 @@ CONSOLIDATED_METRICS_ALERT_RULES_PATH = Path("src/prometheus_alert_rules/consoli
 # The paths of the base rules to be consolidated in CONSOLIDATED_LOGS_ALERT_RULES_PATH
 ORIGINAL_LOGS_ALERT_RULES_PATH = Path("src/loki_alert_rules")
 CONSOLIDATED_LOGS_ALERT_RULES_PATH = Path("src/loki_alert_rules/consolidated_rules")
+
+PEER_RELATION_DEFAULT_NAME = "peers"
 
 
 class S3NotFoundError(Exception):
@@ -245,6 +248,7 @@ class Coordinator(ops.Object):
             worker_telemetry.WorkerTelemetryProxyConfig
         ] = None,
         charm_mesh_policies: Optional[List[Union[AppPolicy, UnitPolicy]]] = None,
+        peer_relation: str = PEER_RELATION_DEFAULT_NAME,
     ):
         """Constructor for a Coordinator object.
 
@@ -279,6 +283,7 @@ class Coordinator(ops.Object):
             charm_mesh_policies: Charm specific service mesh policies.
                 These policies will only govern the traffic incoming to the coordinator.
                 These policies will be added to the Coordinator defined policies that are common for all coordinated-workers charms.
+            peer_relation: The name of a peer relation that the coordinator will use to exchange addresses with its peer units.
 
         Raises:
         ValueError:
@@ -299,6 +304,7 @@ class Coordinator(ops.Object):
         self._container_name = container_name
         self._resources_limit_options = resources_limit_options or {}
         self._catalogue_item = catalogue_item
+        self._peer_relation = peer_relation
         self._catalogue = (
             CatalogueConsumer(self._charm, relation_name=endpoint)
             if (endpoint := self._endpoints.get("catalogue"))
@@ -472,6 +478,7 @@ class Coordinator(ops.Object):
         self.nginx_exporter.reconcile()
 
         # reconcile relations
+        self._reconcile_peer_relation()
         self._reconcile_cluster_relations()
         self._reconcile_mesh_policies()
         self._consolidate_alert_rules()
@@ -766,43 +773,30 @@ class Coordinator(ops.Object):
         except S3NotFoundError:
             return False
 
+    def _get_peer_data(self, field: str) -> Dict[ops.model.Unit, str]:
+        """Return a mapping of unit -> <unit databag field value> for all units in the peer relation (excluding self)."""
+        peer_relation = self.model.get_relation(self._peer_relation)
+        out: Dict[ops.model.Unit, str] = {}
+
+        if not peer_relation:
+            return out
+
+        peer_data_items: List[Tuple[ops.model.Unit, str]] = []
+        for unit in peer_relation.units:  # or self._units; they're equivalent
+            value: Optional[str] = peer_relation.data.get(unit, {}).get(field)
+            if value is not None:
+                peer_data_items.append((unit, value))
+
+        out.update(dict(peer_data_items))
+
+        return out
+
     @property
-    def peer_addresses(self) -> List[str]:
-        """If a peer relation is present, return the addresses of the peers."""
-        peers = self._peers
-        relation = self.model.get_relation("peers")
-        # get unit addresses for all the other units from a databag
-        addresses = []
-        if peers and relation:
-            addresses = [relation.data.get(unit, {}).get("local-ip") for unit in peers]
-            addresses = list(filter(None, addresses))
-
-        # add own address
-        if self._local_ip:
-            addresses.append(self._local_ip)
-
-        return addresses
-
-    @property
-    def _local_ip(self) -> Optional[str]:
-        """Local IP of the peers binding."""
-        try:
-            binding = self.model.get_binding("peers")
-            if not binding:
-                logger.error(
-                    "unable to get local IP at this time: "
-                    "peers binding not active yet. It could be that the charm "
-                    "is still being set up..."
-                )
-                return None
-            return str(binding.network.bind_address)
-        except (ops.ModelError, KeyError) as e:
-            logger.debug("failed to obtain local ip from peers binding", exc_info=True)
-            logger.error(
-                f"unable to get local IP at this time: failed with {type(e)}; "
-                f"see debug log for more info"
-            )
-            return None
+    def _peer_hostnames(self) -> Dict[ops.model.Unit, str]:
+        """Return the mapping of peer units to their hostnames, including ours."""
+        hostnames = self._get_peer_data("hostname")
+        hostnames[self._charm.unit] = self.hostname
+        return hostnames
 
     @property
     def _workers_scrape_jobs(self) -> List[Dict[str, Any]]:
@@ -855,11 +849,21 @@ class Coordinator(ops.Object):
     @property
     def _nginx_scrape_jobs(self) -> List[Dict[str, Any]]:
         """The Prometheus scrape job for Nginx."""
-        job: Dict[str, Any] = {
-            "static_configs": [{"targets": [f"{self.hostname}:{self.nginx_exporter.port}"]}]
-        }
+        scrape_jobs: List[Dict[str, Any]] = []
+        for unit, hostname in self._peer_hostnames.items():
+            job = {
+                "static_configs": [
+                    {
+                        "targets": [f"{hostname}:{self.nginx.options['nginx_exporter_port']}"],
+                        "labels": {"juju_unit": unit.name},
+                    }
+                ],
+            }
+            if self.tls_available:
+                job["scheme"] = "https"  # pyright: ignore
+            scrape_jobs.append(job)
 
-        return [job]
+        return scrape_jobs
 
     @property
     def _scrape_jobs(self) -> List[Dict[str, Any]]:
@@ -900,10 +904,6 @@ class Coordinator(ops.Object):
     # EVENT HANDLERS #
     ##################
 
-    def _on_peers_relation_created(self, event: ops.RelationCreatedEvent):
-        if self._local_ip:
-            event.relation.data[self._charm.unit]["local-ip"] = self._local_ip
-
     # keep this event handler at the bottom
     def _on_collect_unit_status(self, e: ops.CollectStatusEvent):
         # todo add [nginx.workload] statuses
@@ -936,7 +936,7 @@ class Coordinator(ops.Object):
     ###################
     @property
     def _peers(self) -> Optional[Set[ops.model.Unit]]:
-        relation = self.model.get_relation("peers")
+        relation = self.model.get_relation(self._peer_relation)
         if not relation:
             return None
 
@@ -962,6 +962,14 @@ class Coordinator(ops.Object):
             target_selector_labels=self._coordinated_workers_solution_labels,
             logger=logger,
         )
+
+    def _reconcile_peer_relation(self):
+        # there's only ever going to be only one peer relation, but this guards against situations where
+        # the peer relation doesn't exist yet (can occur during the setup phase)
+        relations: List[ops.Relation] = self.model.relations.get(self._peer_relation, [])
+
+        for relation in relations:
+            relation.data[self._charm.unit]["hostname"] = self.hostname
 
     def _reconcile_cluster_relations(self):
         """Build the workers config and distribute it to the relations."""
