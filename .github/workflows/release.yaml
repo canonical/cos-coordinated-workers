@@ -19,7 +19,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.8"
+          python-version: "3.14"
       - name: Auto set version from tag
         # Ref: https://github.com/grst/python-ci-versioneer
         run: |
