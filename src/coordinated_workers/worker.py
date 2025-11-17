@@ -261,7 +261,7 @@ class Worker(ops.Object):
                     "workload-status": {
                         "override": "replace",
                         "summary": "Notify charm about the workload status ",
-                        "command": f"watch -n 5 'code=$(curl -s -o /dev/null -w \"%{{http_code}}\" {self._readiness_check_endpoint(self)}); if [ \"$code\" = \"200\" ]; then /charm/bin/pebble notify {self.WORKLOAD_READY_NOTICE_KEY}; elif [[ $code =~ ^5..$ ]]; then /charm/bin/pebble notify {self.WORKLOAD_STARTING_NOTICE_KEY}; fi'",
+                        "command": f"watch -n 5 'code=$(curl -s -o /dev/null -w \"%{{http_code}}\" {self._readiness_check_endpoint}); if [ \"$code\" = \"200\" ]; then /charm/bin/pebble notify {self.WORKLOAD_READY_NOTICE_KEY}; elif [[ $code =~ ^5..$ ]]; then /charm/bin/pebble notify {self.WORKLOAD_STARTING_NOTICE_KEY}; fi'",
                         "startup": "enabled",
                     }
                 },
