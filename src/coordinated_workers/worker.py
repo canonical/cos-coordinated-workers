@@ -161,7 +161,7 @@ class Worker(ops.Object):
             self._readiness_check_endpoint = lambda _: readiness_check_endpoint
             self._container.add_layer("workload-status", self._workload_status_layer, combine=True)
         else:
-            self._readiness_check_endpoint = readiness_check_endpoint
+            self._readiness_check_endpoint = readiness_check_endpoint(self)
             self._container.add_layer("workload-status", self._workload_status_layer, combine=True)
         self._resources_requests_getter = (
             partial(resources_requests, self) if resources_requests is not None else None
