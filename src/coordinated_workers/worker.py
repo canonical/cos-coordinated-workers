@@ -319,7 +319,7 @@ class Worker(ops.Object):
             raise NoReadinessCheckEndpointConfiguredError()
 
         try:
-            with urllib.request.urlopen(check_endpoint(self)) as response:
+            with urllib.request.urlopen(check_endpoint) as response:
                 html: bytes = response.read()
 
             # ready response should simply be a string:
