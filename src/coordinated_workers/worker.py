@@ -159,10 +159,8 @@ class Worker(ops.Object):
         self._readiness_check_endpoint: Optional[Callable[[Worker], str]]
         if isinstance(readiness_check_endpoint, str):
             self._readiness_check_endpoint = lambda _: readiness_check_endpoint
-            self._container.add_layer("workload-status", self._workload_status_layer, combine=True)
         else:
             self._readiness_check_endpoint = readiness_check_endpoint(self)
-            self._container.add_layer("workload-status", self._workload_status_layer, combine=True)
         self._resources_requests_getter = (
             partial(resources_requests, self) if resources_requests is not None else None
         )
@@ -457,6 +455,7 @@ class Worker(ops.Object):
             return False
 
         self._add_readiness_check(layer)
+        self._add_workload_status_notice(layer)
         self._add_proxy_info(layer)
 
         def diff(layer: Layer, plan: Plan):
@@ -470,6 +469,7 @@ class Worker(ops.Object):
         if diff(layer, current_plan):
             logger.debug("Adding new layer to pebble...")
             self._container.add_layer(self._name, layer, combine=True)
+            self._container.add_layer("workload-status", self._workload_status_layer, combine=True)
             return True
         return False
 
@@ -501,6 +501,12 @@ class Worker(ops.Object):
             },
         )
 
+    def _add_workload_status_notice(self, new_layer: Layer):
+        """Add the "workload-status" pebble notice service to a pebble layer."""
+        new_layer.services["workload-status"] = self._workload_status_layer.services[
+            "workload-status"
+        ]
+
     def _reconcile(self):
         """Run all logic that is independent of what event we're processing."""
         # There could be a race between the resource patch and pebble operations
@@ -526,6 +532,8 @@ class Worker(ops.Object):
             # - we need to because our config has changed
             # - some services are not running
             configs_changed = self._update_config()
+            if not (layer := self.pebble_layer):
+                return
             service_names = layer.services.keys()
             if configs_changed:
                 logger.debug("Config changed. Restarting worker services...")
