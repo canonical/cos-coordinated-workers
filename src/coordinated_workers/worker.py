@@ -497,7 +497,7 @@ class Worker(ops.Object):
                 "override": "replace",
                 # threshold gets added automatically by pebble
                 "threshold": 3,
-                "http": {"url": self._readiness_check_endpoint(self)},
+                "http": {"url": self._readiness_check_endpoint},
             },
         )
 
