@@ -150,6 +150,11 @@ class Worker(ops.Object):
         self._endpoints = endpoints
         _validate_container_name(container_name, resources_requests)
 
+        self.cluster = ClusterRequirer(
+            charm=self._charm,
+            endpoint=self._endpoints["cluster"],
+        )
+
         # turn str to Callable[[Worker], str]
         self._readiness_check_endpoint: Optional[Callable[[Worker], str]]
         if isinstance(readiness_check_endpoint, str):
@@ -163,11 +168,6 @@ class Worker(ops.Object):
         )
         self._container_name = container_name
         self._resources_limit_options = resources_limit_options or {}
-
-        self.cluster = ClusterRequirer(
-            charm=self._charm,
-            endpoint=self._endpoints["cluster"],
-        )
 
         self._log_forwarder = ManualLogForwarder(
             charm=self._charm,
