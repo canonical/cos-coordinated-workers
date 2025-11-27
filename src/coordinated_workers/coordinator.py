@@ -452,9 +452,13 @@ class Coordinator(ops.Object):
         # i.e., charm code proceeds beyond a can_connect guard, and then lightkube patches the statefulset
         # and the workload is no longer available.
         # `resources_patch` might be `None` when no resources requests or limits are requested by the charm.
-        if self.resources_patch and not self.resources_patch.is_ready():
-            logger.debug("Resource patch not ready yet. Skipping cluster update step.")
-            return
+        if self.resources_patch:
+            status = self.resources_patch.get_status()
+            if not isinstance(status, ops.ActiveStatus):
+                logger.debug(
+                    f"Resource patch not ready yet: {status.message}. Skipping cluster update step."
+                )
+                return
 
         # reconcile the custom labels added to the application pods.
         self._reconcile_charm_labels()
