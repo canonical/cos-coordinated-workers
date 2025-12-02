@@ -1138,7 +1138,7 @@ def test_worker_charm_labels(remote_databag, expected, mock_worker_reconcile_cha
     )
     ctx.run(
         ctx.on.relation_changed(relation),
-        testing.State(containers={container}, relations={relation}),
+        testing.State(leader=True, containers={container}, relations={relation}),
     )
 
     assert mock_worker_reconcile_charm_labels.call_args.kwargs["labels"] == expected
