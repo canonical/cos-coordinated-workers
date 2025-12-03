@@ -949,6 +949,11 @@ class Coordinator(ops.Object):
 
     def _reconcile_charm_labels(self) -> None:
         """Update any custom pod labels we require."""
+        # NOTE: the labels are patched on the charm's service and statefulset.
+        # Hence only the leader unit needs to do this.
+        # If we allowed all units to do this, it might lead to a race condition.
+        if not self._charm.unit.is_leader():
+            return
         reconcile_charm_labels(
             client=Client(namespace=self._charm.model.name),
             app_name=self._charm.app.name,
