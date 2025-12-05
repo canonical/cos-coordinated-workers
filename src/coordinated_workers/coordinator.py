@@ -371,11 +371,7 @@ class Coordinator(ops.Object):
             relation_name=self._endpoints["logging"],
             alert_rules_path=str(CONSOLIDATED_LOGS_ALERT_RULES_PATH),
         )
-        self._coordinator_logging = LogForwarder(
-            self._charm,
-            relation_name=self._endpoints["logging"],
-            alert_rules_path=str(CONSOLIDATED_LOGS_ALERT_RULES_PATH),
-        )
+
         self._scraping = MetricsEndpointProvider(
             self._charm,
             relation_name=self._endpoints["metrics"],
@@ -480,6 +476,12 @@ class Coordinator(ops.Object):
             tls_config=self.tls_config,
         )
         self.nginx_exporter.reconcile()
+
+        self._coordinator_logging = LogForwarder(
+            self._charm,
+            relation_name=self._endpoints["logging"],
+            alert_rules_path=str(CONSOLIDATED_LOGS_ALERT_RULES_PATH),
+        )
 
         # reconcile relations
         self._reconcile_peer_relation()
