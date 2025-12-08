@@ -13,14 +13,11 @@ readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
 dependencies = [
-#    NOTE: always replicate any changes in dependencies to Coordinator and Worker tester charms
-#          as they should always match this
+    "charmlibs-interfaces-tls-certificates~=1.0",
     "crossplane",
     "ops[tracing]",
     "pydantic",
     "lightkube>=v0.15.4",
-    # charms.tls_certificates_interface.v4.tls_certificates
-    "cryptography",
     "charmed-service-mesh-helpers>=0.2.0",
     "lightkube-extensions",
     "cosl>=1.3.1",
