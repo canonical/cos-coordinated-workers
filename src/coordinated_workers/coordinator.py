@@ -33,6 +33,10 @@ import ops
 import ops_tracing
 import pydantic
 import yaml
+from charmlibs.interfaces.tls_certificates import (
+    CertificateRequestAttributes,
+    TLSCertificatesRequiresV4,
+)
 from cosl.interfaces.datasource_exchange import DatasourceExchange
 from lightkube import Client
 from opentelemetry import trace
@@ -59,7 +63,6 @@ check_libs_installed(
     "charms.loki_k8s.v1.loki_push_api",
     "charms.tempo_coordinator_k8s.v0.tracing",
     "charms.observability_libs.v0.kubernetes_compute_resources_patch",
-    "charms.tls_certificates_interface.v4.tls_certificates",
     "charms.catalogue_k8s.v1.catalogue",
     "charms.istio_beacon_k8s.v0.service_mesh",
 )
@@ -79,10 +82,6 @@ from charms.observability_libs.v0.kubernetes_compute_resources_patch import (
 )
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from charms.tempo_coordinator_k8s.v0.tracing import ReceiverProtocol, TracingEndpointRequirer
-from charms.tls_certificates_interface.v4.tls_certificates import (
-    CertificateRequestAttributes,
-    TLSCertificatesRequiresV4,
-)
 from cosl.reconciler import all_events, observe_events
 from lightkube.models.core_v1 import ResourceRequirements
 
