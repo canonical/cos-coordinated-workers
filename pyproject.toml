@@ -106,7 +106,6 @@ classmethod-decorators = ["classmethod", "pydantic.validator"]
 
 [tool.pyright]
 include = ["src"]
-
 extraPaths = ["lib", "src/coordinated_workers", "probes"]
 pythonVersion = "3.10"
 pythonPlatform = "All"
