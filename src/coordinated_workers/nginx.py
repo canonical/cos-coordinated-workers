@@ -158,6 +158,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Literal, Optional, Set, TypedDict, cast
 
 import crossplane  # type: ignore
+from charmlibs.pathops import ContainerPath
 from opentelemetry import trace
 from ops import CharmBase, pebble
 
@@ -1014,11 +1015,38 @@ class NginxPrometheusExporter:
         self._container = self._charm.unit.get_container("nginx-prometheus-exporter")
         self.options.update(options or {})
 
-    def reconcile(self):
+    def reconcile(
+        self,
+        tls_config: Optional[TLSConfig] = None,
+    ):
         """Configure pebble layer and restart if necessary."""
         if self._container.can_connect():
             self._container.add_layer("nginx-prometheus-exporter", self.layer, combine=True)
+            self._configure_tls(tls_config)
             self._container.autostart()
+
+    def _configure_tls(self, tls_config: Optional[TLSConfig] = None) -> None:
+        """Save the certificates and private key files to disk and run update-ca-certificates."""
+        private_key_path = ContainerPath(KEY_PATH, container=self._container)
+        server_cert_path = ContainerPath(CERT_PATH, container=self._container)
+        root_ca_cert_path = ContainerPath(CA_CERT_PATH, container=self._container)
+
+        # If there is no cert or private key coming from relation data, cleanup the existing ones.
+        # This typically happens after a "revoked" or "renewal" event.
+        if not tls_config:
+            server_cert_path.unlink() if server_cert_path.exists() else None
+            private_key_path.unlink() if private_key_path.exists() else None
+            root_ca_cert_path.unlink() if root_ca_cert_path.exists() else None
+
+        # Push the certificate and key to disk
+        private_key_path.parent.mkdir(parents=True, exist_ok=True)
+        private_key_path.write_text(tls_config.private_key)
+        server_cert_path.parent.mkdir(parents=True, exist_ok=True)
+        server_cert_path.write_text(tls_config.server_cert)
+        root_ca_cert_path.parent.mkdir(parents=True, exist_ok=True)
+        root_ca_cert_path.write_text(tls_config.ca_cert)
+
+        self._container.exec(["update-ca-certificates", "--fresh"]).wait()
 
     @property
     def are_certificates_on_disk(self) -> bool:
