@@ -644,7 +644,7 @@ class CharmedDashboard:
         return dict_content
 
     @classmethod
-    def _template_panels(
+    def _template_panels(  # noqa: C901
         cls,
         panels: dict,
         replacements: dict,
