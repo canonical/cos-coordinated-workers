@@ -151,14 +151,15 @@ Any charm can instantiate `NginxConfig` to generate its own Nginx configuration 
 
 """
 
+import hashlib
 import logging
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Literal, Optional, Set, TypedDict, cast
+from typing import Any, Callable, Dict, List, Literal, Optional, Set, TypedDict, Union, cast
 
 import crossplane  # type: ignore
-from charmlibs.pathops import ContainerPath
+import yaml
 from opentelemetry import trace
 from ops import CharmBase, pebble
 
@@ -172,6 +173,10 @@ NGINX_CONFIG = f"{NGINX_DIR}/nginx.conf"
 KEY_PATH = f"{NGINX_DIR}/certs/server.key"
 CERT_PATH = f"{NGINX_DIR}/certs/server.cert"
 CA_CERT_PATH = "/usr/local/share/ca-certificates/ca.crt"
+PROM_EXPORTER_DIR = "/etc/exporter"
+PROM_EXPORTER_KEY_PATH = f"{PROM_EXPORTER_DIR}/certs/server.key"
+PROM_EXPORTER_CERT_PATH = f"{PROM_EXPORTER_DIR}/certs/server.crt"
+PROM_EXPORTER_WEB_CONFIG = f"{PROM_EXPORTER_DIR}/web-config.yaml"
 
 _NginxMapping = TypedDict(
     "_NginxMapping", {"nginx_port": int, "nginx_exporter_port": int}, total=True
@@ -181,6 +186,7 @@ NginxMappingOverrides = TypedDict(
 )
 DEFAULT_OPTIONS: _NginxMapping = {
     "nginx_port": 8080,
+    "nginx_tls_port": 443,
     "nginx_exporter_port": 9113,
 }
 RESOLV_CONF_PATH = "/etc/resolv.conf"
@@ -197,6 +203,23 @@ NginxLocationModifier = Literal[
     "~*",  # case-insensitive regex match
     "^~",  # prefix match that disables further regex matching
 ]
+
+
+def sha256(hashable: Union[str, bytes]) -> str:
+    """Generate a SHA-256 hash of the input.
+
+    This function provides a consistent, repeatable hash value for the input,
+    unlike Python's built-in hash() which may vary between Python processes.
+
+    Args:
+        hashable: Input to be hashed. If a string, will be encoded to bytes.
+
+    Returns:
+        str: A hexadecimal string representing the SHA-256 hash of the input.
+    """
+    if isinstance(hashable, str):
+        hashable = hashable.encode("utf-8")
+    return hashlib.sha256(hashable).hexdigest()
 
 
 @dataclass
@@ -1009,6 +1032,11 @@ class NginxPrometheusExporter:
     """Helper class to manage the nginx prometheus exporter workload."""
 
     options: _NginxMapping = DEFAULT_OPTIONS
+    container_name: str = "nginx-prometheus-exporter"
+    web_config_path: str = PROM_EXPORTER_WEB_CONFIG
+    key_path: str = PROM_EXPORTER_KEY_PATH
+    cert_path: str = PROM_EXPORTER_CERT_PATH
+    ca_cert_path: str = CA_CERT_PATH
 
     def __init__(self, charm: CharmBase, options: Optional[NginxMappingOverrides] = None) -> None:
         self._charm = charm
@@ -1021,41 +1049,64 @@ class NginxPrometheusExporter:
     ):
         """Configure pebble layer and restart if necessary."""
         if self._container.can_connect():
-            self._container.add_layer("nginx-prometheus-exporter", self.layer, combine=True)
-            self._configure_tls(tls_config)
-            self._container.autostart()
+            self._container.push(self.web_config_path, self.web_config, make_dirs=True)
+            server_cert_hash = self._configure_tls(tls_config)
+            self._add_pebble_layer([server_cert_hash, sha256(self.web_config)])
+            self._container.replan()
 
-    def _configure_tls(self, tls_config: Optional[TLSConfig] = None) -> None:
+    def _add_pebble_layer(self, hashes: List[str]):
+        """Set the pebble layer containing a reload sentinel.
+
+        If the config file or any cert has changed, a change in this environment variable will
+        trigger a restart
+        """
+        pebble_extra_env = {"_reload": ",".join(hashes)}
+        self._container.add_layer(
+            self.container_name,
+            self._layer(environment=pebble_extra_env),
+            combine=True,
+        )
+
+    def _configure_tls(self, tls_config: Optional[TLSConfig] = None) -> str:
         """Save the certificates and private key files to disk and run update-ca-certificates."""
-        private_key_path = ContainerPath(KEY_PATH, container=self._container)
-        server_cert_path = ContainerPath(CERT_PATH, container=self._container)
-        root_ca_cert_path = ContainerPath(CA_CERT_PATH, container=self._container)
-
         # If there is no cert or private key coming from relation data, cleanup the existing ones.
         # This typically happens after a "revoked" or "renewal" event.
         if not tls_config:
-            server_cert_path.unlink() if server_cert_path.exists() else None
-            private_key_path.unlink() if private_key_path.exists() else None
-            root_ca_cert_path.unlink() if root_ca_cert_path.exists() else None
+            self._container.remove_path(self.key_path, recursive=True)
+            self._container.remove_path(self.cert_path, recursive=True)
+            return sha256("")
 
         # Push the certificate and key to disk
-        private_key_path.parent.mkdir(parents=True, exist_ok=True)
-        private_key_path.write_text(tls_config.private_key)
-        server_cert_path.parent.mkdir(parents=True, exist_ok=True)
-        server_cert_path.write_text(tls_config.server_cert)
-        root_ca_cert_path.parent.mkdir(parents=True, exist_ok=True)
-        root_ca_cert_path.write_text(tls_config.ca_cert)
+        self._container.push(self.key_path, tls_config.private_key, make_dirs=True)
+        self._container.push(self.cert_path, tls_config.server_cert, make_dirs=True)
+        # TODO: Make sure curl works without -k after relating otelcol to certs
+        return sha256(str(tls_config.private_key) + str(tls_config.server_cert))
 
-        self._container.exec(["update-ca-certificates", "--fresh"]).wait()
+    def _layer(self, environment: Dict) -> pebble.Layer:
+        """Return the Pebble layer for Nginx Prometheus exporter."""
+        return pebble.Layer(
+            {
+                "summary": "nginx prometheus exporter layer",
+                "description": "pebble config layer for Nginx Prometheus exporter",
+                "services": {
+                    "nginx-prometheus-exporter": {
+                        "override": "replace",
+                        "summary": "nginx prometheus exporter",
+                        "command": self.command,
+                        "startup": "enabled",
+                        "environment": {**environment},
+                    }
+                },
+            }
+        )
 
     @property
     def are_certificates_on_disk(self) -> bool:
         """Return True if the certificates files are on disk."""
         return (
             self._container.can_connect()
-            and self._container.exists(CERT_PATH)
-            and self._container.exists(KEY_PATH)
-            and self._container.exists(CA_CERT_PATH)
+            and self._container.exists(self.cert_path)
+            and self._container.exists(self.key_path)
         )
 
     @property
@@ -1067,23 +1118,44 @@ class NginxPrometheusExporter:
         return self.options["nginx_exporter_port"]
 
     @property
-    def layer(self) -> pebble.Layer:
-        """Return the Pebble layer for Nginx Prometheus exporter."""
+    def command(self):
+        """Return the command for the Nginx Prometheus exporter service in the Pebble layer."""
+        # FIXME: remove type ignores
         scheme = "https" if self.are_certificates_on_disk else "http"  # type: ignore
-        return pebble.Layer(
-            {
-                "summary": "nginx prometheus exporter layer",
-                "description": "pebble config layer for Nginx Prometheus exporter",
-                "services": {
-                    "nginx-prometheus-exporter": {
-                        "override": "replace",
-                        "summary": "nginx prometheus exporter",
-                        "command": f"nginx-prometheus-exporter --no-nginx.ssl-verify --web.listen-address=:{self.port}  --nginx.scrape-uri={scheme}://127.0.0.1:{self.options['nginx_port']}/status",
-                        "startup": "enabled",
-                    }
-                },
-            }
+        nginx_port = (
+            self.options["nginx_tls_port"]
+            if self.are_certificates_on_disk
+            else self.options["nginx_port"]
+        )  # type: ignore
+        command = (
+            "nginx-prometheus-exporter "
+            f"--web.listen-address=:{self.port} "
+            f"--nginx.scrape-uri={scheme}://127.0.0.1:{nginx_port}/status "
+            "--no-nginx.ssl-verify"
         )
+        if self.web_config:
+            command += f" --web.config.file={self.web_config_path}"
+
+        return command
+
+    @property
+    def web_config(self) -> str:
+        """Return the web configuration content for Nginx Prometheus exporter.
+
+        https://github.com/prometheus/exporter-toolkit/blob/master/docs/web-configuration.md
+        """
+        cfg = {}
+        # FIXME: Set perms for these to o600
+        if self.are_certificates_on_disk:
+            cfg.update(
+                {
+                    "tls_server_config": {
+                        "cert_file": self.cert_path,
+                        "key_file": self.key_path,
+                    },
+                }
+            )
+        return yaml.safe_dump(cfg)
 
 
 def is_ipv6_enabled() -> bool:
