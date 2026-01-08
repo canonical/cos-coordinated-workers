@@ -152,7 +152,6 @@ Any charm can instantiate `NginxConfig` to generate its own Nginx configuration 
 """
 
 import hashlib
-import json
 import logging
 import subprocess
 from dataclasses import dataclass, field
@@ -180,10 +179,14 @@ PROM_EXPORTER_CERT_PATH = f"{PROM_EXPORTER_DIR}/certs/server.crt"
 PROM_EXPORTER_WEB_CONFIG = f"{PROM_EXPORTER_DIR}/web-config.yaml"
 
 _NginxMapping = TypedDict(
-    "_NginxMapping", {"nginx_port": int, "nginx_exporter_port": int}, total=True
+    "_NginxMapping",
+    {"nginx_port": int, "nginx_tls_port": int, "nginx_exporter_port": int},
+    total=True,
 )
 NginxMappingOverrides = TypedDict(
-    "NginxMappingOverrides", {"nginx_port": int, "nginx_exporter_port": int}, total=False
+    "NginxMappingOverrides",
+    {"nginx_port": int, "nginx_tls_port": int, "nginx_exporter_port": int},
+    total=False,
 )
 DEFAULT_OPTIONS: _NginxMapping = {
     "nginx_port": 8080,
@@ -1084,7 +1087,7 @@ class NginxPrometheusExporter:
         # TODO: Make sure curl works without -k after relating otelcol to certs
         return sha256(str(tls_config.private_key) + str(tls_config.server_cert))
 
-    def _layer(self, environment: Dict) -> pebble.Layer:
+    def _layer(self, environment: Dict[str, str]) -> pebble.Layer:
         """Return the Pebble layer for Nginx Prometheus exporter."""
         return pebble.Layer(
             {
@@ -1150,7 +1153,7 @@ class NginxPrometheusExporter:
 
         https://github.com/prometheus/exporter-toolkit/blob/master/docs/web-configuration.md
         """
-        cfg = {}
+        cfg: Dict[str, Any] = {}
         # FIXME: Set perms for these to o600
         if self.are_certificates_on_disk:
             cfg.update(

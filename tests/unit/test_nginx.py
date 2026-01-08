@@ -10,7 +10,6 @@ import ops
 import pytest
 from ops import pebble, testing
 
-from coordinated_workers.models import TLSConfig
 from coordinated_workers.nginx import (
     CA_CERT_PATH,
     CERT_PATH,
