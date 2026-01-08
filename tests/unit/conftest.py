@@ -122,7 +122,7 @@ def nginx_container():
 
 
 @pytest.fixture
-def nginx_prometheus_exporter_container():
+def exporter_container():
     return Container(
         "nginx-prometheus-exporter",
         can_connect=True,

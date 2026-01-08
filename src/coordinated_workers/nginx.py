@@ -152,6 +152,7 @@ Any charm can instantiate `NginxConfig` to generate its own Nginx configuration 
 """
 
 import hashlib
+import json
 import logging
 import subprocess
 from dataclasses import dataclass, field
@@ -1051,19 +1052,20 @@ class NginxPrometheusExporter:
         if self._container.can_connect():
             self._container.push(self.web_config_path, self.web_config, make_dirs=True)
             server_cert_hash = self._configure_tls(tls_config)
-            self._add_pebble_layer([server_cert_hash, sha256(self.web_config)])
+            hashes = [server_cert_hash, sha256(self.web_config)]
+            self._add_pebble_layer(self._reload_sentinel(hashes))
             self._container.replan()
 
-    def _add_pebble_layer(self, hashes: List[str]):
+    def _add_pebble_layer(self, reload_sentinel: str):
         """Set the pebble layer containing a reload sentinel.
 
         If the config file or any cert has changed, a change in this environment variable will
         trigger a restart
         """
-        pebble_extra_env = {"_reload": ",".join(hashes)}
+        pebble_env_reload = {"_reload": reload_sentinel}
         self._container.add_layer(
             self.container_name,
-            self._layer(environment=pebble_extra_env),
+            self._layer(environment=pebble_env_reload),
             combine=True,
         )
 
@@ -1100,6 +1102,10 @@ class NginxPrometheusExporter:
             }
         )
 
+    def _reload_sentinel(self, hashes: List[str]) -> str:
+        """Return a hash representing the current config and certs state."""
+        return ",".join(hashes)
+
     @property
     def are_certificates_on_disk(self) -> bool:
         """Return True if the certificates files are on disk."""
@@ -1133,7 +1139,7 @@ class NginxPrometheusExporter:
             f"--nginx.scrape-uri={scheme}://127.0.0.1:{nginx_port}/status "
             "--no-nginx.ssl-verify"
         )
-        if self.web_config:
+        if yaml.safe_load(self.web_config):
             command += f" --web.config.file={self.web_config_path}"
 
         return command
