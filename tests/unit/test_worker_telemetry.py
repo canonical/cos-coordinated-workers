@@ -488,3 +488,40 @@ def test_nginx_upstream_keys_match_address_mapping(
                     f"Nginx upstream keys {nginx_upstream_keys - address_mapping_keys} "
                     f"not found in upstreams_to_addresses mapping"
                 )
+
+
+def test_telemetry_proxy_with_ip_address_and_default_port(
+    coordinator_charm_with_proxy, coordinator_state_with_telemetry
+):
+    """Test that telemetry endpoints with IP addresses and no explicit port are handled correctly."""
+    ctx = testing.Context(coordinator_charm_with_proxy, meta=coordinator_charm_with_proxy.META)
+
+    # Simulates ingressed URL scenario: IP address with no explicit port
+    sample_endpoints = [
+        {"url": "https://192.168.1.108/cos-mimir/api/v1/push"},
+    ]
+
+    with patch.object(
+        Coordinator, "hostname", new_callable=PropertyMock, return_value="coordinator.local"
+    ):
+        with patch.object(
+            Coordinator, "tls_available", new_callable=PropertyMock, return_value=True
+        ):
+            with ctx(ctx.on.update_status(), state=coordinator_state_with_telemetry) as mgr:
+                coordinator = mgr.charm.coordinator
+                coordinator._remote_write_endpoints_getter = lambda: sample_endpoints
+
+                # THEN the proxy URL should use sanitized IP (192-168-1-108)
+                remote_write_endpoints = coordinator.remote_write_endpoints
+                assert len(remote_write_endpoints) == 1
+                parsed = urlparse(remote_write_endpoints[0]["url"])
+                assert "/proxy/remote-write/192-168-1-108/write" in parsed.path
+
+                # AND the nginx config should have valid upstream with default port 443
+                nginx_config_obj = coordinator._build_nginx_config()
+                nginx_config = nginx_config_obj.get_config(
+                    coordinator._upstreams_to_addresses, listen_tls=True
+                )
+                assert "192.168.1.108:443" in nginx_config
+                assert "192.168.1.108:None" not in nginx_config
+                assert "worker-telemetry-proxy-192-168-1-108" in nginx_config
