@@ -29,7 +29,6 @@ def test_deploy(juju: Juju, coordinator_charm: PackedCharm, worker_charm: Packed
 
 
 def test_metrics(juju: Juju):
-    breakpoint()
     coord_app_ip = juju.status().apps["coordinator"].address
     # WHEN querying the metrics endpoint of the coordinator
     url = f"http://{coord_app_ip}:9113/metrics"
