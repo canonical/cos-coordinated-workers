@@ -5,6 +5,7 @@
 
 import dataclasses
 import ipaddress
+import re
 from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple, Union
 from urllib.parse import ParseResult, urlparse
 
@@ -48,7 +49,19 @@ def _sanitize_hostname(hostname: str) -> str:
     """
     if _is_ip_address(hostname):
         return hostname.replace(".", "-").replace(":", "-")
-    return hostname.split(".")[0]
+
+    first_label = hostname.split(".")[0]
+
+    # Strip to alphanumeric and hyphens only (valid nginx upstream name chars)
+    sanitized = re.sub(r"[^a-zA-Z0-9-]", "", first_label)
+
+    # Remove leading/trailing hyphens
+    sanitized = sanitized.strip("-")
+
+    if not sanitized:
+        raise ValueError(f"Cannot sanitize hostname to valid nginx upstream name: {hostname!r}")
+
+    return sanitized
 
 
 def _get_port(parsed_url: ParseResult) -> int:

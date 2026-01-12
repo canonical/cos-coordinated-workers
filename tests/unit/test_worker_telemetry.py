@@ -12,6 +12,7 @@ from coordinated_workers.nginx import NginxConfig
 from coordinated_workers.worker_telemetry import (
     PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX,
     WorkerTelemetryProxyConfig,
+    _sanitize_hostname,
 )
 
 
@@ -525,3 +526,53 @@ def test_telemetry_proxy_with_ip_address_and_default_port(
                 assert "192.168.1.108:443" in nginx_config
                 assert "192.168.1.108:None" not in nginx_config
                 assert "worker-telemetry-proxy-192-168-1-108" in nginx_config
+
+
+@pytest.mark.parametrize(
+    "hostname,expected",
+    [
+        # Valid FQDNs
+        ("mimir-0.mimir-endpoints.cos.svc.cluster.local", "mimir-0"),
+        ("simple.example.com", "simple"),
+        ("with-dash.example.com", "with-dash"),
+        # IP addresses
+        ("192.168.1.108", "192-168-1-108"),
+        ("10.0.0.1", "10-0-0-1"),
+        ("::1", "--1"),
+    ],
+)
+def test_sanitize_hostname_valid_inputs(hostname, expected):
+    """Test that valid hostnames are sanitized correctly."""
+    assert _sanitize_hostname(hostname) == expected
+
+
+@pytest.mark.parametrize(
+    "hostname,expected",
+    [
+        ("emoji🔥.example.com", "emoji"),
+        ("bad;char.example.com", "badchar"),
+        ("bad$var.example.com", "badvar"),
+        ("$(cmd).example.com", "cmd"),
+        ('quote".example.com', "quote"),
+        ("curly{brace}.example.com", "curlybrace"),
+        ("space here.example.com", "spacehere"),
+        ("upstream; include /etc/passwd;.x.com", "upstreamincludeetcpasswd"),
+    ],
+)
+def test_sanitize_hostname_strips_dangerous_chars(hostname, expected):
+    """Test that dangerous characters are stripped to prevent nginx config injection."""
+    assert _sanitize_hostname(hostname) == expected
+
+
+@pytest.mark.parametrize(
+    "hostname",
+    [
+        "../../../etc/passwd",
+        "🔥🔥🔥.example.com",
+        ";;;.example.com",
+    ],
+)
+def test_sanitize_hostname_raises_on_empty_result(hostname):
+    """Test that hostnames that sanitize to empty string raise ValueError."""
+    with pytest.raises(ValueError, match="Cannot sanitize hostname"):
+        _sanitize_hostname(hostname)
