@@ -276,7 +276,7 @@ requires-dist = [
     { name = "crossplane" },
     { name = "cryptography" },
     { name = "lightkube", specifier = ">=0.15.4" },
-    { name = "lightkube-extensions", specifier = "==0.3.0" },
+    { name = "lightkube-extensions" },
     { name = "ops", extras = ["tracing"] },
     { name = "pydantic" },
 ]

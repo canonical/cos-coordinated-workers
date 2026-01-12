@@ -22,7 +22,7 @@ dependencies = [
     # charms.tls_certificates_interface.v4.tls_certificates
     "cryptography",
     "charmed-service-mesh-helpers>=0.2.0",
-    "lightkube-extensions==0.3.0",
+    "lightkube-extensions",
     "cosl>=1.3.1",
 ]
 classifiers = [
@@ -92,7 +92,7 @@ extend-ignore = [
     "E402",
 ]
 ignore = ["E501", "D107"]
-per-file-ignores = { "tests/*" = ["C901", "D100", "D101", "D102", "D103", "D104"] }
+per-file-ignores = { "tests/*" = ["D100", "D101", "D102", "D103", "D104"] }
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
