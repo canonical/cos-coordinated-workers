@@ -155,7 +155,7 @@ def coordinator_charm_no_proxy():
 
 
 @pytest.fixture
-def coordinator_state_with_telemetry(nginx_container, nginx_prometheus_exporter_container):
+def coordinator_state_with_telemetry(nginx_container, exporter_container):
     """State with telemetry relations for testing worker telemetry proxy."""
     requires_relations = {}
     requires_relations["cluster_backend"] = testing.Relation(
@@ -218,7 +218,7 @@ def coordinator_state_with_telemetry(nginx_container, nginx_prometheus_exporter_
     return testing.State(
         containers={
             nginx_container,
-            nginx_prometheus_exporter_container,
+            exporter_container,
         },
         relations=list(requires_relations.values()) + list(provides_relations.values()),
     )

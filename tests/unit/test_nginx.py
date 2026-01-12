@@ -4,15 +4,19 @@ from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 from typing import Dict, List, Tuple
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import ops
 import pytest
 from ops import pebble, testing
 
+from coordinated_workers.coordinator import (
+    TLSConfig,
+)
 from coordinated_workers.nginx import (
     CA_CERT_PATH,
     CERT_PATH,
+    DEFAULT_OPTIONS,
     KEY_PATH,
     NGINX_CONFIG,
     PROM_EXPORTER_CERT_PATH,
@@ -26,20 +30,13 @@ from coordinated_workers.nginx import (
     NginxTracingConfig,
     NginxUpstream,
 )
+from tests.unit.helpers import tls_mock
 
 sample_dns_ip = "198.18.0.0"
+MOCK_CERTS_DATA = "<TLS_STUFF>"
+MOCK_TLS_CONFIG = TLSConfig(MOCK_CERTS_DATA, MOCK_CERTS_DATA, MOCK_CERTS_DATA)
 
 logger = logging.getLogger(__name__)
-
-
-@pytest.fixture
-def nginx_tempfiles():
-    return {KEY_PATH, CERT_PATH, CA_CERT_PATH}
-
-
-@pytest.fixture
-def exporter_tempfiles():
-    return {PROM_EXPORTER_KEY_PATH, PROM_EXPORTER_CERT_PATH}
 
 
 def _create_mounts(cert_paths):
@@ -50,6 +47,16 @@ def _create_mounts(cert_paths):
 
     # TODO: Do we need to clean up the temp files since delete=False was set?
     return mounts
+
+
+@pytest.fixture
+def nginx_tempfiles():
+    return {KEY_PATH, CERT_PATH, CA_CERT_PATH}
+
+
+@pytest.fixture
+def exporter_tempfiles():
+    return {PROM_EXPORTER_KEY_PATH, PROM_EXPORTER_CERT_PATH}
 
 
 @pytest.fixture
@@ -662,45 +669,46 @@ def test_exporter_web_config_file_switch(
         nginx_prometheus_exporter = NginxPrometheusExporter(mgr.charm)
 
         # THEN the --web.config.file option is added to the pebble command if TLS
-        if cert_mounts:
-            assert (
-                f"--web.config.file={PROM_EXPORTER_WEB_CONFIG}"
-                in nginx_prometheus_exporter.command
-            )
+        is_tls = bool(cert_mounts)
+        assert (
+            f"--web.config.file={PROM_EXPORTER_WEB_CONFIG}" in nginx_prometheus_exporter.command
+        ) == is_tls
 
-        # AND THEN the --web.config.file option is removed from the pebble command if no TLS
-        else:
-            assert (
-                f"--web.config.file={PROM_EXPORTER_WEB_CONFIG}"
-                not in nginx_prometheus_exporter.command
-            )
+        protocol = "https" if is_tls else "http"
+        port_key = "nginx_tls_port" if is_tls else "nginx_port"
+        port = DEFAULT_OPTIONS.get(port_key)
+        expected_scrape_uri = f"--nginx.scrape-uri={protocol}://127.0.0.1:{port}/status"
+        assert expected_scrape_uri in nginx_prometheus_exporter.command
 
 
+# TODO: Merge the metrics itests into this PR
 def test_exporter_sentinel_changes(
-    exporter_context: testing.Context, exporter_container, exporter_certificate_mounts: dict
+    coordinator_state: testing.State, coordinator_charm: ops.CharmBase, tmp_path
 ):
     # GIVEN any charm with a container
-    ctx = exporter_context
+    ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
 
     # WHEN we process any event, without TLS configured
     with ctx(
         ctx.on.update_status(),
-        state=testing.State(containers={exporter_container}),
+        state=coordinator_state,
     ) as mgr:
         # THEN we get a sentinel value
-        # FIXME: simulate layers
-        old_hash = mgr.run().get_container("nginx-prometheus-exporter").layers
+        services_out = mgr.run().get_container("nginx-prometheus-exporter").plan.services
+        sentinel_no_tls = services_out.get("nginx-prometheus-exporter").environment.get("_reload")
 
-    # AND WHEN we add the certificate mounts, to simulate TLS configured
-    with ctx(
-        ctx.on.update_status(),
-        state=testing.State(
-            containers={replace(exporter_container, mounts=exporter_certificate_mounts)}
-        ),
-    ) as mgr:
-        # THEN we get a sentinel value
-        # FIXME: simulate layers
-        new_hash = mgr.run().get_container("nginx-prometheus-exporter").layers
-
-        # AND THEN the sentinel value changes, forcing a pebble restart
-        assert old_hash != new_hash
+    # AND WHEN we process any event, with TLS configured
+    with tls_mock(tmp_path):
+        ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
+        # THEN the coordinator has called ops_tracing.set_destination with the expected params
+        with patch(
+            "coordinated_workers.coordinator.NginxPrometheusExporter.are_certificates_on_disk",
+            PropertyMock(return_value=True),
+        ):
+            state_out = ctx.run(
+                ctx.on.update_status(),
+                state=coordinator_state,
+            )
+        services_out = state_out.get_container("nginx-prometheus-exporter").plan.services
+        sentinel_tls = services_out.get("nginx-prometheus-exporter").environment.get("_reload")
+        assert sentinel_no_tls != sentinel_tls

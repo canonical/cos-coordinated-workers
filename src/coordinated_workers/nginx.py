@@ -1052,9 +1052,11 @@ class NginxPrometheusExporter:
         tls_config: Optional[TLSConfig] = None,
     ):
         """Configure pebble layer and restart if necessary."""
+        self._charm.unit.set_ports(self.options["nginx_exporter_port"])
         if self._container.can_connect():
             self._container.push(self.web_config_path, self.web_config, make_dirs=True)
             server_cert_hash = self._configure_tls(tls_config)
+            # Add relevant hashes here for restarting the exporter if anything changes
             hashes = [server_cert_hash, sha256(self.web_config)]
             self._add_pebble_layer(self._reload_sentinel(hashes))
             self._container.replan()
@@ -1082,9 +1084,13 @@ class NginxPrometheusExporter:
             return sha256("")
 
         # Push the certificate and key to disk
-        self._container.push(self.key_path, tls_config.private_key, make_dirs=True)
-        self._container.push(self.cert_path, tls_config.server_cert, make_dirs=True)
-        # TODO: Make sure curl works without -k after relating otelcol to certs
+        self._container.push(
+            self.key_path, tls_config.private_key, make_dirs=True, permissions=0o600
+        )
+        self._container.push(
+            self.cert_path, tls_config.server_cert, make_dirs=True, permissions=0o600
+        )
+
         return sha256(str(tls_config.private_key) + str(tls_config.server_cert))
 
     def _layer(self, environment: Dict[str, str]) -> pebble.Layer:
@@ -1129,13 +1135,12 @@ class NginxPrometheusExporter:
     @property
     def command(self):
         """Return the command for the Nginx Prometheus exporter service in the Pebble layer."""
-        # FIXME: remove type ignores
-        scheme = "https" if self.are_certificates_on_disk else "http"  # type: ignore
+        scheme = "https" if self.are_certificates_on_disk else "http"
         nginx_port = (
             self.options["nginx_tls_port"]
             if self.are_certificates_on_disk
             else self.options["nginx_port"]
-        )  # type: ignore
+        )
         command = (
             "nginx-prometheus-exporter "
             f"--web.listen-address=:{self.port} "
@@ -1149,12 +1154,8 @@ class NginxPrometheusExporter:
 
     @property
     def web_config(self) -> str:
-        """Return the web configuration content for Nginx Prometheus exporter.
-
-        https://github.com/prometheus/exporter-toolkit/blob/master/docs/web-configuration.md
-        """
+        """Return the web configuration content for Nginx Prometheus exporter."""
         cfg: Dict[str, Any] = {}
-        # FIXME: Set perms for these to o600
         if self.are_certificates_on_disk:
             cfg.update(
                 {
