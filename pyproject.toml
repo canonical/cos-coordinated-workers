@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "coordinated-workers"
-version = "2.2.1"
+version = "2.2.2"
 authors = [
     { name = "michaeldmitry", email = "33381599+michaeldmitry@users.noreply.github.com" },
 ]
@@ -73,7 +73,7 @@ show_missing = true
 # Linting tools configuration
 [tool.ruff]
 line-length = 99
-exclude = ["__pycache__", "*.egg_info", ".github", ".venv"]
+exclude = ["__pycache__", "*.egg_info", ".github", ".venv", "**/lib/**"]
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "C", "N", "D", "I001"]

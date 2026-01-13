@@ -194,7 +194,7 @@ def reconcile_cluster_internal_mesh_policies(
             cluster,
             target_selector_labels,
         )
-        prm.reconcile(policies, mesh_type)
+        prm.reconcile(policies, mesh_type)  # type: ignore[reportUnknownMemberType]
     else:
         # if mesh_type is None, there is no active service-mesh relation. silently purge all policies, if any.
         prm.delete()
