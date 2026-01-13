@@ -117,12 +117,12 @@ def worker():
 
 
 @pytest.fixture()
-def base_state(s3, worker, nginx_container, nginx_prometheus_exporter_container):
+def base_state(s3, worker, nginx_container, exporter_container):
     return testing.State(
         leader=True,
         containers={
             nginx_container,
-            nginx_prometheus_exporter_container,
+            exporter_container,
         },
         relations={worker, s3},
     )

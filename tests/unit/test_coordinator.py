@@ -1,9 +1,9 @@
 import dataclasses
 import json
-from contextlib import ExitStack, contextmanager, nullcontext
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Set, Type
-from unittest.mock import MagicMock, PropertyMock, patch
+from unittest.mock import patch
 from urllib.parse import urlparse
 
 import ops
@@ -24,218 +24,11 @@ from coordinated_workers.interfaces.cluster import (
     ClusterRequirerUnitData,
 )
 from coordinated_workers.nginx import NginxConfig
+from tests.unit.helpers import tls_mock
 from tests.unit.test_worker import MyCharm
 
 MOCK_CERTS_DATA = "<TLS_STUFF>"
 MOCK_TLS_CONFIG = TLSConfig(MOCK_CERTS_DATA, MOCK_CERTS_DATA, MOCK_CERTS_DATA)
-
-
-@pytest.fixture(autouse=True)
-def mock_policy_resource_manager():
-    """Mock _get_policy_resource_manager to prevent lightkube Client instantiation in all tests."""
-    with patch("coordinated_workers.service_mesh._get_policy_resource_manager") as mock_get_prm:
-        # Create a mock PolicyResourceManager with the necessary methods
-        mock_prm = MagicMock()
-        mock_get_prm.return_value = mock_prm
-        yield mock_get_prm
-
-
-@pytest.fixture
-def coordinator_state(nginx_container, nginx_prometheus_exporter_container):
-    requires_relations = {
-        endpoint: testing.Relation(endpoint=endpoint, interface=interface["interface"])
-        for endpoint, interface in {
-            "my-logging": {"interface": "loki_push_api"},
-            "my-charm-tracing": {"interface": "tracing"},
-            "my-workload-tracing": {"interface": "tracing"},
-        }.items()
-    }
-    requires_relations["my-certificates"] = testing.Relation(
-        "my-certificates",
-        interface="certificates",
-        remote_app_data={
-            "certificates": json.dumps(
-                [
-                    {
-                        "certificate": MOCK_CERTS_DATA,
-                        "ca": MOCK_CERTS_DATA,
-                        "chain": MOCK_CERTS_DATA,
-                        "certificate_signing_request": MOCK_CERTS_DATA,
-                    }
-                ]
-            ),
-        },
-    )
-    requires_relations["my-s3"] = testing.Relation(
-        "my-s3",
-        interface="s3",
-        remote_app_data={
-            "endpoint": "s3",
-            "bucket": "foo-bucket",
-            "access-key": "my-access-key",
-            "secret-key": "my-secret-key",
-        },
-    )
-    requires_relations["cluster_worker0"] = testing.Relation(
-        "my-cluster",
-        remote_app_name="worker0",
-        remote_app_data=ClusterRequirerAppData(role="read").dump(),
-        remote_units_data={
-            0: ClusterRequirerUnitData(
-                juju_topology={
-                    "model": "test-model",
-                    "application": "reader",
-                    "unit": "reader/0",
-                    "charm_name": "test-reader",
-                },
-                address="something",
-            ).dump()
-        },
-    )
-    requires_relations["cluster_worker1"] = testing.Relation(
-        "my-cluster",
-        remote_app_name="worker1",
-        remote_app_data=ClusterRequirerAppData(role="write").dump(),
-        remote_units_data={
-            0: ClusterRequirerUnitData(
-                juju_topology={
-                    "model": "test-model",
-                    "application": "writer",
-                    "unit": "writer/0",
-                    "charm_name": "test-writer",
-                },
-                address="something",
-            ).dump(),
-            1: ClusterRequirerUnitData(
-                juju_topology={
-                    "model": "test-model",
-                    "application": "writer",
-                    "unit": "writer/1",
-                    "charm_name": "test-writer",
-                },
-                address="something",
-            ).dump(),
-        },
-    )
-    requires_relations["cluster_worker2"] = testing.Relation(
-        "my-cluster",
-        remote_app_name="worker2",
-        remote_app_data=ClusterRequirerAppData(role="backend").dump(),
-        remote_units_data={
-            0: ClusterRequirerUnitData(
-                juju_topology={
-                    "model": "test-model",
-                    "application": "backender",
-                    "unit": "backender/0",
-                    "charm_name": "test-backender",
-                },
-                address="something",
-            ).dump()
-        },
-    )
-
-    provides_relations = {
-        endpoint: testing.Relation(endpoint=endpoint, interface=interface["interface"])
-        for endpoint, interface in {
-            "my-dashboards": {"interface": "grafana_dashboard"},
-            "my-metrics": {"interface": "prometheus_scrape"},
-        }.items()
-    }
-    peer_relations = [testing.PeerRelation(endpoint="my-peers")]
-    return testing.State(
-        containers={
-            nginx_container,
-            nginx_prometheus_exporter_container,
-        },
-        relations=list(requires_relations.values())
-        + list(provides_relations.values())
-        + peer_relations,
-    )
-
-
-@pytest.fixture()
-def coordinator_charm(request):
-    class MyCoordinator(ops.CharmBase):
-        META = {
-            "name": "foo-app",
-            "requires": {
-                "my-certificates": {"interface": "certificates"},
-                "my-cluster": {"interface": "cluster"},
-                "my-logging": {"interface": "loki_push_api"},
-                "my-charm-tracing": {"interface": "tracing", "limit": 1},
-                "my-workload-tracing": {"interface": "tracing", "limit": 1},
-                "my-s3": {"interface": "s3"},
-                "my-ds-exchange-require": {"interface": "grafana_datasource_exchange"},
-                "my-service-mesh": {"interface": "service_mesh", "limit": 1},
-                "my-service-mesh-require-cmr-mesh": {"interface": "cross_model_mesh"},
-            },
-            "provides": {
-                "my-dashboards": {"interface": "grafana_dashboard"},
-                "my-metrics": {"interface": "prometheus_scrape"},
-                "my-ds-exchange-provide": {"interface": "grafana_datasource_exchange"},
-                "my-service-mesh-provide-cmr-mesh": {"interface": "cross_model_mesh"},
-            },
-            "peers": {
-                "my-peers": {
-                    "interface": "coordinated_workers_peers",
-                },
-            },
-            "containers": {
-                "nginx": {"type": "oci-image"},
-                "nginx-prometheus-exporter": {"type": "oci-image"},
-            },
-        }
-
-        _worker_ports = None
-
-        def __init__(self, framework: ops.Framework):
-            super().__init__(framework)
-            # Note: Here it is a good idea not to use context mgr because it is "ops aware"
-            self.coordinator = Coordinator(
-                charm=self,
-                # Roles were take from loki-coordinator-k8s-operator
-                roles_config=ClusterRolesConfig(
-                    roles={"all", "read", "write", "backend"},
-                    meta_roles={"all": {"all", "read", "write", "backend"}},
-                    minimal_deployment={
-                        "read",
-                        "write",
-                        "backend",
-                    },
-                    recommended_deployment={
-                        "read": 3,
-                        "write": 3,
-                        "backend": 3,
-                    },
-                ),
-                external_url="https://foo.example.com",
-                worker_metrics_port=123,
-                endpoints={
-                    "certificates": "my-certificates",
-                    "cluster": "my-cluster",
-                    "grafana-dashboards": "my-dashboards",
-                    "logging": "my-logging",
-                    "metrics": "my-metrics",
-                    "charm-tracing": "my-charm-tracing",
-                    "workload-tracing": "my-workload-tracing",
-                    "s3": "my-s3",
-                    "send-datasource": "my-ds-exchange-provide",
-                    "receive-datasource": "my-ds-exchange-require",
-                    "catalogue": None,
-                    "service-mesh": "my-service-mesh",
-                    "service-mesh-provide-cmr-mesh": "my-service-mesh-provide-cmr-mesh",
-                    "service-mesh-require-cmr-mesh": "my-service-mesh-require-cmr-mesh",
-                },
-                nginx_config=NginxConfig("localhost", [], {}),
-                workers_config=lambda coordinator: f"workers configuration for {coordinator._charm.meta.name}",
-                worker_ports=self._worker_ports,
-                # nginx_options: Optional[NginxMappingOverrides] = None,
-                # is_coherent: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
-                # is_recommended: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
-                peer_relation="my-peers",
-            )
-
-    return MyCoordinator
 
 
 def test_worker_roles_subset_of_minimal_deployment(
@@ -448,31 +241,11 @@ def test_charm_tracing_configured(
     relations.add(charm_tracing_relation)
 
     certs_relation = find_relation(relations, "my-certificates")
-    if tls:
-
-        def tls_mock():
-            stack = ExitStack()
-            stack.enter_context(
-                patch.object(
-                    Coordinator,
-                    "tls_config",
-                    new_callable=PropertyMock,
-                    return_value=MOCK_TLS_CONFIG,
-                )
-            )
-            stack.enter_context(
-                patch("coordinated_workers.nginx.CA_CERT_PATH", new=tmp_path / "rootcacert")
-            )
-            return stack
-    else:
-
-        def tls_mock():
-            return nullcontext()
-
+    if not tls:
         relations.remove(certs_relation)
 
     # WHEN we receive any event
-    with tls_mock():
+    with tls_mock(tmp_path, enabled=tls):
         ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
         # THEN the coordinator has called ops_tracing.set_destination with the expected params
         with patch("ops_tracing.set_destination") as p:
@@ -493,7 +266,7 @@ def test_charm_tracing_configured(
     ),
 )
 def test_invalid_databag_content(
-    coordinator_charm: ops.CharmBase, event, nginx_container, nginx_prometheus_exporter_container
+    coordinator_charm: ops.CharmBase, event, nginx_container, exporter_container
 ):
     # Test Invalid relations databag for ClusterProvider.gather_addresses_by_role
 
@@ -533,7 +306,7 @@ def test_invalid_databag_content(
     invalid_databag_state = testing.State(
         containers={
             nginx_container,
-            nginx_prometheus_exporter_container,
+            exporter_container,
         },
         relations=list(requires_relations.values()) + list(provides_relations.values()),
     )
