@@ -1,4 +1,5 @@
 """A collection of helper functions for tests."""
+
 from contextlib import ExitStack, nullcontext
 from unittest.mock import PropertyMock, patch
 
@@ -22,5 +23,7 @@ def tls_mock(tmp_path, enabled=True):
             return_value=MOCK_TLS_CONFIG,
         )
     )
-    stack.enter_context(patch("coordinated_workers.nginx.CA_CERT_PATH", new=tmp_path / "rootcacert"))
+    stack.enter_context(
+        patch("coordinated_workers.nginx.CA_CERT_PATH", new=tmp_path / "rootcacert")
+    )
     return stack

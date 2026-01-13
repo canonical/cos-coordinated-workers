@@ -1146,10 +1146,9 @@ class NginxPrometheusExporter:
             "nginx-prometheus-exporter "
             f"--web.listen-address=:{self.port} "
             f"--nginx.scrape-uri={scheme}://127.0.0.1:{nginx_port}/status "
-            "--no-nginx.ssl-verify"
+            "--no-nginx.ssl-verify "
+            f"--web.config.file={self.web_config_path}"
         )
-        if self._container.exists(self.web_config_path):
-            command += f" --web.config.file={self.web_config_path}"
 
         return command
 
@@ -1157,11 +1156,13 @@ class NginxPrometheusExporter:
     def web_config(self) -> str:
         """Return the web configuration content for Nginx Prometheus exporter.
 
-        Possible top-level keys of this config are:
+        Possible top-level keys of the --web.config.file config are:
             - tls_server_config
             - http_server_config
             - basic_auth_users
             - rate_limit
+
+        This file is allowed to be empty.
         """
         cfg: Dict[str, Dict[str, Any]] = {}
         if self.are_certificates_on_disk:

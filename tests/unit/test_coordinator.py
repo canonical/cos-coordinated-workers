@@ -3,7 +3,7 @@ import json
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Set, Type
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from urllib.parse import urlparse
 
 import ops

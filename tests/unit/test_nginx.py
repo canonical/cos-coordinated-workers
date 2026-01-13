@@ -21,7 +21,6 @@ from coordinated_workers.nginx import (
     NGINX_CONFIG,
     PROM_EXPORTER_CERT_PATH,
     PROM_EXPORTER_KEY_PATH,
-    PROM_EXPORTER_WEB_CONFIG,
     Nginx,
     NginxConfig,
     NginxLocationConfig,
@@ -652,33 +651,84 @@ def test_exporter_certs_mgmt(
         assert not nginx_prometheus_exporter.are_certificates_on_disk
 
 
-@pytest.mark.parametrize("cert_mounts", [{}, "exporter_certificate_mounts"], indirect=True)
+@contextmanager
+def mock_web_config(contents: str):
+    with tempfile.NamedTemporaryFile() as tf:
+        Path(tf.name).write_text(contents)
+        with patch("coordinated_workers.nginx.PROM_EXPORTER_WEB_CONFIG", tf.name):
+            yield
+
+
+# @pytest.mark.parametrize("cert_mounts", [{}, "exporter_certificate_mounts"], indirect=True)
+# def test_exporter_web_config_file_switch(
+#     cert_mounts,
+#     exporter_context: testing.Context,
+#     exporter_container,
+# ):
+# # GIVEN any charm with a container
+# ctx = exporter_context
+# is_tls = bool(cert_mounts)
+
+# # WHEN we process any event with (or without) certificate mounts
+# with mock_web_config("foo") if is_tls else contextmanager(lambda: (yield))():
+#     with ctx(
+#         ctx.on.update_status(),
+#         state=testing.State(containers={replace(exporter_container, mounts=cert_mounts)}),
+#     ) as mgr:
+#         nginx_prometheus_exporter = NginxPrometheusExporter(mgr.charm)
+#         mgr.run()
+# # THEN the --web.config.file option is added to the pebble command if TLS
+# assert (
+#     f"--web.config.file={PROM_EXPORTER_WEB_CONFIG}" in nginx_prometheus_exporter.command
+# ) == is_tls
+
+# protocol = "https" if is_tls else "http"
+# port_key = "nginx_tls_port" if is_tls else "nginx_port"
+# port = DEFAULT_OPTIONS.get(port_key)
+# expected_scrape_uri = f"--nginx.scrape-uri={protocol}://127.0.0.1:{port}/status"
+# assert expected_scrape_uri in nginx_prometheus_exporter.command
+
+
 def test_exporter_web_config_file_switch(
-    cert_mounts,
-    exporter_context: testing.Context,
-    exporter_container,
+    mock_policy_resource_manager,
+    coordinator_state: testing.State,
+    coordinator_charm: ops.CharmBase,
+    tmp_path,
 ):
     # GIVEN any charm with a container
-    ctx = exporter_context
+    ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
 
-    # WHEN we process any event with (or without) certificate mounts
+    # WHEN we process any event, without TLS configured
     with ctx(
         ctx.on.update_status(),
-        state=testing.State(containers={replace(exporter_container, mounts=cert_mounts)}),
+        state=coordinator_state,
     ) as mgr:
-        nginx_prometheus_exporter = NginxPrometheusExporter(mgr.charm)
+        services_out = mgr.run().get_container("nginx-prometheus-exporter").plan.services
 
-        # THEN the --web.config.file option is added to the pebble command if TLS
-        is_tls = bool(cert_mounts)
-        assert (
-            f"--web.config.file={PROM_EXPORTER_WEB_CONFIG}" in nginx_prometheus_exporter.command
-        ) == is_tls
+    # THEN the --nginx.scrape-uri option is HTTP in the pebble command
+    command = services_out.get("nginx-prometheus-exporter").command
+    port = DEFAULT_OPTIONS.get("nginx_port")
+    expected_scrape_uri = f"--nginx.scrape-uri=http://127.0.0.1:{port}/status"
+    assert expected_scrape_uri in command
 
-        protocol = "https" if is_tls else "http"
-        port_key = "nginx_tls_port" if is_tls else "nginx_port"
-        port = DEFAULT_OPTIONS.get(port_key)
-        expected_scrape_uri = f"--nginx.scrape-uri={protocol}://127.0.0.1:{port}/status"
-        assert expected_scrape_uri in nginx_prometheus_exporter.command
+    # AND WHEN we process any event, with TLS configured
+    with tls_mock(tmp_path):
+        ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
+        with patch(
+            "coordinated_workers.coordinator.NginxPrometheusExporter.are_certificates_on_disk",
+            PropertyMock(return_value=True),
+        ):
+            state_out = ctx.run(
+                ctx.on.update_status(),
+                state=coordinator_state,
+            )
+
+    # THEN the --nginx.scrape-uri option is HTTPS in the pebble command
+    services_out = state_out.get_container("nginx-prometheus-exporter").plan.services
+    command = services_out.get("nginx-prometheus-exporter").command
+    port = DEFAULT_OPTIONS.get("nginx_tls_port")
+    expected_scrape_uri = f"--nginx.scrape-uri=https://127.0.0.1:{port}/status"
+    assert expected_scrape_uri in command
 
 
 def test_nginx_exporter_pebble_layer(
@@ -710,6 +760,7 @@ def test_nginx_exporter_pebble_layer(
                 ctx.on.update_status(),
                 state=coordinator_state,
             )
+
         # THEN we get a different sentinel value
         services_out = state_out.get_container("nginx-prometheus-exporter").plan.services
         sentinel_tls = services_out.get("nginx-prometheus-exporter").environment.get("_reload")
