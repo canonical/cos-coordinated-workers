@@ -4,8 +4,10 @@
 """Coordinator helper extensions to enable the coordinator to proxy worker's telemetry through it."""
 
 import dataclasses
+import ipaddress
+import re
 from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple, Union
-from urllib.parse import urlparse
+from urllib.parse import ParseResult, urlparse
 
 import ops
 from charms.tempo_coordinator_k8s.v0.tracing import ReceiverProtocol
@@ -26,6 +28,47 @@ PROXY_WORKER_TELEMETRY_PATHS = {
     "workload-tracing": "/proxy/workload-tracing/{protocol}/",
 }
 PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX = "worker-telemetry-proxy"
+
+
+def _is_ip_address(hostname: str) -> bool:
+    """Check if the hostname is an IP address."""
+    try:
+        ipaddress.ip_address(hostname)
+        return True
+    except ValueError:
+        return False
+
+
+def _sanitize_hostname(hostname: str) -> str:
+    """Convert hostname to a safe nginx upstream identifier.
+
+    For FQDNs like 'mimir-0.mimir-endpoints.cos.svc.cluster.local',
+    returns 'mimir-0' (the unit identifier).
+
+    For IP addresses like '192.168.1.108', returns '192-168-1-108'.
+    """
+    if _is_ip_address(hostname):
+        return hostname.replace(".", "-").replace(":", "-")
+
+    first_label = hostname.split(".")[0]
+
+    # Strip to alphanumeric and hyphens only (valid nginx upstream name chars)
+    sanitized = re.sub(r"[^a-zA-Z0-9-]", "", first_label)
+
+    # Remove leading/trailing hyphens
+    sanitized = sanitized.strip("-")
+
+    if not sanitized:
+        raise ValueError(f"Cannot sanitize hostname to valid nginx upstream name: {hostname!r}")
+
+    return sanitized
+
+
+def _get_port(parsed_url: ParseResult) -> int:
+    """Get the port from a parsed URL, defaulting based on scheme if not specified."""
+    if parsed_url.port is not None:
+        return parsed_url.port
+    return 443 if parsed_url.scheme.endswith("s") else 80
 
 
 @dataclasses.dataclass
@@ -85,7 +128,7 @@ def get_upstreams_to_addresses(
     if remote_write_endpoints_getter:
         for endpoint in remote_write_endpoints_getter():
             p = urlparse(endpoint["url"])
-            remote_write_unit = p.hostname.split(".")[0]  # type: ignore
+            remote_write_unit = _sanitize_hostname(p.hostname)  # type: ignore
             upstreams_to_addresses[remote_write_unit] = {p.hostname}  # type: ignore
 
     # tracing upstream to address mapper (both charm and workload)
@@ -265,13 +308,13 @@ def _generate_remote_write_endpoints_nginx_config(
 
     for remote_write_endpoint in remote_write_endpoints:
         parsed_address = urlparse(remote_write_endpoint["url"])
-        unit_name_sanitized = parsed_address.hostname.split(".")[0]  # type: ignore
+        unit_name_sanitized = _sanitize_hostname(parsed_address.hostname)  # type: ignore
         upstream_name = f"{PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX}-{unit_name_sanitized}"
 
         specs.append(
             _WorkerTelemetryNginxConfigSpec(
                 upstream_name=upstream_name,
-                upstream_port=parsed_address.port,  # type: ignore
+                upstream_port=_get_port(parsed_address),
                 upstream_lookup_key=unit_name_sanitized,
                 location_path=PROXY_WORKER_TELEMETRY_PATHS["remote-write"].format(
                     unit=unit_name_sanitized
@@ -304,7 +347,7 @@ def _generate_loki_endpoints_nginx_config(
         specs.append(
             _WorkerTelemetryNginxConfigSpec(
                 upstream_name=upstream_name,
-                upstream_port=parsed_address.port,  # type: ignore
+                upstream_port=_get_port(parsed_address),
                 upstream_lookup_key=unit_name,
                 location_path=PROXY_WORKER_TELEMETRY_PATHS["logging"].format(
                     unit=unit_name_sanitized
@@ -348,7 +391,7 @@ def _generate_tracing_urls_nginx_config(
             specs.append(
                 _WorkerTelemetryNginxConfigSpec(
                     upstream_name=upstream_name,
-                    upstream_port=parsed_address.port,  # type: ignore
+                    upstream_port=_get_port(parsed_address),
                     upstream_lookup_key=upstream_name,
                     location_path=location_path,
                     location_backend_url=parsed_address.path,
@@ -415,7 +458,7 @@ def proxy_remote_write_endpoints(
 
     for remote_write_endpoint in endpoints:
         parsed_address = urlparse(remote_write_endpoint["url"])
-        unit = parsed_address.hostname.split(".")[0]  # type: ignore
+        unit = _sanitize_hostname(parsed_address.hostname)  # type: ignore
         scheme = "https" if tls_available else "http"
         proxy_url = f"{scheme}://{hostname}:{proxy_worker_telemetry_port}{PROXY_WORKER_TELEMETRY_PATHS['remote-write'].format(unit=unit)}"
         proxied_endpoints.append(RemoteWriteEndpoint(url=proxy_url))
