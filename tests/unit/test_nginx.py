@@ -4,43 +4,68 @@ from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 from typing import Dict, List, Tuple
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import ops
 import pytest
 from ops import pebble, testing
 
+from coordinated_workers.coordinator import (
+    TLSConfig,
+)
 from coordinated_workers.nginx import (
     CA_CERT_PATH,
     CERT_PATH,
+    DEFAULT_OPTIONS,
     KEY_PATH,
     NGINX_CONFIG,
+    PROM_EXPORTER_CERT_PATH,
+    PROM_EXPORTER_KEY_PATH,
     Nginx,
     NginxConfig,
     NginxLocationConfig,
     NginxMapConfig,
+    NginxPrometheusExporter,
     NginxTracingConfig,
     NginxUpstream,
 )
+from tests.unit.helpers import tls_mock
 
 sample_dns_ip = "198.18.0.0"
+MOCK_CERTS_DATA = "<TLS_STUFF>"
+MOCK_TLS_CONFIG = TLSConfig(MOCK_CERTS_DATA, MOCK_CERTS_DATA, MOCK_CERTS_DATA)
 
 logger = logging.getLogger(__name__)
 
 
-@pytest.fixture
-def certificate_mounts():
-    temp_files = {}
-    for path in {KEY_PATH, CERT_PATH, CA_CERT_PATH}:
-        temp_file = tempfile.NamedTemporaryFile(delete=False)
-        temp_files[path] = temp_file
-
+def _create_mounts(cert_paths):
     mounts = {}
-    for cert_path, temp_file in temp_files.items():
-        mounts[cert_path] = testing.Mount(location=cert_path, source=temp_file.name)
+    for path in cert_paths:
+        temp_file = tempfile.NamedTemporaryFile(delete=False)
+        mounts[path] = testing.Mount(location=path, source=temp_file.name)
 
     # TODO: Do we need to clean up the temp files since delete=False was set?
     return mounts
+
+
+@pytest.fixture
+def nginx_tempfiles():
+    return {KEY_PATH, CERT_PATH, CA_CERT_PATH}
+
+
+@pytest.fixture
+def exporter_tempfiles():
+    return {PROM_EXPORTER_KEY_PATH, PROM_EXPORTER_CERT_PATH}
+
+
+@pytest.fixture
+def certificate_mounts(nginx_tempfiles):
+    return _create_mounts(nginx_tempfiles)
+
+
+@pytest.fixture
+def exporter_certificate_mounts(exporter_tempfiles):
+    return _create_mounts(exporter_tempfiles)
 
 
 @pytest.fixture
@@ -48,6 +73,23 @@ def nginx_context():
     return testing.Context(
         ops.CharmBase, meta={"name": "foo", "containers": {"nginx": {"type": "oci-image"}}}
     )
+
+
+@pytest.fixture
+def exporter_context():
+    return testing.Context(
+        ops.CharmBase,
+        meta={"name": "foo", "containers": {"nginx-prometheus-exporter": {"type": "oci-image"}}},
+    )
+
+
+@pytest.fixture
+def cert_mounts(request):
+    # A fixture to provide parametrized values for certificate mounts.
+    # If the parameter is a string, it's assumed to be a fixture name.
+    if isinstance(request.param, str):
+        return request.getfixturevalue(request.param)
+    return request.param
 
 
 def test_certs_on_disk(certificate_mounts: dict, nginx_context: testing.Context, nginx_container):
@@ -580,3 +622,146 @@ def _get_nginx_config_params(workload: str) -> Tuple[list, dict]:
 
 def _get_server_ports_to_locations(workload: str) -> Dict[int, List[NginxLocationConfig]]:
     return server_ports_to_locations[workload]
+
+
+def test_exporter_certs_mgmt(
+    exporter_context: testing.Context, exporter_container, exporter_certificate_mounts: dict
+):
+    # GIVEN any charm with a container
+    ctx = exporter_context
+
+    # WHEN we process any event with certificate mounts, to simulate TLS configured
+    with ctx(
+        ctx.on.update_status(),
+        state=testing.State(
+            containers={
+                replace(exporter_container, mounts=exporter_certificate_mounts),
+            }
+        ),
+    ) as mgr:
+        nginx_prometheus_exporter = NginxPrometheusExporter(mgr.charm)
+
+        # THEN the certs exist on disk
+        assert nginx_prometheus_exporter.are_certificates_on_disk
+
+        # AND when we delete_certificates
+        nginx_prometheus_exporter._configure_tls(tls_config=None)
+
+        # THEN the certs get deleted from disk
+        assert not nginx_prometheus_exporter.are_certificates_on_disk
+
+
+@contextmanager
+def mock_web_config(contents: str):
+    with tempfile.NamedTemporaryFile() as tf:
+        Path(tf.name).write_text(contents)
+        with patch("coordinated_workers.nginx.PROM_EXPORTER_WEB_CONFIG", tf.name):
+            yield
+
+
+# @pytest.mark.parametrize("cert_mounts", [{}, "exporter_certificate_mounts"], indirect=True)
+# def test_exporter_web_config_file_switch(
+#     cert_mounts,
+#     exporter_context: testing.Context,
+#     exporter_container,
+# ):
+# # GIVEN any charm with a container
+# ctx = exporter_context
+# is_tls = bool(cert_mounts)
+
+# # WHEN we process any event with (or without) certificate mounts
+# with mock_web_config("foo") if is_tls else contextmanager(lambda: (yield))():
+#     with ctx(
+#         ctx.on.update_status(),
+#         state=testing.State(containers={replace(exporter_container, mounts=cert_mounts)}),
+#     ) as mgr:
+#         nginx_prometheus_exporter = NginxPrometheusExporter(mgr.charm)
+#         mgr.run()
+# # THEN the --web.config.file option is added to the pebble command if TLS
+# assert (
+#     f"--web.config.file={PROM_EXPORTER_WEB_CONFIG}" in nginx_prometheus_exporter.command
+# ) == is_tls
+
+# protocol = "https" if is_tls else "http"
+# port_key = "nginx_tls_port" if is_tls else "nginx_port"
+# port = DEFAULT_OPTIONS.get(port_key)
+# expected_scrape_uri = f"--nginx.scrape-uri={protocol}://127.0.0.1:{port}/status"
+# assert expected_scrape_uri in nginx_prometheus_exporter.command
+
+
+def test_exporter_web_config_file_switch(
+    mock_policy_resource_manager,
+    coordinator_state: testing.State,
+    coordinator_charm: ops.CharmBase,
+    tmp_path,
+):
+    # GIVEN any charm with a container
+    ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
+
+    # WHEN we process any event, without TLS configured
+    with ctx(
+        ctx.on.update_status(),
+        state=coordinator_state,
+    ) as mgr:
+        services_out = mgr.run().get_container("nginx-prometheus-exporter").plan.services
+
+    # THEN the --nginx.scrape-uri option is HTTP in the pebble command
+    command = services_out.get("nginx-prometheus-exporter").command
+    port = DEFAULT_OPTIONS.get("nginx_port")
+    expected_scrape_uri = f"--nginx.scrape-uri=http://127.0.0.1:{port}/status"
+    assert expected_scrape_uri in command
+
+    # AND WHEN we process any event, with TLS configured
+    with tls_mock(tmp_path):
+        ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
+        with patch(
+            "coordinated_workers.coordinator.NginxPrometheusExporter.are_certificates_on_disk",
+            PropertyMock(return_value=True),
+        ):
+            state_out = ctx.run(
+                ctx.on.update_status(),
+                state=coordinator_state,
+            )
+
+    # THEN the --nginx.scrape-uri option is HTTPS in the pebble command
+    services_out = state_out.get_container("nginx-prometheus-exporter").plan.services
+    command = services_out.get("nginx-prometheus-exporter").command
+    port = DEFAULT_OPTIONS.get("nginx_tls_port")
+    expected_scrape_uri = f"--nginx.scrape-uri=https://127.0.0.1:{port}/status"
+    assert expected_scrape_uri in command
+
+
+def test_nginx_exporter_pebble_layer(
+    mock_policy_resource_manager,
+    coordinator_state: testing.State,
+    coordinator_charm: ops.CharmBase,
+    tmp_path,
+):
+    # GIVEN any charm with a container
+    ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
+
+    # WHEN we process any event, without TLS configured
+    with ctx(
+        ctx.on.update_status(),
+        state=coordinator_state,
+    ) as mgr:
+        # THEN we get a sentinel value
+        services_out = mgr.run().get_container("nginx-prometheus-exporter").plan.services
+        sentinel_no_tls = services_out.get("nginx-prometheus-exporter").environment.get("_reload")
+
+    # AND WHEN we process any event, with TLS configured
+    with tls_mock(tmp_path):
+        ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
+        with patch(
+            "coordinated_workers.coordinator.NginxPrometheusExporter.are_certificates_on_disk",
+            PropertyMock(return_value=True),
+        ):
+            state_out = ctx.run(
+                ctx.on.update_status(),
+                state=coordinator_state,
+            )
+
+        # THEN we get a different sentinel value
+        services_out = state_out.get_container("nginx-prometheus-exporter").plan.services
+        sentinel_tls = services_out.get("nginx-prometheus-exporter").environment.get("_reload")
+        assert sentinel_no_tls != sentinel_tls

@@ -184,3 +184,6 @@ cython_debug/
 # tester charms should always include their libraries
 !/tests/integration/testers/coordinator/lib
 !/tests/integration/testers/worker/lib
+
+*.charm
+.logs/

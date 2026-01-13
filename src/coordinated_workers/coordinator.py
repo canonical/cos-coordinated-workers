@@ -479,7 +479,7 @@ class Coordinator(ops.Object):
             ),
             tls_config=self.tls_config,
         )
-        self.nginx_exporter.reconcile()
+        self.nginx_exporter.reconcile(tls_config=self.tls_config)
 
         # reconcile relations
         self._reconcile_peer_relation()
