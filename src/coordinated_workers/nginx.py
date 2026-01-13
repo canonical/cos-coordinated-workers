@@ -1054,11 +1054,12 @@ class NginxPrometheusExporter:
         """Configure pebble layer and restart if necessary."""
         self._charm.unit.set_ports(self.options["nginx_exporter_port"])
         if self._container.can_connect():
-            self._container.push(self.web_config_path, self.web_config, make_dirs=True)
-            server_cert_hash = self._configure_tls(tls_config)
             # Add relevant hashes here for restarting the exporter if anything changes
-            hashes = [server_cert_hash, sha256(self.web_config)]
-            self._add_pebble_layer(self._reload_sentinel(hashes))
+            server_cert_hash = self._configure_tls(tls_config)
+            web_config_hash = sha256(self.web_config)
+
+            self._container.push(self.web_config_path, self.web_config, make_dirs=True)
+            self._add_pebble_layer(self._reload_sentinel([server_cert_hash, web_config_hash]))
             self._container.replan()
 
     def _add_pebble_layer(self, reload_sentinel: str):
