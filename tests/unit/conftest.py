@@ -1,7 +1,7 @@
 import json
 from contextlib import ExitStack
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import ops
 import pytest
@@ -101,6 +101,16 @@ def mock_worker_reconcile_charm_labels(request):
     else:
         with patch("coordinated_workers.worker.reconcile_charm_labels") as mocked:
             yield mocked
+
+
+@pytest.fixture(autouse=True)
+def mock_policy_resource_manager():
+    """Mock _get_policy_resource_manager to prevent lightkube Client instantiation in all tests."""
+    with patch("coordinated_workers.service_mesh._get_policy_resource_manager") as mock_get_prm:
+        # Create a mock PolicyResourceManager with the necessary methods
+        mock_prm = MagicMock()
+        mock_get_prm.return_value = mock_prm
+        yield mock_get_prm
 
 
 @pytest.fixture(autouse=True)

@@ -31,16 +31,6 @@ MOCK_CERTS_DATA = "<TLS_STUFF>"
 MOCK_TLS_CONFIG = TLSConfig(MOCK_CERTS_DATA, MOCK_CERTS_DATA, MOCK_CERTS_DATA)
 
 
-@pytest.fixture(autouse=True)
-def mock_policy_resource_manager():
-    """Mock _get_policy_resource_manager to prevent lightkube Client instantiation in all tests."""
-    with patch("coordinated_workers.service_mesh._get_policy_resource_manager") as mock_get_prm:
-        # Create a mock PolicyResourceManager with the necessary methods
-        mock_prm = MagicMock()
-        mock_get_prm.return_value = mock_prm
-        yield mock_get_prm
-
-
 def test_worker_roles_subset_of_minimal_deployment(
     coordinator_state: testing.State, coordinator_charm: ops.CharmBase
 ):

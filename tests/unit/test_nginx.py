@@ -682,6 +682,7 @@ def test_exporter_web_config_file_switch(
 
 
 def test_nginx_exporter_pebble_layer(
+    mock_policy_resource_manager,
     coordinator_state: testing.State,
     coordinator_charm: ops.CharmBase,
     tmp_path,
