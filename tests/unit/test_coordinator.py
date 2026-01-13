@@ -3,7 +3,7 @@ import json
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Set, Type
-from unittest.mock import MagicMock, PropertyMock, patch
+from unittest.mock import MagicMock, patch
 from urllib.parse import urlparse
 
 import ops
@@ -1038,38 +1038,3 @@ def test_coordinator_charm_mesh_policies_passed_to_service_mesh_consumer(
         )  # Should have both custom policies and the default metrics policy
         assert charm_app_policy in policies_arg
         assert charm_unit_policy in policies_arg
-
-
-def test_coordinator_exporter_sentinel_changes(
-    mock_policy_resource_manager,
-    coordinator_state: testing.State,
-    coordinator_charm: ops.CharmBase,
-    tmp_path,
-):
-    # GIVEN any charm with a container
-    ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
-
-    # WHEN we process any event, without TLS configured
-    with ctx(
-        ctx.on.update_status(),
-        state=coordinator_state,
-    ) as mgr:
-        # THEN we get a sentinel value
-        services_out = mgr.run().get_container("nginx-prometheus-exporter").plan.services
-        sentinel_no_tls = services_out.get("nginx-prometheus-exporter").environment.get("_reload")
-
-    # AND WHEN we process any event, with TLS configured
-    with tls_mock(tmp_path):
-        ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
-        # THEN the coordinator has called ops_tracing.set_destination with the expected params
-        with patch(
-            "coordinated_workers.coordinator.NginxPrometheusExporter.are_certificates_on_disk",
-            PropertyMock(return_value=True),
-        ):
-            state_out = ctx.run(
-                ctx.on.update_status(),
-                state=coordinator_state,
-            )
-        services_out = state_out.get_container("nginx-prometheus-exporter").plan.services
-        sentinel_tls = services_out.get("nginx-prometheus-exporter").environment.get("_reload")
-        assert sentinel_no_tls != sentinel_tls

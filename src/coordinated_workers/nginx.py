@@ -1076,7 +1076,7 @@ class NginxPrometheusExporter:
         )
 
     def _configure_tls(self, tls_config: Optional[TLSConfig] = None) -> str:
-        """Save the certificates and private key files to disk and run update-ca-certificates."""
+        """Save the certificates and private key files to disk."""
         # If there is no cert or private key coming from relation data, cleanup the existing ones.
         # This typically happens after a "revoked" or "renewal" event.
         if not tls_config:
@@ -1148,15 +1148,22 @@ class NginxPrometheusExporter:
             f"--nginx.scrape-uri={scheme}://127.0.0.1:{nginx_port}/status "
             "--no-nginx.ssl-verify"
         )
-        if yaml.safe_load(self.web_config):
+        if self._container.exists(self.web_config_path):
             command += f" --web.config.file={self.web_config_path}"
 
         return command
 
     @property
     def web_config(self) -> str:
-        """Return the web configuration content for Nginx Prometheus exporter."""
-        cfg: Dict[str, Any] = {}
+        """Return the web configuration content for Nginx Prometheus exporter.
+
+        Possible top-level keys of this config are:
+            - tls_server_config
+            - http_server_config
+            - basic_auth_users
+            - rate_limit
+        """
+        cfg: Dict[str, Dict[str, Any]] = {}
         if self.are_certificates_on_disk:
             cfg.update(
                 {
