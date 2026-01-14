@@ -29,7 +29,6 @@ def test_deploy(juju: Juju, coordinator_charm: PackedCharm, worker_charm: Packed
 
 
 def test_metrics(juju: Juju):
-    breakpoint()
     # NOTE: since we do not `set_ports` in the lib, we need to use the unit IP
     coord_unit_ip = juju.status().apps["coordinator"].units["coordinator/0"].address
     # WHEN querying the metrics endpoint of the coordinator
