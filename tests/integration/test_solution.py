@@ -29,18 +29,18 @@ def test_deploy(juju: Juju, coordinator_charm: PackedCharm, worker_charm: Packed
 
 
 def test_metrics(juju: Juju):
-    coord_app_ip = juju.status().apps["coordinator"].address
+    breakpoint()
+    # NOTE: since we do not `set_ports` in the lib, we need to use the unit IP
+    coord_unit_ip = juju.status().apps["coordinator"].units["coordinator/0"].address
     # WHEN querying the metrics endpoint of the coordinator
-    url = f"http://{coord_app_ip}:9113/metrics"
+    url = f"http://{coord_unit_ip}:9113/metrics"
     response = urlopen(url, timeout=2.0)
     # THEN metrics are successfully returned
     assert response.code == 200, f"{url} was not reachable"
     assert "# HELP " in response.read().decode(), f"{url} did not return expected metrics"
 
     # AND WHEN querying the metrics endpoint (via the nginx proxy of the coordinator) of the workers
-    coord_unit_ip = juju.status().apps["coordinator"].units["coordinator/0"].address
     for worker in [WORKER_A_NAME, WORKER_B_NAME]:
-        # NOTE: this only works on the coordinator's unit IP, not the app IP on the tester charm
         url = f"http://{coord_unit_ip}:8080/proxy/worker/{worker}-0/metrics"
         response = urlopen(url, timeout=2.0)
         # THEN metrics are successfully returned
