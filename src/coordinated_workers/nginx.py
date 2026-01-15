@@ -1052,7 +1052,6 @@ class NginxPrometheusExporter:
         tls_config: Optional[TLSConfig] = None,
     ):
         """Configure pebble layer and restart if necessary."""
-        self._charm.unit.set_ports(self.options["nginx_exporter_port"])
         if self._container.can_connect():
             # Add relevant hashes here for restarting the exporter if anything changes
             server_cert_hash = self._configure_tls(tls_config)

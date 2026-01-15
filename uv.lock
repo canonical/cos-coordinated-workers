@@ -118,15 +118,15 @@ wheels = [
 
 [[package]]
 name = "charmed-service-mesh-helpers"
-version = "0.3.0"
+version = "0.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ops" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/eb/d4/4b31e3e4f1205b95f6fdac4b5bebfdf2b6a5bd95f9ba917ea6bced672d2b/charmed_service_mesh_helpers-0.3.0.tar.gz", hash = "sha256:888c24a7648ac723edc4894e81efc90317a22f0f66da2e0ea301c583232e429d", size = 16695, upload-time = "2025-12-16T15:49:46.235Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/98/c5/c818d654c5a99071e1e2dea97cc092efb5b0e6308721ab8c644c9b1e3352/charmed_service_mesh_helpers-0.4.0.tar.gz", hash = "sha256:71ea5ed99b8e27debb4c001be7e3d5acb20001f48a4e2f705f1432269d93dc61", size = 16810, upload-time = "2026-01-14T11:03:14.909Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/98/a5/6fc15f217753f868b3bca3bcaa6b3a1c4a6f354bd01eec34c3d1a7cf9a2c/charmed_service_mesh_helpers-0.3.0-py3-none-any.whl", hash = "sha256:39caa6e170c399794024c79c3490236ed1890a5b1984842f99eee1260b975d89", size = 16321, upload-time = "2025-12-16T15:49:45.35Z" },
+    { url = "https://files.pythonhosted.org/packages/ec/82/e186dbcd159e676b45cc410799be3597b771bce80f18821e7cfa7e3fe23f/charmed_service_mesh_helpers-0.4.0-py3-none-any.whl", hash = "sha256:77907e04bea963ea26048e282c6d4253ed06f3e01beded015ece0020ebc613f5", size = 16430, upload-time = "2026-01-14T11:03:16.75Z" },
 ]
 
 [[package]]
@@ -241,7 +241,7 @@ wheels = [
 
 [[package]]
 name = "coordinated-workers"
-version = "2.2.3"
+version = "2.2.4"
 source = { editable = "." }
 dependencies = [
     { name = "charmed-service-mesh-helpers" },
