@@ -659,36 +659,6 @@ def mock_web_config(contents: str):
             yield
 
 
-# @pytest.mark.parametrize("cert_mounts", [{}, "exporter_certificate_mounts"], indirect=True)
-# def test_exporter_web_config_file_switch(
-#     cert_mounts,
-#     exporter_context: testing.Context,
-#     exporter_container,
-# ):
-# # GIVEN any charm with a container
-# ctx = exporter_context
-# is_tls = bool(cert_mounts)
-
-# # WHEN we process any event with (or without) certificate mounts
-# with mock_web_config("foo") if is_tls else contextmanager(lambda: (yield))():
-#     with ctx(
-#         ctx.on.update_status(),
-#         state=testing.State(containers={replace(exporter_container, mounts=cert_mounts)}),
-#     ) as mgr:
-#         nginx_prometheus_exporter = NginxPrometheusExporter(mgr.charm)
-#         mgr.run()
-# # THEN the --web.config.file option is added to the pebble command if TLS
-# assert (
-#     f"--web.config.file={PROM_EXPORTER_WEB_CONFIG}" in nginx_prometheus_exporter.command
-# ) == is_tls
-
-# protocol = "https" if is_tls else "http"
-# port_key = "nginx_tls_port" if is_tls else "nginx_port"
-# port = DEFAULT_OPTIONS.get(port_key)
-# expected_scrape_uri = f"--nginx.scrape-uri={protocol}://127.0.0.1:{port}/status"
-# assert expected_scrape_uri in nginx_prometheus_exporter.command
-
-
 def test_exporter_web_config_file_switch(
     mock_policy_resource_manager,
     coordinator_state: testing.State,
