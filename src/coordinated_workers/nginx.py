@@ -589,7 +589,12 @@ class NginxConfig:
                             *[
                                 {
                                     "directive": "server",
-                                    "args": [f"{addr}:{upstream_config.port}", "resolve"],
+                                    "args": [
+                                        f"{addr}:{upstream_config.port}",
+                                        "resolve",
+                                        "max_fails=3",
+                                        "fail_timeout=30s",
+                                    ],
                                 }
                                 for addr in addresses
                             ],
