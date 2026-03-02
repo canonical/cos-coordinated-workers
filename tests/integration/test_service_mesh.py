@@ -69,7 +69,7 @@ def test_deploy_dependency_service_mesh(juju: Juju, juju_istio_system: Juju):
 
 def test_configure_service_mesh(juju: Juju):
     """Configure the coordinated-worker to use the service mesh."""
-    juju.integrate(COORDINATOR_NAME, ISTIO_BEACON_NAME)
+    juju.integrate(f"{COORDINATOR_NAME}:service-mesh", ISTIO_BEACON_NAME)
 
     juju.wait(
         lambda status: all_active(status, COORDINATOR_NAME, ISTIO_BEACON_NAME),

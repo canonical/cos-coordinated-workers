@@ -188,7 +188,10 @@ def reconcile_cluster_internal_mesh_policies(
     mesh_type = mesh.mesh_type()
     prm = _get_policy_resource_manager(charm, logger)
     if mesh_type:
-        # if mesh_type exists, the charm is connected to a service mesh charm. reconcile the cluster internal policies.
+        logger.info(
+            "Service mesh relation active (mesh_type=%s). Reconciling coordinator-worker mesh policies.",
+            mesh_type,
+        )
         policies = _get_cluster_internal_mesh_policies(
             charm,
             cluster,
@@ -196,5 +199,7 @@ def reconcile_cluster_internal_mesh_policies(
         )
         prm.reconcile(policies, mesh_type)  # type: ignore[reportUnknownMemberType]
     else:
-        # if mesh_type is None, there is no active service-mesh relation. silently purge all policies, if any.
+        logger.info(
+            "No active service-mesh relation found. Cleaning up coordinator-worker mesh policies, if any."
+        )
         prm.delete()
