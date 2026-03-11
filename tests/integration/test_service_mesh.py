@@ -13,7 +13,7 @@ from helpers import (
 )
 from jubilant import Juju, all_active, all_blocked
 from lightkube.resources.core_v1 import Pod
-from pytest_jubilant.main import TempModelFactory
+from pytest_jubilant import TempModelFactory
 
 COORDINATOR_NAME = "coordinator"
 WORKER_A_NAME = "worker-a"
