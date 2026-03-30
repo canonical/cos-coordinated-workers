@@ -47,7 +47,7 @@ dev = [
     "ruff",
     # INTEGRATION TESTS
     "jubilant",
-    "pytest-jubilant>=1.2.0",
+    "pytest-jubilant>=2,<3",
     "sh",
     "tenacity",
     "juju-doctor"
