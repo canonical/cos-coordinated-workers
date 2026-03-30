@@ -11,8 +11,7 @@ from pathlib import Path
 from typing import Union
 
 import pytest
-from helpers import PackedCharm
-from pytest_jubilant import get_resources, pack
+from helpers import PackedCharm, get_resources, pack
 
 logger = logging.getLogger(__name__)
 store = defaultdict(str)
@@ -85,7 +84,7 @@ def _tester_charm_builder(tester_path: Path) -> PackedCharm:
         logger.info(f"Packing tester charm {tester_charm_name} from {tester_path}")
         charm = pack(tester_path)
 
-    resources = get_resources(tester_path)
+    resources = get_resources(tester_path / "charmcraft.yaml")
 
     return PackedCharm(
         charm=str(charm),

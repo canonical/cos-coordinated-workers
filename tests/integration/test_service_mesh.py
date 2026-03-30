@@ -13,7 +13,7 @@ from helpers import (
 )
 from jubilant import Juju, all_active, all_blocked
 from lightkube.resources.core_v1 import Pod
-from pytest_jubilant import TempModelFactory
+from pytest_jubilant import JujuFactory
 
 COORDINATOR_NAME = "coordinator"
 WORKER_A_NAME = "worker-a"
@@ -34,12 +34,12 @@ def test_deploy(juju: Juju, coordinator_charm: PackedCharm, worker_charm: Packed
 
 
 @pytest.fixture(scope="module")
-def juju_istio_system(temp_model_factory: TempModelFactory):
+def juju_istio_system(juju_factory: JujuFactory):
     """Return a Juju client configured for the istio-system model, automatically creating that model as needed.
 
     The model will have the same name as the automatically generated test model, but with the suffix 'istio-system'.
     """
-    yield temp_model_factory.get_juju(suffix="istio-system")
+    yield juju_factory.get_juju(suffix="istio-system")
 
 
 def test_deploy_dependency_service_mesh(juju: Juju, juju_istio_system: Juju):
