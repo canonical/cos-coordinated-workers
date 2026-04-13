@@ -8,7 +8,8 @@ import logging
 import re
 import shutil
 import socket
-from dataclasses import dataclass
+import warnings
+from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
 from typing import (
@@ -143,11 +144,20 @@ class ClusterRolesConfig:
     """Meta roles are composed of non-meta roles (default: all)."""
     minimal_deployment: Iterable[str]
     """The minimal set of roles that need to be allocated for the deployment to be considered consistent."""
-    recommended_deployment: Dict[str, int]
-    """The set of roles that need to be allocated for the deployment to be considered robust according to the official recommendations/guidelines."""
+    recommended_deployment: Dict[str, int] = field(default_factory=dict)
+    """Deprecated. The set of roles that need to be allocated for the deployment to be considered robust according to the official recommendations/guidelines."""
 
     def __post_init__(self):
         """Ensure the various role specifications are consistent with one another."""
+        if self.recommended_deployment:
+            warnings.warn(
+                "ClusterRolesConfig.recommended_deployment is deprecated and will be removed "
+                "in v3.0.0. The 'recommended deployment' concept and the associated 'Degraded.' "
+                "status message are being removed. Stop passing recommended_deployment to "
+                "ClusterRolesConfig.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         are_meta_keys_valid = set(self.meta_roles.keys()).issubset(self.roles)
         are_meta_values_valid = all(
             set(meta_value).issubset(self.roles) for meta_value in self.meta_roles.values()
@@ -291,6 +301,15 @@ class Coordinator(ops.Object):
         """
         super().__init__(charm, key="coordinator")
         _validate_container_name(container_name, resources_requests)
+
+        if is_recommended is not None:
+            warnings.warn(
+                "The 'is_recommended' parameter of Coordinator is deprecated and will be removed "
+                "in v3.0.0. The 'recommended deployment' concept and the associated 'Degraded.' "
+                "status message are being removed. Stop passing is_recommended to Coordinator.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
 
         # static attributes
         self._charm = charm
@@ -664,18 +683,13 @@ class Coordinator(ops.Object):
         )
         return missing_roles
 
-    @property
-    def is_recommended(self) -> Optional[bool]:
-        """Check whether this coordinator is connected to the recommended number of workers.
-
-        Will return None if no recommended criterion is defined.
-        """
+    def _check_recommended(self) -> Optional[bool]:
+        """Internal check for recommended deployment, without deprecation warning."""
         if override_recommended_checker := self._override_recommended_checker:
             return override_recommended_checker(self.cluster, self._roles_config)
 
         rc = self._roles_config
         if not rc.recommended_deployment:
-            # we don't have a definition of recommended: return None
             return None
 
         cluster = self.cluster
@@ -684,6 +698,24 @@ class Coordinator(ops.Object):
             if roles.get(role, 0) < min_n:
                 return False
         return True
+
+    @property
+    def is_recommended(self) -> Optional[bool]:
+        """Check whether this coordinator is connected to the recommended number of workers.
+
+        Will return None if no recommended criterion is defined.
+
+        .. deprecated:: 2.2.5
+            This property is deprecated and will be removed in v3.0.0.
+        """
+        warnings.warn(
+            "Coordinator.is_recommended is deprecated and will be removed in v3.0.0. "
+            "The 'recommended deployment' concept and the associated 'Degraded.' status "
+            "message are being removed.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self._check_recommended()
 
     @property
     def can_handle_events(self) -> bool:
@@ -920,8 +952,15 @@ class Coordinator(ops.Object):
             statuses.append(ops.BlockedStatus("[consistency] Missing any worker relation."))
         elif not self.is_coherent:
             statuses.append(ops.BlockedStatus("[consistency] Cluster inconsistent."))
-        elif not self.is_recommended:
-            # if is_recommended is None: it means we don't meet the recommended deployment criterion.
+        elif not self._check_recommended():
+            # if _check_recommended is None: it means we don't meet the recommended deployment criterion.
+            warnings.warn(
+                "The 'Degraded.' status message based on recommended_deployment is deprecated "
+                "and will be removed in v3.0.0. Stop passing recommended_deployment to "
+                "ClusterRolesConfig to suppress this warning.",
+                DeprecationWarning,
+                stacklevel=1,
+            )
             statuses.append(ops.ActiveStatus(self._default_degraded_message))
 
         if not self.s3_requirer.relations:

@@ -1,4 +1,5 @@
 import json
+import warnings
 from unittest.mock import PropertyMock, patch
 from urllib.parse import urlparse
 
@@ -50,39 +51,41 @@ def coordinator_charm_with_proxy():
 
         def __init__(self, framework: ops.Framework):
             super().__init__(framework)
-            self.coordinator = Coordinator(
-                charm=self,
-                roles_config=ClusterRolesConfig(
-                    roles={"backend"},
-                    meta_roles={},
-                    minimal_deployment={"backend"},
-                    recommended_deployment={"backend": 1},
-                ),
-                external_url="https://test-coordinator.example.com",
-                worker_metrics_port=9090,
-                endpoints={
-                    "cluster": "my-cluster",
-                    "logging": "my-logging",
-                    "metrics": "my-metrics",
-                    "charm-tracing": "my-charm-tracing",
-                    "workload-tracing": "my-workload-tracing",
-                    "certificates": "my-certificates",
-                    "grafana-dashboards": "my-dashboards",
-                    "s3": "my-s3",
-                    "send-datasource": "my-ds-exchange-provide",
-                    "receive-datasource": "my-ds-exchange-require",
-                    "catalogue": None,
-                    "service-mesh": None,
-                    "service-mesh-provide-cmr-mesh": None,
-                    "service-mesh-require-cmr-mesh": None,
-                },
-                nginx_config=NginxConfig("localhost", [], {}),
-                workers_config=lambda coordinator: f"config for {coordinator._charm.meta.name}",
-                worker_telemetry_proxy_config=WorkerTelemetryProxyConfig(
-                    http_port=8080, https_port=8443
-                ),
-                peer_relation="my-peers",
-            )
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", DeprecationWarning)
+                self.coordinator = Coordinator(
+                    charm=self,
+                    roles_config=ClusterRolesConfig(
+                        roles={"backend"},
+                        meta_roles={},
+                        minimal_deployment={"backend"},
+                        recommended_deployment={"backend": 1},
+                    ),
+                    external_url="https://test-coordinator.example.com",
+                    worker_metrics_port=9090,
+                    endpoints={
+                        "cluster": "my-cluster",
+                        "logging": "my-logging",
+                        "metrics": "my-metrics",
+                        "charm-tracing": "my-charm-tracing",
+                        "workload-tracing": "my-workload-tracing",
+                        "certificates": "my-certificates",
+                        "grafana-dashboards": "my-dashboards",
+                        "s3": "my-s3",
+                        "send-datasource": "my-ds-exchange-provide",
+                        "receive-datasource": "my-ds-exchange-require",
+                        "catalogue": None,
+                        "service-mesh": None,
+                        "service-mesh-provide-cmr-mesh": None,
+                        "service-mesh-require-cmr-mesh": None,
+                    },
+                    nginx_config=NginxConfig("localhost", [], {}),
+                    workers_config=lambda coordinator: f"config for {coordinator._charm.meta.name}",
+                    worker_telemetry_proxy_config=WorkerTelemetryProxyConfig(
+                        http_port=8080, https_port=8443
+                    ),
+                    peer_relation="my-peers",
+                )
 
     return MyCoordinatorWithProxy
 
@@ -121,36 +124,38 @@ def coordinator_charm_no_proxy():
 
         def __init__(self, framework: ops.Framework):
             super().__init__(framework)
-            self.coordinator = Coordinator(
-                charm=self,
-                roles_config=ClusterRolesConfig(
-                    roles={"backend"},
-                    meta_roles={},
-                    minimal_deployment={"backend"},
-                    recommended_deployment={"backend": 1},
-                ),
-                external_url="https://test-coordinator.example.com",
-                worker_metrics_port=9090,
-                endpoints={
-                    "cluster": "my-cluster",
-                    "logging": "my-logging",
-                    "metrics": "my-metrics",
-                    "charm-tracing": "my-charm-tracing",
-                    "workload-tracing": "my-workload-tracing",
-                    "certificates": "my-certificates",
-                    "grafana-dashboards": "my-dashboards",
-                    "s3": "my-s3",
-                    "send-datasource": "my-ds-exchange-provide",
-                    "receive-datasource": "my-ds-exchange-require",
-                    "catalogue": None,
-                    "service-mesh": None,
-                    "service-mesh-provide-cmr-mesh": None,
-                    "service-mesh-require-cmr-mesh": None,
-                },
-                nginx_config=NginxConfig("localhost", [], {}),
-                workers_config=lambda coordinator: f"config for {coordinator._charm.meta.name}",
-                peer_relation="my-peers",
-            )
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", DeprecationWarning)
+                self.coordinator = Coordinator(
+                    charm=self,
+                    roles_config=ClusterRolesConfig(
+                        roles={"backend"},
+                        meta_roles={},
+                        minimal_deployment={"backend"},
+                        recommended_deployment={"backend": 1},
+                    ),
+                    external_url="https://test-coordinator.example.com",
+                    worker_metrics_port=9090,
+                    endpoints={
+                        "cluster": "my-cluster",
+                        "logging": "my-logging",
+                        "metrics": "my-metrics",
+                        "charm-tracing": "my-charm-tracing",
+                        "workload-tracing": "my-workload-tracing",
+                        "certificates": "my-certificates",
+                        "grafana-dashboards": "my-dashboards",
+                        "s3": "my-s3",
+                        "send-datasource": "my-ds-exchange-provide",
+                        "receive-datasource": "my-ds-exchange-require",
+                        "catalogue": None,
+                        "service-mesh": None,
+                        "service-mesh-provide-cmr-mesh": None,
+                        "service-mesh-require-cmr-mesh": None,
+                    },
+                    nginx_config=NginxConfig("localhost", [], {}),
+                    workers_config=lambda coordinator: f"config for {coordinator._charm.meta.name}",
+                    peer_relation="my-peers",
+                )
 
     return MyCoordinatorNoProxy
 
