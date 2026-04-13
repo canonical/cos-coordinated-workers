@@ -156,9 +156,18 @@ def test_meta_role_invalid():
                 bundles={
                     "test-bundle": {
                         "applications": {
-                            "foo0": {"charm": "foo", "options": {"role-all": False, "role-a": True}},
-                            "foo1": {"charm": "foo", "options": {"role-all": False, "role-b": True}},
-                            "foo2": {"charm": "foo", "options": {"role-all": False, "role-b": True}},
+                            "foo0": {
+                                "charm": "foo",
+                                "options": {"role-all": False, "role-a": True},
+                            },
+                            "foo1": {
+                                "charm": "foo",
+                                "options": {"role-all": False, "role-b": True},
+                            },
+                            "foo2": {
+                                "charm": "foo",
+                                "options": {"role-all": False, "role-b": True},
+                            },
                         }
                     }
                 },

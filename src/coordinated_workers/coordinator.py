@@ -144,7 +144,7 @@ class ClusterRolesConfig:
     """Meta roles are composed of non-meta roles (default: all)."""
     minimal_deployment: Iterable[str]
     """The minimal set of roles that need to be allocated for the deployment to be considered consistent."""
-    recommended_deployment: Dict[str, int] = field(default_factory=dict)
+    recommended_deployment: Dict[str, int] = field(default_factory=lambda: dict[str, int]())
     """Deprecated. The set of roles that need to be allocated for the deployment to be considered robust according to the official recommendations/guidelines."""
 
     def __post_init__(self):
