@@ -4,7 +4,6 @@
 
 """Generic juju-doctor probe to test coordinated-workers deployments for consistency."""
 
-import warnings
 from collections import Counter
 from typing import Any, Dict, List, Sequence
 
@@ -64,9 +63,6 @@ def bundle(
 ):
     """Verify the juju export-bundle report.
 
-    .. deprecated:: 2.2.5
-        The recommended_deployment parameter is deprecated and will be removed in v3.0.0.
-
     Example usage::
 
         name: MyRuleSet - coordinated-workers deployment validator
@@ -87,12 +83,6 @@ def bundle(
                   read: [querier, query-frontend, ingester]
                   write: [distributor]
     """
-    warnings.warn(
-        "The cluster_consistency.bundle() probe's recommended_deployment parameter is deprecated "
-        "and will be removed in v3.0.0.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
     # input validation and parsing
     params = _BundleParams(**kwargs)
     worker_charm = params.worker_charm
