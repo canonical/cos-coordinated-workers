@@ -1,5 +1,4 @@
 import json
-import warnings
 from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -21,14 +20,6 @@ from coordinated_workers.interfaces.cluster import (
 from coordinated_workers.nginx import NginxConfig
 
 MOCK_CERTS_DATA = "<TLS_STUFF>"
-
-
-@pytest.fixture(autouse=True, scope="session")
-def suppress_deprecation_warnings():
-    """Suppress DeprecationWarnings from deprecated parameters used in test fixtures."""
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        yield
 
 
 @pytest.fixture(autouse=True)
@@ -325,11 +316,6 @@ def coordinator_charm(request):
                         "write",
                         "backend",
                     },
-                    recommended_deployment={
-                        "read": 3,
-                        "write": 3,
-                        "backend": 3,
-                    },
                 ),
                 external_url="https://foo.example.com",
                 worker_metrics_port=123,
@@ -354,7 +340,6 @@ def coordinator_charm(request):
                 worker_ports=self._worker_ports,
                 # nginx_options: Optional[NginxMappingOverrides] = None,
                 # is_coherent: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
-                # is_recommended: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
                 peer_relation="my-peers",
             )
 

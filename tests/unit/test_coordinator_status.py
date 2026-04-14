@@ -1,5 +1,4 @@
 import dataclasses
-import warnings
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import httpx
@@ -15,14 +14,11 @@ from coordinated_workers.interfaces.cluster import ClusterProviderAppData, Clust
 from coordinated_workers.nginx import NginxConfig
 from tests.unit.test_worker_status import k8s_patch
 
-with warnings.catch_warnings():
-    warnings.simplefilter("ignore", DeprecationWarning)
-    my_roles = ClusterRolesConfig(
-        roles={"role"},
-        meta_roles={},
-        minimal_deployment={"role": 1},
-        recommended_deployment={"role": 2},
-    )
+my_roles = ClusterRolesConfig(
+    roles={"role"},
+    meta_roles={},
+    minimal_deployment={"role": 1},
+)
 
 
 class MyCoordCharm(ops.CharmBase):
@@ -31,32 +27,30 @@ class MyCoordCharm(ops.CharmBase):
     def __init__(self, framework: ops.Framework):
         super().__init__(framework)
 
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            self.coordinator = Coordinator(
-                charm=self,
-                roles_config=my_roles,
-                external_url=self.external_url,
-                worker_metrics_port=8080,
-                endpoints={
-                    "cluster": "cluster",
-                    "s3": "s3",
-                    "certificates": "certificates",
-                    "grafana-dashboards": "grafana-dashboard",
-                    "logging": "logging",
-                    "metrics": "metrics-endpoint",
-                    "charm-tracing": "self-charm-tracing",
-                    "workload-tracing": "self-workload-tracing",
-                    "send-datasource": None,
-                    "catalogue": None,
-                    "receive-datasource": "my-ds-exchange-require",
-                },
-                nginx_config=NginxConfig("localhost", [], {}),
-                workers_config=lambda _: "worker config",
-                resources_requests=lambda _: {"cpu": "50m", "memory": "100Mi"},
-                container_name="nginx",
-                peer_relation="my-peers",
-            )
+        self.coordinator = Coordinator(
+            charm=self,
+            roles_config=my_roles,
+            external_url=self.external_url,
+            worker_metrics_port=8080,
+            endpoints={
+                "cluster": "cluster",
+                "s3": "s3",
+                "certificates": "certificates",
+                "grafana-dashboards": "grafana-dashboard",
+                "logging": "logging",
+                "metrics": "metrics-endpoint",
+                "charm-tracing": "self-charm-tracing",
+                "workload-tracing": "self-workload-tracing",
+                "send-datasource": None,
+                "catalogue": None,
+                "receive-datasource": "my-ds-exchange-require",
+            },
+            nginx_config=NginxConfig("localhost", [], {}),
+            workers_config=lambda _: "worker config",
+            resources_requests=lambda _: {"cpu": "50m", "memory": "100Mi"},
+            container_name="nginx",
+            peer_relation="my-peers",
+        )
 
 
 @pytest.fixture
@@ -222,4 +216,4 @@ def test_status_check_k8s_patch_success_after_retries(
         MagicMock(return_value=ops.ActiveStatus("")),
     ):
         state_out = ctx.run(ctx.on.update_status(), state_intermediate)
-    assert state_out.unit_status == ops.ActiveStatus("Degraded.")
+    assert state_out.unit_status == ops.ActiveStatus("")
