@@ -1,4 +1,5 @@
 import json
+import warnings
 from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -20,6 +21,14 @@ from coordinated_workers.interfaces.cluster import (
 from coordinated_workers.nginx import NginxConfig
 
 MOCK_CERTS_DATA = "<TLS_STUFF>"
+
+
+@pytest.fixture(autouse=True, scope="session")
+def suppress_deprecation_warnings():
+    """Suppress DeprecationWarnings from deprecated parameters used in test fixtures."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        yield
 
 
 @pytest.fixture(autouse=True)
