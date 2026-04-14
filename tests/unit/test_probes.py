@@ -1,6 +1,5 @@
 import shlex
 import subprocess
-import warnings
 from pathlib import Path
 
 import pydantic
@@ -31,14 +30,12 @@ META_ROLES = {
 
 
 def check_bundle(bndl, worker_charm):
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        bundle(
-            bundles={"test-bundle": bndl},
-            worker_charm=worker_charm,
-            recommended_deployment=RECOMMENDED_DEPLOYMENT,
-            meta_roles=META_ROLES,
-        )
+    bundle(
+        bundles={"test-bundle": bndl},
+        worker_charm=worker_charm,
+        recommended_deployment=RECOMMENDED_DEPLOYMENT,
+        meta_roles=META_ROLES,
+    )
 
 
 @pytest.fixture(params=("tempo", "foobar-k8s"))
@@ -126,22 +123,20 @@ def test_bundle_all_but_too_few(base_bundle, worker_charm):
 
 def test_meta_role_nonmatching():
     # this is valid: we're declaring a meta-role, but we're not using it
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        bundle(
-            bundles={
-                "test-bundle": {
-                    "applications": {
-                        "foo0": {"charm": "foo", "options": {"role-all": False, "role-a": True}},
-                        "foo1": {"charm": "foo", "options": {"role-all": False, "role-b": True}},
-                        "foo2": {"charm": "foo", "options": {"role-all": False, "role-b": True}},
-                    }
+    bundle(
+        bundles={
+            "test-bundle": {
+                "applications": {
+                    "foo0": {"charm": "foo", "options": {"role-all": False, "role-a": True}},
+                    "foo1": {"charm": "foo", "options": {"role-all": False, "role-b": True}},
+                    "foo2": {"charm": "foo", "options": {"role-all": False, "role-b": True}},
                 }
-            },
-            worker_charm="foo",
-            recommended_deployment={"a": 1, "b": 2},
-            meta_roles={"c": ["a", "b"]},
-        )
+            }
+        },
+        worker_charm="foo",
+        recommended_deployment={"a": 1, "b": 2},
+        meta_roles={"c": ["a", "b"]},
+    )
 
 
 def test_meta_role_invalid():
@@ -150,43 +145,39 @@ def test_meta_role_invalid():
         pydantic.ValidationError,
         match="each meta_role must expand to a recommended_deployment role",
     ):
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            bundle(
-                bundles={
-                    "test-bundle": {
-                        "applications": {
-                            "foo0": {
-                                "charm": "foo",
-                                "options": {"role-all": False, "role-a": True},
-                            },
-                            "foo1": {
-                                "charm": "foo",
-                                "options": {"role-all": False, "role-b": True},
-                            },
-                            "foo2": {
-                                "charm": "foo",
-                                "options": {"role-all": False, "role-b": True},
-                            },
-                        }
+        bundle(
+            bundles={
+                "test-bundle": {
+                    "applications": {
+                        "foo0": {
+                            "charm": "foo",
+                            "options": {"role-all": False, "role-a": True},
+                        },
+                        "foo1": {
+                            "charm": "foo",
+                            "options": {"role-all": False, "role-b": True},
+                        },
+                        "foo2": {
+                            "charm": "foo",
+                            "options": {"role-all": False, "role-b": True},
+                        },
                     }
-                },
-                worker_charm="foo",
-                recommended_deployment={"a": 1, "b": 2},
-                meta_roles={"c": ["a", "c"]},  # role c does not occur in recommended_deployment
-            )
+                }
+            },
+            worker_charm="foo",
+            recommended_deployment={"a": 1, "b": 2},
+            meta_roles={"c": ["a", "c"]},  # role c does not occur in recommended_deployment
+        )
 
 
 def test_charm_not_found_validation():
     with pytest.raises(RuntimeError, match="worker_charm 'bar' not found"):
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            bundle(
-                bundles={"test-bundle": {"applications": {"foo": {"charm": "foo"}}}},
-                worker_charm="bar",
-                recommended_deployment=RECOMMENDED_DEPLOYMENT,
-                meta_roles=META_ROLES,
-            )
+        bundle(
+            bundles={"test-bundle": {"applications": {"foo": {"charm": "foo"}}}},
+            worker_charm="bar",
+            recommended_deployment=RECOMMENDED_DEPLOYMENT,
+            meta_roles=META_ROLES,
+        )
 
 
 def test_bundle_meta_roles():
@@ -207,14 +198,12 @@ def test_bundle_meta_roles():
         }
     }
     # so we should be happy with this recommended deployment
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        bundle(
-            bundles={"test-bundle": bndl},  # type: ignore
-            worker_charm="mycharm",
-            recommended_deployment={"a": 3, "b": 3, "c": 1},
-            meta_roles={"all": ["a", "b", "c"], "meta1": ["a", "b"]},
-        )
+    bundle(
+        bundles={"test-bundle": bndl},  # type: ignore
+        worker_charm="mycharm",
+        recommended_deployment={"a": 3, "b": 3, "c": 1},
+        meta_roles={"all": ["a", "b", "c"], "meta1": ["a", "b"]},
+    )
 
 
 def test_bundle_meta_roles_bad():
@@ -236,14 +225,12 @@ def test_bundle_meta_roles_bad():
     }
     # so we should be sad with this recommended deployment (need one more a)
     with pytest.raises(RuntimeError):
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            bundle(
-                bundles={"test-bundle": bndl},  # type: ignore
-                worker_charm="mycharm",
-                recommended_deployment={"a": 3, "b": 2, "c": 1},
-                meta_roles={"all": ["a", "b", "c"], "meta1": ["a", "b"]},
-            )
+        bundle(
+            bundles={"test-bundle": bndl},  # type: ignore
+            worker_charm="mycharm",
+            recommended_deployment={"a": 3, "b": 2, "c": 1},
+            meta_roles={"all": ["a", "b", "c"], "meta1": ["a", "b"]},
+        )
 
 
 def test_ruleset():

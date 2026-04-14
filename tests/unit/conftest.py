@@ -23,6 +23,14 @@ from coordinated_workers.nginx import NginxConfig
 MOCK_CERTS_DATA = "<TLS_STUFF>"
 
 
+@pytest.fixture(autouse=True, scope="session")
+def suppress_deprecation_warnings():
+    """Suppress DeprecationWarnings from deprecated parameters used in test fixtures."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        yield
+
+
 @pytest.fixture(autouse=True)
 def patch_all(tmp_path: Path):
     with ExitStack() as stack:
@@ -306,50 +314,48 @@ def coordinator_charm(request):
         def __init__(self, framework: ops.Framework):
             super().__init__(framework)
             # Note: Here it is a good idea not to use context mgr because it is "ops aware"
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", DeprecationWarning)
-                self.coordinator = Coordinator(
-                    charm=self,
-                    # Roles were take from loki-coordinator-k8s-operator
-                    roles_config=ClusterRolesConfig(
-                        roles={"all", "read", "write", "backend"},
-                        meta_roles={"all": {"all", "read", "write", "backend"}},
-                        minimal_deployment={
-                            "read",
-                            "write",
-                            "backend",
-                        },
-                        recommended_deployment={
-                            "read": 3,
-                            "write": 3,
-                            "backend": 3,
-                        },
-                    ),
-                    external_url="https://foo.example.com",
-                    worker_metrics_port=123,
-                    endpoints={
-                        "certificates": "my-certificates",
-                        "cluster": "my-cluster",
-                        "grafana-dashboards": "my-dashboards",
-                        "logging": "my-logging",
-                        "metrics": "my-metrics",
-                        "charm-tracing": "my-charm-tracing",
-                        "workload-tracing": "my-workload-tracing",
-                        "s3": "my-s3",
-                        "send-datasource": "my-ds-exchange-provide",
-                        "receive-datasource": "my-ds-exchange-require",
-                        "catalogue": None,
-                        "service-mesh": "my-service-mesh",
-                        "service-mesh-provide-cmr-mesh": "my-service-mesh-provide-cmr-mesh",
-                        "service-mesh-require-cmr-mesh": "my-service-mesh-require-cmr-mesh",
+            self.coordinator = Coordinator(
+                charm=self,
+                # Roles were take from loki-coordinator-k8s-operator
+                roles_config=ClusterRolesConfig(
+                    roles={"all", "read", "write", "backend"},
+                    meta_roles={"all": {"all", "read", "write", "backend"}},
+                    minimal_deployment={
+                        "read",
+                        "write",
+                        "backend",
                     },
-                    nginx_config=NginxConfig("localhost", [], {}),
-                    workers_config=lambda coordinator: f"workers configuration for {coordinator._charm.meta.name}",
-                    worker_ports=self._worker_ports,
-                    # nginx_options: Optional[NginxMappingOverrides] = None,
-                    # is_coherent: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
-                    # is_recommended: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
-                    peer_relation="my-peers",
-                )
+                    recommended_deployment={
+                        "read": 3,
+                        "write": 3,
+                        "backend": 3,
+                    },
+                ),
+                external_url="https://foo.example.com",
+                worker_metrics_port=123,
+                endpoints={
+                    "certificates": "my-certificates",
+                    "cluster": "my-cluster",
+                    "grafana-dashboards": "my-dashboards",
+                    "logging": "my-logging",
+                    "metrics": "my-metrics",
+                    "charm-tracing": "my-charm-tracing",
+                    "workload-tracing": "my-workload-tracing",
+                    "s3": "my-s3",
+                    "send-datasource": "my-ds-exchange-provide",
+                    "receive-datasource": "my-ds-exchange-require",
+                    "catalogue": None,
+                    "service-mesh": "my-service-mesh",
+                    "service-mesh-provide-cmr-mesh": "my-service-mesh-provide-cmr-mesh",
+                    "service-mesh-require-cmr-mesh": "my-service-mesh-require-cmr-mesh",
+                },
+                nginx_config=NginxConfig("localhost", [], {}),
+                workers_config=lambda coordinator: f"workers configuration for {coordinator._charm.meta.name}",
+                worker_ports=self._worker_ports,
+                # nginx_options: Optional[NginxMappingOverrides] = None,
+                # is_coherent: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
+                # is_recommended: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
+                peer_relation="my-peers",
+            )
 
     return MyCoordinator
