@@ -145,7 +145,7 @@ def test_meta_role_nonmatching():
 
 
 def test_meta_role_invalid():
-    # this is invvalid: we're declaring a meta-role, but one of the roles it expands to is unknown
+    # this is invalid: we're declaring a meta-role, but one of the roles it expands to is unknown
     with pytest.raises(
         pydantic.ValidationError,
         match="each meta_role must expand to a recommended_deployment role",
