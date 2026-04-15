@@ -8,8 +8,7 @@ import logging
 import re
 import shutil
 import socket
-import warnings
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 from typing import (
@@ -144,32 +143,19 @@ class ClusterRolesConfig:
     """Meta roles are composed of non-meta roles (default: all)."""
     minimal_deployment: Iterable[str]
     """The minimal set of roles that need to be allocated for the deployment to be considered consistent."""
-    recommended_deployment: Dict[str, int] = field(default_factory=lambda: dict[str, int]())
-    """Deprecated. The set of roles that need to be allocated for the deployment to be considered robust according to the official recommendations/guidelines."""
 
     def __post_init__(self):
         """Ensure the various role specifications are consistent with one another."""
-        if self.recommended_deployment:
-            warnings.warn(
-                "ClusterRolesConfig.recommended_deployment is deprecated and will be removed "
-                "in v3.0.0. The 'recommended deployment' concept and the associated 'Degraded.' "
-                "status message are being removed. Stop passing recommended_deployment to "
-                "ClusterRolesConfig.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
         are_meta_keys_valid = set(self.meta_roles.keys()).issubset(self.roles)
         are_meta_values_valid = all(
             set(meta_value).issubset(self.roles) for meta_value in self.meta_roles.values()
         )
         is_minimal_valid = set(self.minimal_deployment).issubset(self.roles)
-        is_recommended_valid = set(self.recommended_deployment).issubset(self.roles)
         if not all(
             [
                 are_meta_keys_valid,
                 are_meta_values_valid,
                 is_minimal_valid,
-                is_recommended_valid,
             ]
         ):
             raise ClusterRolesConfigError(
@@ -232,7 +218,6 @@ class Coordinator(ops.Object):
     running Nginx, and implementing self-monitoring integrations.
     """
 
-    _default_degraded_message = "Degraded."
     _default_active_message = ""
 
     def __init__(
@@ -247,7 +232,6 @@ class Coordinator(ops.Object):
         worker_ports: Optional[Callable[[str], Sequence[int]]] = None,
         nginx_options: Optional[NginxMappingOverrides] = None,
         is_coherent: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
-        is_recommended: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
         resources_limit_options: Optional[_ResourceLimitOptionsMapping] = None,
         resources_requests: Optional[Callable[["Coordinator"], Dict[str, str]]] = None,
         container_name: Optional[str] = None,
@@ -274,7 +258,6 @@ class Coordinator(ops.Object):
             endpoints: Endpoint names for coordinator relations, as defined in metadata.yaml.
             nginx_options: Non-default config options for Nginx.
             is_coherent: Custom coherency checker for a minimal deployment.
-            is_recommended: Custom coherency checker for a recommended deployment.
             resources_limit_options: A dictionary containing resources limit option names. The dictionary should include
                 "cpu_limit" and "memory_limit" keys with values as option names, as defined in the config.yaml.
                 If no dictionary is provided, the default option names "cpu_limit" and "memory_limit" would be used.
@@ -302,15 +285,6 @@ class Coordinator(ops.Object):
         super().__init__(charm, key="coordinator")
         _validate_container_name(container_name, resources_requests)
 
-        if is_recommended is not None:
-            warnings.warn(
-                "The 'is_recommended' parameter of Coordinator is deprecated and will be removed "
-                "in v3.0.0. The 'recommended deployment' concept and the associated 'Degraded.' "
-                "status message are being removed. Stop passing is_recommended to Coordinator.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-
         # static attributes
         self._charm = charm
         self._external_url = external_url
@@ -332,7 +306,6 @@ class Coordinator(ops.Object):
 
         # dynamic attributes (callbacks)
         self._override_coherency_checker = is_coherent
-        self._override_recommended_checker = is_recommended
         self._resources_requests_getter = (
             partial(resources_requests, self) if resources_requests is not None else None
         )
@@ -683,40 +656,6 @@ class Coordinator(ops.Object):
         )
         return missing_roles
 
-    def _check_recommended(self) -> Optional[bool]:
-        """Internal check for recommended deployment, without deprecation warning."""
-        if override_recommended_checker := self._override_recommended_checker:
-            return override_recommended_checker(self.cluster, self._roles_config)
-
-        rc = self._roles_config
-        if not rc.recommended_deployment:
-            return None
-
-        cluster = self.cluster
-        roles = cluster.gather_roles()
-        for role, min_n in rc.recommended_deployment.items():
-            if roles.get(role, 0) < min_n:
-                return False
-        return True
-
-    @property
-    def is_recommended(self) -> Optional[bool]:
-        """Check whether this coordinator is connected to the recommended number of workers.
-
-        Will return None if no recommended criterion is defined.
-
-        .. deprecated:: 2.2.5
-            This property is deprecated and will be removed in v3.0.0.
-        """
-        warnings.warn(
-            "Coordinator.is_recommended is deprecated and will be removed in v3.0.0. "
-            "The 'recommended deployment' concept and the associated 'Degraded.' status "
-            "message are being removed.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self._check_recommended()
-
     @property
     def can_handle_events(self) -> bool:
         """Check whether the coordinator should handle events."""
@@ -952,16 +891,6 @@ class Coordinator(ops.Object):
             statuses.append(ops.BlockedStatus("[consistency] Missing any worker relation."))
         elif not self.is_coherent:
             statuses.append(ops.BlockedStatus("[consistency] Cluster inconsistent."))
-        elif not self._check_recommended():
-            # if _check_recommended is None: it means we don't meet the recommended deployment criterion.
-            warnings.warn(
-                "The 'Degraded.' status message based on recommended_deployment is deprecated "
-                "and will be removed in v3.0.0. Stop passing recommended_deployment to "
-                "ClusterRolesConfig to suppress this warning.",
-                DeprecationWarning,
-                stacklevel=1,
-            )
-            statuses.append(ops.ActiveStatus(self._default_degraded_message))
 
         if not self.s3_requirer.relations:
             statuses.append(ops.BlockedStatus("[s3] Missing S3 integration."))

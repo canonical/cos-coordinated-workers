@@ -567,11 +567,6 @@ def test_catalogue_integration(coordinator_state: testing.State):
                         "write",
                         "backend",
                     },
-                    recommended_deployment={
-                        "read": 3,
-                        "write": 3,
-                        "backend": 3,
-                    },
                 ),
                 external_url="https://foo.example.com",
                 worker_metrics_port=123,
@@ -595,7 +590,6 @@ def test_catalogue_integration(coordinator_state: testing.State):
                 peer_relation="my-peers",
                 # nginx_options: Optional[NginxMappingOverrides] = None,
                 # is_coherent: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
-                # is_recommended: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
             )
 
     # GIVEN a catalogue integration
@@ -972,7 +966,6 @@ def test_coordinator_charm_mesh_policies_passed_to_service_mesh_consumer(
                     roles={"all", "read", "write", "backend"},
                     meta_roles={"all": {"all", "read", "write", "backend"}},
                     minimal_deployment={"read", "write", "backend"},
-                    recommended_deployment={"read": 3, "write": 3, "backend": 3},
                 ),
                 external_url="https://foo.example.com",
                 worker_metrics_port=123,
