@@ -8,13 +8,10 @@ import os
 import re
 import socket
 import subprocess
-import urllib.request
-import warnings
 from enum import Enum
 from functools import partial
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, TypedDict, Union
-from urllib.error import HTTPError
 
 import ops
 import ops_tracing
@@ -83,10 +80,6 @@ class WorkerError(Exception):
     """Base class for exceptions raised by this module."""
 
 
-class NoReadinessCheckEndpointConfiguredError(Exception):
-    """Internal error when readiness check endpoint is missing."""
-
-
 class ServiceEndpointStatus(Enum):
     """Status of the worker service managed by pebble."""
 
@@ -104,7 +97,6 @@ class Worker(ops.Object):
     SERVICE_START_RETRY_WAIT = tenacity.wait_fixed(60)
     SERVICE_START_RETRY_IF = tenacity.retry_if_exception_type(ops.pebble.ChangeError)
 
-    # TODO: remove these constants in the next major version
     # configuration for the service status retry logic after a restart has occurred.
     # this will determine how long we wait for the worker process to report "ready" after it
     # has been successfully restarted
@@ -235,117 +227,13 @@ class Worker(ops.Object):
             logger.exception("exception while attempting to get pebble layer from charm")
             return None
 
-    # TODO: remove in the next major version
-    @property
-    def status(self) -> ServiceEndpointStatus:
-        """Determine the status of the service's endpoint.
-
-        DEPRECATED. This property will be removed from the public API in the next major version.
-            Its functionality will be handled internally by the Worker class to manage workload status.
-        """
-        warnings.warn(
-            "This property is deprecated and will be removed from the public API in the next major version. "
-            "Workload status will be managed internally by the Worker class.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        if not self._container.can_connect():
-            logger.debug("Container cannot connect. Skipping status check.")
-            return ServiceEndpointStatus.down
-
-        if not self._running_worker_config():
-            logger.debug("Config file not on disk. Skipping status check.")
-            return ServiceEndpointStatus.down
-
-        if not (layer := self.pebble_layer):
-            return ServiceEndpointStatus.down
-
-        # we really don't want this code to raise errors, so we blanket catch all.
-        try:
-            services = self._container.get_services(*layer.services.keys())
-            if not services:
-                logger.debug("No services found in pebble plan.")
-            else:
-                services_not_running = [
-                    name for name, svc in services.items() if not svc.is_running()
-                ]
-                if services_not_running:
-                    logger.debug(
-                        f"Some services which should be running are not: {services_not_running}."
-                    )
-                    return ServiceEndpointStatus.down
-                else:
-                    logger.debug("All pebble services up.")
-
-            # so far as pebble knows all services are up, now let's see if
-            # the readiness endpoint confirm that
-            return self.check_readiness()
-
-        except NoReadinessCheckEndpointConfiguredError:
-            # assume up
-            return ServiceEndpointStatus.up
-
-        except Exception:
-            logger.exception(
-                "Unexpected error while getting worker status. "
-                "This could mean that the worker is still starting."
-            )
-            return ServiceEndpointStatus.down
-
-    # TODO: remove in the next major version
-    def check_readiness(self) -> ServiceEndpointStatus:
-        """If the user has configured a readiness check endpoint, GET it and check the workload status.
-
-        DEPRECATED. This method will be removed from the public API in the next major version.
-            Its functionality will be handled internally by the Worker class to manage workload status.
-        """
-        warnings.warn(
-            "This method is deprecated and will be removed from the public API in the next major version. "
-            "Workload status will be managed internally by the Worker class.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        check_endpoint = self._readiness_check_endpoint
-        if not check_endpoint:
-            raise NoReadinessCheckEndpointConfiguredError()
-
-        try:
-            with urllib.request.urlopen(check_endpoint(self)) as response:
-                html: bytes = response.read()
-
-            # ready response should simply be a string:
-            #   "ready"
-            raw_out = html.decode("utf-8").strip()
-            if raw_out == "ready":
-                return ServiceEndpointStatus.up
-
-            # depending on the workload, we get something like:
-            #   Some services are not Running:
-            #   Starting: 1
-            #   Running: 16
-            # (tempo)
-            #   Ingester not ready: waiting for 15s after being ready
-            # (mimir)
-
-            # anything that isn't 'ready' but also is a 2xx response will be interpreted as:
-            # we're not ready yet, but we're working on it.
-            logger.debug(f"GET {check_endpoint} returned: {raw_out!r}.")
-            return ServiceEndpointStatus.starting
-
-        except HTTPError as e:
-            logger.debug(f"Error getting readiness endpoint, server not up (yet): {e}")
-        except ConnectionResetError as e:
-            logger.warning(
-                f"Error getting readiness endpoint (check the workload container logs for details): {e}"
-            )
-        except Exception as e:
-            logger.exception(f"Unexpected exception getting readiness endpoint: {e}")
-
-        return ServiceEndpointStatus.down
-
     def _is_readiness_check_failing(self):
         if self.is_ready():
-            check_info = self._container.get_check(self.readiness_check_name)
+            try:
+                check_info = self._container.get_check(self.readiness_check_name)
+            except (ops.pebble.APIError, ops.pebble.ConnectionError):
+                logger.debug("Could not get readiness check status; check may not exist yet.")
+                return False
             if check_info.status == CheckStatus.DOWN:
                 return True
         return False
@@ -379,31 +267,6 @@ class Worker(ops.Object):
                 statuses.append(
                     BlockedStatus(f"Pebble check [{self.readiness_check_name}] is 'DOWN'.")
                 )
-        # TODO: remove this check once readiness_check_endpoint becomes required in the next major version
-        # keeping the below block for backwards compatibility if "readiness_check_endpoint" is None
-        else:
-            # if none of the conditions above applies, the worker should in principle be either up or starting
-            if not statuses:
-                try:
-                    status = self.status
-                    if status == ServiceEndpointStatus.starting:
-                        statuses.append(WaitingStatus("Starting..."))
-                    elif status == ServiceEndpointStatus.down:
-                        logger.error(
-                            "The worker service appears to be down and we don't know why. "
-                            "Please check the pebble services' status and their logs."
-                        )
-                        statuses.append(BlockedStatus("node down (see logs)"))
-                except WorkerError:
-                    # this means that the node is not down for any obvious reason (no container,...)
-                    # but we still can't know for sure that the node is up, because we don't have
-                    # a readiness endpoint configured.
-                    logger.debug(
-                        "Unable to determine worker readiness: no endpoint given. "
-                        "This means we're going to report active, but the node might still "
-                        "be coming up and not ready to serve."
-                    )
-
         # if still there are no statuses, we report we're all ready
         if not statuses:
             statuses.append(
@@ -730,14 +593,8 @@ class Worker(ops.Object):
             subprocess.run(["update-ca-certificates", "--fresh"])
         return any_changes
 
-    def restart(self) -> bool:
+    def restart(self) -> None:
         """Restart the pebble service or start it if not already running.
-
-        Returns True if the service was successfully restarted, False otherwise.
-
-        .. deprecated::
-            The return value is deprecated and will be removed in the next major version.
-            Readiness is now tracked via pebble checks instead of polling after restart.
 
         Default timeout is 5 minutes. Configure it by setting this class attr:
         >>> Worker.SERVICE_START_RETRY_STOP = tenacity.stop_after_delay(60 * 30)  # 30 minutes
@@ -792,7 +649,7 @@ class Worker(ops.Object):
                 "This should resolve itself."
                 # or it's a juju bug^TM
             )
-            return False
+            return
 
         except ops.pebble.ChangeError:
             logger.error(
@@ -804,8 +661,6 @@ class Worker(ops.Object):
         except Exception:
             logger.exception("failed to (re)start worker jobs due to an unexpected error.")
             raise
-
-        return True
 
     def running_version(self) -> Optional[str]:
         """Get the running version from the worker process."""
