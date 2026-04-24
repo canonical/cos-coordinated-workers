@@ -69,61 +69,13 @@ def test_deploy_dependency_service_mesh(juju: Juju, juju_istio_system: Juju):
 
 def test_configure_service_mesh(juju: Juju):
     """Configure the coordinated-worker to use the service mesh."""
-    import subprocess
-
     juju.integrate(f"{COORDINATOR_NAME}:service-mesh", ISTIO_BEACON_NAME)
 
-    # jubilant v2's all_active doesn't wait for agent idle. Wait for the hook to finish
-    # and the coordinator to be active+idle.
-    for attempt in tenacity.Retrying(
-        stop=tenacity.stop_after_delay(300),
-        wait=tenacity.wait_fixed(5),
-        reraise=True,
-    ):
-        with attempt:
-            status = juju.status()
-            coordinator_unit = status.apps[COORDINATOR_NAME].units["coordinator/0"]
-            agent_status = coordinator_unit.juju_status.current
-            workload_status = coordinator_unit.workload_status.current
-            workload_msg = coordinator_unit.workload_status.message
-            logging.info(
-                f"Waiting for hook to complete: agent={agent_status}, "
-                f"workload={workload_status}, message={workload_msg}"
-            )
-            if workload_status == "error":
-                # Dump charm container logs to see the traceback
-                try:
-                    kubectl_result = subprocess.run(
-                        [
-                            "kubectl",
-                            "logs",
-                            "coordinator-0",
-                            "-c",
-                            "charm",
-                            "-n",
-                            juju.model,
-                            "--tail=300",
-                        ],
-                        capture_output=True,
-                        text=True,
-                        timeout=30,
-                    )
-                    logging.error("Coordinator charm container logs:\n%s", kubectl_result.stdout)
-                except Exception as e:
-                    logging.error("Failed to get kubectl logs: %s", e)
-                raise AssertionError(
-                    f"Coordinator hook failed: {workload_msg}. "
-                    "See kubectl logs above for traceback."
-                )
-            assert agent_status == "idle" and workload_status == "active", (
-                f"Hook not finished: agent={agent_status}, workload={workload_status}"
-            )
-
-    # Also check that istio-beacon is active
-    beacon_status = (
-        status.apps[ISTIO_BEACON_NAME].units["istio-beacon-k8s/0"].workload_status.current
+    juju.wait(
+        lambda status: all_active(status, COORDINATOR_NAME, ISTIO_BEACON_NAME),
+        timeout=300,
     )
-    assert beacon_status == "active", f"Istio beacon not active: {beacon_status}"
+
     # Assert service mesh labels on pods
     lightkube_client = lightkube.Client()
     for app in (COORDINATOR_NAME, WORKER_A_NAME, WORKER_B_NAME):
