@@ -370,9 +370,18 @@ class Worker(ops.Object):
                     f"Node offline: no role assigned. Please configure this worker to enable a role. For example: 'juju config {self._charm.app.name} role-all=true'."
                 )
             )
+        if self._readiness_check_endpoint:
+            if self._is_readiness_check_failing():
+                logger.error(
+                    "The worker service appears to be down. "
+                    "Please check the pebble services' status and their logs."
+                )
+                statuses.append(
+                    BlockedStatus(f"Pebble check [{self.readiness_check_name}] is 'DOWN'.")
+                )
         # TODO: remove this check once readiness_check_endpoint becomes required in the next major version
-        # keeping the below block for backwards compatibilty if "readiness_check_endpoint" is None
-        if not self._readiness_check_endpoint:
+        # keeping the below block for backwards compatibility if "readiness_check_endpoint" is None
+        else:
             # if none of the conditions above applies, the worker should in principle be either up or starting
             if not statuses:
                 try:
@@ -721,8 +730,14 @@ class Worker(ops.Object):
             subprocess.run(["update-ca-certificates", "--fresh"])
         return any_changes
 
-    def restart(self):
+    def restart(self) -> bool:
         """Restart the pebble service or start it if not already running.
+
+        Returns True if the service was successfully restarted, False otherwise.
+
+        .. deprecated::
+            The return value is deprecated and will be removed in the next major version.
+            Readiness is now tracked via pebble checks instead of polling after restart.
 
         Default timeout is 5 minutes. Configure it by setting this class attr:
         >>> Worker.SERVICE_START_RETRY_STOP = tenacity.stop_after_delay(60 * 30)  # 30 minutes
@@ -789,6 +804,8 @@ class Worker(ops.Object):
         except Exception:
             logger.exception("failed to (re)start worker jobs due to an unexpected error.")
             raise
+
+        return True
 
     def running_version(self) -> Optional[str]:
         """Get the running version from the worker process."""
