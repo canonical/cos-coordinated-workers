@@ -12,6 +12,7 @@ description = "Shared abstractions to simplify the creation and management of ch
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
+# NOTE: always replicate any changes in dependencies to Coordinator and Worker tester charms as they should always match this
 dependencies = [
     "charmlibs-interfaces-tls-certificates~=1.0",
     "crossplane",
