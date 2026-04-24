@@ -146,21 +146,31 @@ class ClusterRolesConfig:
 
     def __post_init__(self):
         """Ensure the various role specifications are consistent with one another."""
-        are_meta_keys_valid = set(self.meta_roles.keys()).issubset(self.roles)
-        are_meta_values_valid = all(
-            set(meta_value).issubset(self.roles) for meta_value in self.meta_roles.values()
+        are_meta_keys_valid = (
+            set(self.meta_roles.keys()).issubset(self.roles)
+            or f"The meta keys {set(self.meta_roles.keys())} are not a subset of {self.roles}."
         )
-        is_minimal_valid = set(self.minimal_deployment).issubset(self.roles)
-        if not all(
-            [
+        are_meta_values_valid = (
+            all(set(meta_value).issubset(self.roles) for meta_value in self.meta_roles.values())
+            or f"The meta values are not a subset of {self.roles}."
+        )
+        is_minimal_valid = (
+            set(self.minimal_deployment).issubset(self.roles)
+            or f"The minimal deployment {self.minimal_deployment} is not a subset of {self.roles}."
+        )
+
+        error_messages = [
+            m
+            for m in (
                 are_meta_keys_valid,
                 are_meta_values_valid,
                 is_minimal_valid,
-            ]
-        ):
-            raise ClusterRolesConfigError(
-                "Invalid ClusterRolesConfig: The configuration is not coherent."
             )
+            if isinstance(m, str)
+        ]
+        if error_messages:
+            error_messages_text = ",\n".join(error_messages)
+            raise ClusterRolesConfigError(f"Invalid ClusterRolesConfig: {error_messages_text}")
 
     def is_coherent_with(self, cluster_roles: Iterable[str]) -> bool:
         """Returns True if the provided roles satisfy the minimal deployment spec; False otherwise."""
