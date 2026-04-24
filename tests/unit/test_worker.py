@@ -9,7 +9,6 @@ import pytest
 import yaml
 from ops import testing
 from scenario import Secret
-from scenario.errors import UncaughtCharmError
 
 from coordinated_workers.worker import (
     CERT_FILE,
@@ -18,6 +17,7 @@ from coordinated_workers.worker import (
     KEY_FILE,
     S3_TLS_CA_CHAIN_FILE,
     Worker,
+    WorkerError,
 )
 from tests.unit.test_worker_status import k8s_patch
 
@@ -52,7 +52,7 @@ def test_no_roles_error():
 
     # IF the charm executes any event
     # THEN the charm raises an error
-    with pytest.raises(testing.errors.UncaughtCharmError):
+    with pytest.raises(WorkerError):
         ctx.run(ctx.on.update_status(), testing.State(containers={testing.Container("foo")}))
 
 
@@ -912,7 +912,7 @@ def test_invalid_url(mock_socket_fqdn):
 
     # WHEN the charm executes any event
     # THEN the charm raises an error with the appropriate cause
-    with pytest.raises(UncaughtCharmError) as exc:
+    with pytest.raises(ValueError) as exc:
         ctx.run(ctx.on.update_status(), testing.State(containers={testing.Container("foo")}))
     assert isinstance(exc.value.__cause__, ValueError)
 

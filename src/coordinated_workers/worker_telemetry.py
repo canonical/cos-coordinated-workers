@@ -10,10 +10,10 @@ from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple, Union
 from urllib.parse import ParseResult, urlparse
 
 import ops
+from charmlibs.nginx_k8s import NginxLocationConfig, NginxUpstream
 from charms.tempo_coordinator_k8s.v0.tracing import ReceiverProtocol
 
 from coordinated_workers.interfaces.cluster import RemoteWriteEndpoint
-from coordinated_workers.nginx import NginxLocationConfig, NginxUpstream
 
 WorkerTopology = List[Dict[str, str]]
 RemoteWriteEndpointGetter = Optional[Callable[[], List[RemoteWriteEndpoint]]]
@@ -234,8 +234,7 @@ def _generate_nginx_config_from_spec(
                 NginxUpstream(
                     name=spec.upstream_name,
                     port=spec.upstream_port,
-                    # FIXME: worker_role is used as address lookup key here, see #105.
-                    worker_role=spec.upstream_lookup_key,
+                    address_lookup_key=spec.upstream_lookup_key,
                 )
             )
             created_upstreams.add(spec.upstream_name)

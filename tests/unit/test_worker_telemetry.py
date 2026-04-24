@@ -2,13 +2,14 @@ import json
 from unittest.mock import PropertyMock, patch
 from urllib.parse import urlparse
 
+import charmlibs.nginx_k8s
 import ops
 import pytest
+from charmlibs.nginx_k8s import NginxConfig
 from ops import testing
 
 from coordinated_workers.coordinator import ClusterRolesConfig, Coordinator
 from coordinated_workers.interfaces.cluster import ClusterRequirerAppData, ClusterRequirerUnitData
-from coordinated_workers.nginx import NginxConfig
 from coordinated_workers.worker_telemetry import (
     PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX,
     WorkerTelemetryProxyConfig,
@@ -468,15 +469,17 @@ def test_nginx_upstream_keys_match_address_mapping(
                 ]
 
                 # Build the nginx config to test worker telemetry configuration
-                nginx_config_obj = coordinator._build_nginx_config()
+                nginx_config_obj: charmlibs.nginx_k8s.NginxConfig = (
+                    coordinator._build_nginx_config()
+                )
 
                 # THEN every nginx upstream config has a corresponding key in upstreams_to_addresses
                 # Get all upstream configs from nginx config that require address lookup
                 nginx_upstream_keys = set()
-                for upstream in nginx_config_obj.upstream_configs:
+                for upstream in nginx_config_obj._upstream_configs:
                     # Skip upstreams that are configured to ignore address lookup
                     if not getattr(upstream, "ignore_worker_role", False):
-                        nginx_upstream_keys.add(upstream.worker_role)
+                        nginx_upstream_keys.add(upstream.address_lookup_key)
 
                 # Get all keys from upstreams_to_addresses mapping
                 address_mapping_keys = set(coordinator._upstreams_to_addresses.keys())
