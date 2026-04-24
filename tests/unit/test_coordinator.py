@@ -142,12 +142,16 @@ def coordinator_state(nginx_container, exporter_container):
         }.items()
     }
 
+    peer_relations = [testing.PeerRelation(endpoint="peers")]
+
     return testing.State(
         containers={
             nginx_container,
             exporter_container,
         },
-        relations=list(requires_relations.values()) + list(provides_relations.values()),
+        relations=list(requires_relations.values())
+        + list(provides_relations.values())
+        + peer_relations,
     )
 
 
@@ -177,6 +181,9 @@ def coordinator_charm(request):
                 "nginx": {"type": "oci-image"},
                 "nginx-prometheus-exporter": {"type": "oci-image"},
             },
+            "peers": {
+                "peers": {"interface": "coordinator_peers"},
+            },
         }
 
         _worker_ports = None
@@ -194,11 +201,6 @@ def coordinator_charm(request):
                         "read",
                         "write",
                         "backend",
-                    },
-                    recommended_deployment={
-                        "read": 3,
-                        "write": 3,
-                        "backend": 3,
                     },
                 ),
                 external_url="https://foo.example.com",
@@ -679,7 +681,7 @@ def test_coordinator_scrape_jobs_generation_scaled(
     # GIVEN: A coordinator with 3 units (local + 2 remote peers)
     # replace the default peer relation (in coordinator_state) with one which has some peer data
     relations: Set[ops.testing.RelationBase] = set(coordinator_state.relations)
-    peer_relation: ops.testing.PeerRelation = coordinator_state.get_relations("my-peers")[0]
+    peer_relation: ops.testing.PeerRelation = coordinator_state.get_relations("peers")[0]
     relations.remove(peer_relation)
 
     # GIVEN: Two remote peers are available with their hostnames
@@ -824,7 +826,15 @@ def test_catalogue_integration(coordinator_state: testing.State):
     # GIVEN a catalogue integration
     ctx = testing.Context(MyCatalogCoord, meta=MyCatalogCoord.META)
     catalogue_relation = testing.Relation(endpoint="my-catalogue")
-    relations_with_catalog = set(coordinator_state.relations).union({catalogue_relation})
+    # Replace the default "peers" peer relation with "my-peers" to match this charm's META
+    relations_without_default_peer = {
+        r
+        for r in coordinator_state.relations
+        if not (isinstance(r, testing.PeerRelation) and r.endpoint == "peers")
+    }
+    relations_with_catalog = relations_without_default_peer.union(
+        {catalogue_relation, testing.PeerRelation(endpoint="my-peers")}
+    )
 
     # WHEN any event fires
     state_out = ctx.run(
@@ -1235,7 +1245,17 @@ def test_coordinator_charm_mesh_policies_passed_to_service_mesh_consumer(
         },
     )
 
-    relations = [*coordinator_state.relations, service_mesh_relation]
+    # Replace the default "peers" peer relation with "my-peers" to match this charm's META
+    relations_without_default_peer = [
+        r
+        for r in coordinator_state.relations
+        if not (isinstance(r, testing.PeerRelation) and r.endpoint == "peers")
+    ]
+    relations = [
+        *relations_without_default_peer,
+        service_mesh_relation,
+        testing.PeerRelation(endpoint="my-peers"),
+    ]
     state = dataclasses.replace(coordinator_state, relations=relations, leader=True)
 
     with patch("coordinated_workers.service_mesh.ServiceMeshConsumer") as mock_mesh_consumer:

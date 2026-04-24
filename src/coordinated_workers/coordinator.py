@@ -328,17 +328,18 @@ class Coordinator(ops.Object):
         nginx_container = self._charm.unit.get_container(self._nginx_container_name)
         self.nginx = nginx_charmlib.Nginx(nginx_container)
 
+        self._certificates = TLSCertificatesRequiresV4(
+            self._charm,
+            relationship_name=self._endpoints["certificates"],
+            certificate_requests=[self._certificate_request_attributes],
+        )
+
         nginx_pexp_container = self._charm.unit.get_container(self._nginx_pexp_container_name)
         self.nginx_exporter = nginx_charmlib.NginxPrometheusExporter(
             nginx_pexp_container,
             nginx_port=self._nginx_port,
             nginx_prometheus_exporter_port=self._nginx_exporter_port,
-        )
-
-        self._certificates = TLSCertificatesRequiresV4(
-            self._charm,
-            relationship_name=self._endpoints["certificates"],
-            certificate_requests=[self._certificate_request_attributes],
+            nginx_insecure=not self.tls_available,
         )
 
         self._upstreams_to_addresses = self.cluster.gather_addresses_by_role()
@@ -488,7 +489,7 @@ class Coordinator(ops.Object):
             if self.tls_config is not None
             else None,
         )
-        self.nginx_exporter.reconcile(tls_config=self.tls_config)
+        self.nginx_exporter.reconcile()
 
         # reconcile relations
         self._reconcile_peer_relation()
@@ -850,7 +851,7 @@ class Coordinator(ops.Object):
             job = {
                 "static_configs": [
                     {
-                        "targets": [f"{hostname}:{self.nginx.options['nginx_exporter_port']}"],
+                        "targets": [f"{hostname}:{self.nginx_exporter.port}"],
                         "labels": {"juju_unit": unit.name},
                     }
                 ],
