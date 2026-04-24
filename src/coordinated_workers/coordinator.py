@@ -149,7 +149,7 @@ class ClusterRolesConfig:
         roles_set = set(self.roles)
         meta_keys = set(self.meta_roles.keys())
 
-        error_messages = []
+        error_messages: list[str] = []
 
         if not meta_keys.issubset(roles_set):
             error_messages.append(
