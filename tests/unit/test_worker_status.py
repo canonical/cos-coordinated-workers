@@ -9,10 +9,7 @@ import tenacity
 from ops import testing
 
 from coordinated_workers.interfaces.cluster import ClusterProviderAppData
-from coordinated_workers.worker import (
-    NoReadinessCheckEndpointConfiguredError,
-    Worker,
-)
+from coordinated_workers.worker import Worker
 
 
 @pytest.fixture(params=[True, False])
@@ -213,23 +210,6 @@ def test_status_no_endpoint(ctx, base_state, caplog):
     state_out = ctx.run(ctx.on.update_status(), state)
     # THEN the charm sets Active: ready, even though we have no idea whether the endpoint is ready.
     assert state_out.unit_status == ops.ActiveStatus("read,write ready.")
-
-
-def test_access_readiness_no_endpoint_raises():
-    # GIVEN the caller doesn't pass an endpoint to Worker
-    caller = MagicMock()
-    with patch("cosl.juju_topology.JujuTopology.from_charm"):
-        with patch("coordinated_workers.worker.Worker._reconcile"):
-            worker = Worker(
-                caller,
-                "workload",
-                lambda _: ops.pebble.Layer({"services": {"foo": {"command": "foo"}}}),
-                {"cluster": "cluster"},
-            )
-
-    # THEN calling .check_readiness raises
-    with pytest.raises(NoReadinessCheckEndpointConfiguredError):
-        worker.check_readiness()  # noqa
 
 
 def test_status_check_ready_with_patch(ctx, base_state, tls):
