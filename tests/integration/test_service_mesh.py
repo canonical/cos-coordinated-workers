@@ -13,7 +13,7 @@ from helpers import (
 )
 from jubilant import Juju, all_active, all_blocked
 from lightkube.resources.core_v1 import Pod
-from pytest_jubilant import TempModelFactory
+from pytest_jubilant import JujuFactory
 
 COORDINATOR_NAME = "coordinator"
 WORKER_A_NAME = "worker-a"
@@ -34,12 +34,12 @@ def test_deploy(juju: Juju, coordinator_charm: PackedCharm, worker_charm: Packed
 
 
 @pytest.fixture(scope="module")
-def juju_istio_system(temp_model_factory: TempModelFactory):
+def juju_istio_system(juju_factory: JujuFactory):
     """Return a Juju client configured for the istio-system model, automatically creating that model as needed.
 
     The model will have the same name as the automatically generated test model, but with the suffix 'istio-system'.
     """
-    yield temp_model_factory.get_juju(suffix="istio-system")
+    yield juju_factory.get_juju(suffix="istio-system")
 
 
 def test_deploy_dependency_service_mesh(juju: Juju, juju_istio_system: Juju):
@@ -69,19 +69,67 @@ def test_deploy_dependency_service_mesh(juju: Juju, juju_istio_system: Juju):
 
 def test_configure_service_mesh(juju: Juju):
     """Configure the coordinated-worker to use the service mesh."""
+    import subprocess
+
     juju.integrate(f"{COORDINATOR_NAME}:service-mesh", ISTIO_BEACON_NAME)
 
-    juju.wait(
-        lambda status: all_active(status, COORDINATOR_NAME, ISTIO_BEACON_NAME),
-    )
+    # jubilant v2's all_active doesn't wait for agent idle. Wait for the hook to finish
+    # and the coordinator to be active+idle.
+    for attempt in tenacity.Retrying(
+        stop=tenacity.stop_after_delay(300),
+        wait=tenacity.wait_fixed(5),
+        reraise=True,
+    ):
+        with attempt:
+            status = juju.status()
+            coordinator_unit = status.apps[COORDINATOR_NAME].units["coordinator/0"]
+            agent_status = coordinator_unit.juju_status.current
+            workload_status = coordinator_unit.workload_status.current
+            workload_msg = coordinator_unit.workload_status.message
+            logging.info(
+                f"Waiting for hook to complete: agent={agent_status}, "
+                f"workload={workload_status}, message={workload_msg}"
+            )
+            if workload_status == "error":
+                # Dump charm container logs to see the traceback
+                try:
+                    kubectl_result = subprocess.run(
+                        [
+                            "kubectl",
+                            "logs",
+                            "coordinator-0",
+                            "-c",
+                            "charm",
+                            "-n",
+                            juju.model,
+                            "--tail=300",
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=30,
+                    )
+                    logging.error("Coordinator charm container logs:\n%s", kubectl_result.stdout)
+                except Exception as e:
+                    logging.error("Failed to get kubectl logs: %s", e)
+                raise AssertionError(
+                    f"Coordinator hook failed: {workload_msg}. "
+                    "See kubectl logs above for traceback."
+                )
+            assert agent_status == "idle" and workload_status == "active", (
+                f"Hook not finished: agent={agent_status}, workload={workload_status}"
+            )
 
-    # Assert that the Coordinator relation to service mesh worked correctly by checking for expected service mesh labels
+    # Also check that istio-beacon is active
+    beacon_status = (
+        status.apps[ISTIO_BEACON_NAME].units["istio-beacon-k8s/0"].workload_status.current
+    )
+    assert beacon_status == "active", f"Istio beacon not active: {beacon_status}"
+    # Assert service mesh labels on pods
     lightkube_client = lightkube.Client()
     for app in (COORDINATOR_NAME, WORKER_A_NAME, WORKER_B_NAME):
         for attempt in tenacity.Retrying(
-            stop=tenacity.stop_after_delay(50),
+            stop=tenacity.stop_after_delay(120),
             wait=tenacity.wait_fixed(5),
-            # if you don't succeed raise the last caught exception when you're done
             reraise=True,
         ):
             with attempt:
