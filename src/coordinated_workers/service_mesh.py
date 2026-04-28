@@ -93,16 +93,36 @@ def _get_cluster_internal_mesh_policies(
     return mesh_policies
 
 
+def _truncate_label_value(value: str, max_length: int = 63) -> str:
+    """Truncate a Kubernetes label value to fit within the max length.
+
+    If the value exceeds max_length, it is truncated and a short hash suffix is appended
+    to maintain uniqueness.
+
+    This is a temporary workaround that can be removed once
+    https://github.com/canonical/istio-beacon-k8s-operator/issues/161 lands.
+    """
+    if len(value) <= max_length:
+        return value
+    import hashlib
+
+    digest = hashlib.sha256(value.encode()).hexdigest()[:8]
+    # Leave room for dash + 8-char hash
+    return f"{value[: max_length - 9]}-{digest}"
+
+
 def _get_policy_resource_manager(
     charm: ops.CharmBase, logger: logging.Logger
 ) -> PolicyResourceManager:
     """Return a PolicyResourceManager for the given mesh_type."""
+    instance = _truncate_label_value(f"{charm.app.name}-{charm.model.name}")
+    scope = _truncate_label_value(f"{charm.app.name}-{charm.model.name}-cluster-internal")
     return PolicyResourceManager(
         charm=charm,
         lightkube_client=Client(field_manager=f"{charm.app.name}-{charm.model.name}"),  # type: ignore
         labels={
-            "app.kubernetes.io/instance": f"{charm.app.name}-{charm.model.name}",
-            "kubernetes-resource-handler-scope": f"{charm.app.name}-{charm.model.name}-cluster-internal",
+            "app.kubernetes.io/instance": instance,
+            "kubernetes-resource-handler-scope": scope,
         },
         logger=logger,
     )

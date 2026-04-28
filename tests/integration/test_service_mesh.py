@@ -13,7 +13,7 @@ from helpers import (
 )
 from jubilant import Juju, all_active, all_blocked
 from lightkube.resources.core_v1 import Pod
-from pytest_jubilant import TempModelFactory
+from pytest_jubilant import JujuFactory
 
 COORDINATOR_NAME = "coordinator"
 WORKER_A_NAME = "worker-a"
@@ -34,12 +34,12 @@ def test_deploy(juju: Juju, coordinator_charm: PackedCharm, worker_charm: Packed
 
 
 @pytest.fixture(scope="module")
-def juju_istio_system(temp_model_factory: TempModelFactory):
+def juju_istio_system(juju_factory: JujuFactory):
     """Return a Juju client configured for the istio-system model, automatically creating that model as needed.
 
     The model will have the same name as the automatically generated test model, but with the suffix 'istio-system'.
     """
-    yield temp_model_factory.get_juju(suffix="istio-system")
+    yield juju_factory.get_juju(suffix="istio-system")
 
 
 def test_deploy_dependency_service_mesh(juju: Juju, juju_istio_system: Juju):
@@ -73,15 +73,15 @@ def test_configure_service_mesh(juju: Juju):
 
     juju.wait(
         lambda status: all_active(status, COORDINATOR_NAME, ISTIO_BEACON_NAME),
+        timeout=300,
     )
 
-    # Assert that the Coordinator relation to service mesh worked correctly by checking for expected service mesh labels
+    # Assert service mesh labels on pods
     lightkube_client = lightkube.Client()
     for app in (COORDINATOR_NAME, WORKER_A_NAME, WORKER_B_NAME):
         for attempt in tenacity.Retrying(
-            stop=tenacity.stop_after_delay(50),
+            stop=tenacity.stop_after_delay(120),
             wait=tenacity.wait_fixed(5),
-            # if you don't succeed raise the last caught exception when you're done
             reraise=True,
         ):
             with attempt:

@@ -1,10 +1,13 @@
 """Helper functions for integration tests."""
 
 import logging
+import subprocess
 from dataclasses import asdict, dataclass
-from typing import Optional
+from pathlib import Path
+from typing import Optional, Union
 
 import sh
+import yaml
 from jubilant import Juju, all_active, all_blocked
 from tenacity import (
     retry,
@@ -121,3 +124,34 @@ def assert_request_returns_http_code(
     assert returned_code == code, (
         f"Expected {code} but got {returned_code} for {source_unit} -> {target_url} on {method}"
     )
+
+
+def pack(root: Union[Path, str] = "./", platform: str | None = None) -> Path:
+    """Pack a local charm and return it."""
+    cmd = ["charmcraft", "pack", "--project-dir", root]
+    if platform:
+        cmd.extend(["--platform", platform])
+    proc = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    # stderr looks like:
+    # > charmcraft pack
+    # Packed tempo-coordinator-k8s_ubuntu@24.04-amd64.charm
+    # Packed tempo-coordinator-k8s_ubuntu@22.04-amd64.charm
+    packed_charms = [
+        line.split()[1] for line in proc.stderr.strip().splitlines() if line.startswith("Packed")
+    ]
+    if not packed_charms:
+        raise ValueError(
+            "Unable to get packed charm(s)!"
+            f" ({cmd!r} completed with {proc.returncode=}, {proc.stdout=}, {proc.stderr=})"
+        )
+    if len(packed_charms) > 1:
+        raise ValueError(
+            "This charm supports multiple platforms. "
+            "Pass a `platform` argument to control which charm you're getting instead."
+        )
+    return Path(packed_charms[0]).resolve()
+
+
+def get_resources(path: Union[Path, str] = Path("charmcraft.yaml")) -> dict[str, str]:
+    meta = yaml.safe_load(Path(path).read_text())
+    return {resource: data["upstream-source"] for resource, data in meta["resources"].items()}
