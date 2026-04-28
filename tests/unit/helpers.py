@@ -24,6 +24,9 @@ def tls_mock(tmp_path, enabled=True):
         )
     )
     stack.enter_context(
-        patch("coordinated_workers.nginx.CA_CERT_PATH", new=tmp_path / "rootcacert")
+        patch(
+            "charmlibs.nginx_k8s._tls_config.TLSConfigManager.CA_CERT_PATH",
+            new=tmp_path / "rootcacert",
+        )
     )
     return stack

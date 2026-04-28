@@ -5,13 +5,13 @@ import httpx
 import ops
 import pytest
 import tenacity
+from charmlibs.nginx_k8s import NginxConfig
 from lightkube import ApiError
 from ops import testing
 from ops.testing import Exec
 
 from coordinated_workers.coordinator import ClusterRolesConfig, Coordinator
 from coordinated_workers.interfaces.cluster import ClusterProviderAppData, ClusterRequirerAppData
-from coordinated_workers.nginx import NginxConfig
 from tests.unit.test_worker_status import k8s_patch
 
 my_roles = ClusterRolesConfig(
@@ -132,7 +132,10 @@ def set_containers(state, nginx_can_connect=False, exporter_can_connect=False):
         testing.Container(
             "nginx",
             can_connect=nginx_can_connect,
-            execs={Exec(["update-ca-certificates", "--fresh"], return_code=0)},
+            execs={
+                Exec(["update-ca-certificates", "--fresh"], return_code=0),
+                Exec(["nginx", "-s", "reload"], return_code=0),
+            },
         ),
         testing.Container("nginx-prometheus-exporter", can_connect=exporter_can_connect),
     }

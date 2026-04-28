@@ -11,7 +11,7 @@ from ops.charm import CharmBase, CollectStatusEvent
 from ops.main import main
 
 from coordinated_workers.coordinator import Coordinator
-from coordinated_workers.nginx import (
+from charmlibs.nginx_k8s import (
     NginxConfig,
     NginxLocationConfig,
     NginxUpstream,

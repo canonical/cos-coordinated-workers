@@ -28,6 +28,7 @@ from typing import (
 )
 from urllib.parse import urlparse
 
+import charmlibs.nginx_k8s as nginx_charmlib
 import cosl
 import ops
 import ops_tracing
@@ -51,12 +52,6 @@ from coordinated_workers import (
 )
 from coordinated_workers.helpers import check_libs_installed
 from coordinated_workers.interfaces.cluster import ClusterProvider, RemoteWriteEndpoint
-from coordinated_workers.nginx import (
-    Nginx,
-    NginxConfig,
-    NginxMappingOverrides,
-    NginxPrometheusExporter,
-)
 
 check_libs_installed(
     "charms.data_platform_libs.v0.s3",
@@ -220,10 +215,16 @@ class Coordinator(ops.Object):
     """Charming coordinator.
 
     This class takes care of the shared tasks of a coordinator, including handling workers,
-    running Nginx, and implementing self-monitoring integrations.
+    running Nginx and Nginx Prometheus exporter, and implementing self-monitoring integrations.
     """
 
     _default_active_message = ""
+
+    _nginx_port: int = 8080
+    _nginx_tls_port: int = 443
+    _nginx_exporter_port: int = 9113
+    _nginx_container_name: str = "nginx"
+    _nginx_pexp_container_name: str = "nginx-prometheus-exporter"
 
     def __init__(
         self,
@@ -232,10 +233,9 @@ class Coordinator(ops.Object):
         external_url: str,  # the ingressed url if we have ingress, else fqdn
         worker_metrics_port: int,
         endpoints: _EndpointMapping,
-        nginx_config: NginxConfig,
+        nginx_config: nginx_charmlib.NginxConfig,
         workers_config: Callable[["Coordinator"], str],
         worker_ports: Optional[Callable[[str], Sequence[int]]] = None,
-        nginx_options: Optional[NginxMappingOverrides] = None,
         is_coherent: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
         resources_limit_options: Optional[_ResourceLimitOptionsMapping] = None,
         resources_requests: Optional[Callable[["Coordinator"], Dict[str, str]]] = None,
@@ -261,7 +261,6 @@ class Coordinator(ops.Object):
                 published in relation data.
             worker_ports: A function returning the ports that a worker with a given role should open.
             endpoints: Endpoint names for coordinator relations, as defined in metadata.yaml.
-            nginx_options: Non-default config options for Nginx.
             is_coherent: Custom coherency checker for a minimal deployment.
             resources_limit_options: A dictionary containing resources limit option names. The dictionary should include
                 "cpu_limit" and "memory_limit" keys with values as option names, as defined in the config.yaml.
@@ -326,16 +325,21 @@ class Coordinator(ops.Object):
             worker_ports=worker_ports,
         )
 
-        self.nginx = Nginx(
-            self._charm,
-            options=nginx_options,
-        )
-        self.nginx_exporter = NginxPrometheusExporter(self._charm, options=nginx_options)
+        nginx_container = self._charm.unit.get_container(self._nginx_container_name)
+        self.nginx = nginx_charmlib.Nginx(nginx_container)
 
         self._certificates = TLSCertificatesRequiresV4(
             self._charm,
             relationship_name=self._endpoints["certificates"],
             certificate_requests=[self._certificate_request_attributes],
+        )
+
+        nginx_pexp_container = self._charm.unit.get_container(self._nginx_pexp_container_name)
+        self.nginx_exporter = nginx_charmlib.NginxPrometheusExporter(
+            nginx_pexp_container,
+            nginx_port=self._nginx_port,
+            nginx_prometheus_exporter_port=self._nginx_exporter_port,
+            nginx_insecure=not self.tls_available,
         )
 
         self._upstreams_to_addresses = self.cluster.gather_addresses_by_role()
@@ -414,7 +418,7 @@ class Coordinator(ops.Object):
 
         ## Observers
         # We always listen to collect-status
-        self.framework.observe(self._charm.on.collect_unit_status, self._on_collect_unit_status)
+        observe_events(self._charm, {ops.charm.CollectStatusEvent}, self._on_collect_unit_status)
 
         # If the cluster isn't ready, refuse to handle any other event as we can't possibly know what to do
         if not self.cluster.has_workers:
@@ -477,9 +481,15 @@ class Coordinator(ops.Object):
                 # TODO: pass tracing_config once https://github.com/canonical/cos-coordinated-workers/issues/77 is addressed
                 tracing_config=None,
             ),
-            tls_config=self.tls_config,
+            tls_config=nginx_charmlib.TLSConfig(
+                ca_cert=self.tls_config.ca_cert,
+                server_cert=self.tls_config.server_cert,
+                private_key=self.tls_config.private_key,
+            )
+            if self.tls_config is not None
+            else None,
         )
-        self.nginx_exporter.reconcile(tls_config=self.tls_config)
+        self.nginx_exporter.reconcile()
 
         # reconcile relations
         self._reconcile_peer_relation()
@@ -841,7 +851,7 @@ class Coordinator(ops.Object):
             job = {
                 "static_configs": [
                     {
-                        "targets": [f"{hostname}:{self.nginx.options['nginx_exporter_port']}"],
+                        "targets": [f"{hostname}:{self.nginx_exporter.port}"],
                         "labels": {"juju_unit": unit.name},
                     }
                 ],
@@ -1075,12 +1085,33 @@ class Coordinator(ops.Object):
                 ca=self.tls_config.ca_cert if self.tls_config else None,
             )
 
-    def _build_nginx_config(self) -> NginxConfig:
+    def _build_nginx_config(self) -> nginx_charmlib.NginxConfig:
         """Return the cumulative nginx configuration combining charm config and worker telemetry config."""
-        upstream_configs = list(self._charm_nginx_config.upstream_configs)
-        server_ports_to_locations = dict(self._charm_nginx_config.server_ports_to_locations)
-        worker_topology = self.cluster.gather_topology()
+        # This method is a bit hacky because the charmlib's nginx config class doesn't support incremental construction
+        # so we have to manually craft a copy. Consider adding a method to the charmlib config class that allows adding
+        # upstreams and locations incrementally, which would make this cleaner and not rely on private attributes.
+        config = self._charm_nginx_config
+        upstream_configs = list(config._upstream_configs)  # type: ignore[reportPrivateUsage]
+        server_ports_to_locations = dict(config._server_ports_to_locations)  # type: ignore[reportPrivateUsage]
 
+        upstream_configs, server_ports_to_locations = self._inject_worker_telemetry_config(
+            upstream_configs, server_ports_to_locations
+        )
+        return nginx_charmlib.NginxConfig(
+            server_name=config._server_name,  # type: ignore[reportPrivateUsage]
+            upstream_configs=upstream_configs,
+            server_ports_to_locations=server_ports_to_locations,
+            map_configs=config._map_configs,  # type: ignore[reportPrivateUsage]
+            enable_health_check=config._enable_health_check,  # type: ignore[reportPrivateUsage]
+            enable_status_page=config._enable_status_page,  # type: ignore[reportPrivateUsage]
+        )
+
+    def _inject_worker_telemetry_config(
+        self,
+        upstream_configs: List[nginx_charmlib.NginxUpstream],
+        server_ports_to_locations: Dict[int, List[nginx_charmlib.NginxLocationConfig]],
+    ):
+        worker_topology = self.cluster.gather_topology()
         # If worker topology is discovered and proxy telemetry port is defined, include worker telemetry proxying directives.
         if worker_topology and self._proxy_worker_telemetry_port:
             # NOTE: use actual upstream telemetry addresses here! Or you will be proxying the proxy addresses.
@@ -1118,11 +1149,4 @@ class Coordinator(ops.Object):
                 else:
                     server_ports_to_locations[port] = locations
 
-        return NginxConfig(
-            server_name=self._charm_nginx_config.server_name,
-            upstream_configs=upstream_configs,
-            server_ports_to_locations=server_ports_to_locations,
-            map_configs=self._charm_nginx_config.map_configs,
-            enable_health_check=self._charm_nginx_config.enable_health_check,
-            enable_status_page=self._charm_nginx_config.enable_status_page,
-        )
+        return upstream_configs, server_ports_to_locations
