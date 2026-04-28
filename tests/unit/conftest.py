@@ -173,7 +173,7 @@ def coordinator_state(nginx_container, exporter_container):
                     {
                         "certificate": MOCK_CERTS_DATA,
                         "ca": MOCK_CERTS_DATA,
-                        "chain": MOCK_CERTS_DATA,
+                        "chain": [MOCK_CERTS_DATA],
                         "certificate_signing_request": MOCK_CERTS_DATA,
                     }
                 ]

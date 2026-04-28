@@ -33,6 +33,12 @@ import ops
 import ops_tracing
 import pydantic
 import yaml
+from charmlibs.interfaces.tls_certificates import (
+    CertificateRequestAttributes,
+    Mode,
+    TLSCertificatesError,
+    TLSCertificatesRequiresV4,
+)
 from cosl.interfaces.datasource_exchange import DatasourceExchange
 from lightkube import Client
 from opentelemetry import trace
@@ -59,7 +65,6 @@ check_libs_installed(
     "charms.loki_k8s.v1.loki_push_api",
     "charms.tempo_coordinator_k8s.v0.tracing",
     "charms.observability_libs.v0.kubernetes_compute_resources_patch",
-    "charms.tls_certificates_interface.v4.tls_certificates",
     "charms.catalogue_k8s.v1.catalogue",
     "charms.istio_beacon_k8s.v0.service_mesh",
 )
@@ -79,10 +84,6 @@ from charms.observability_libs.v0.kubernetes_compute_resources_patch import (
 )
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from charms.tempo_coordinator_k8s.v0.tracing import ReceiverProtocol, TracingEndpointRequirer
-from charms.tls_certificates_interface.v4.tls_certificates import (
-    CertificateRequestAttributes,
-    TLSCertificatesRequiresV4,
-)
 from cosl.reconciler import all_events, observe_events
 from lightkube.models.core_v1 import ResourceRequirements
 
@@ -460,7 +461,10 @@ class Coordinator(ops.Object):
         self._reconcile_charm_labels()
 
         # certificates must be synced before we reconcile the workloads; otherwise changes in the certs may go unnoticed.
-        self._certificates.sync()
+        try:
+            self._certificates.sync()
+        except TLSCertificatesError:
+            logger.warning("Failed to sync TLS certificates; TLS may be unavailable.")
         # keep this on top right after certificates sync
         self._setup_charm_tracing()
 
@@ -698,9 +702,13 @@ class Coordinator(ops.Object):
     @property
     def tls_config(self) -> Optional[TLSConfig]:
         """Returns the TLS configuration, including certificates and private key, if available; None otherwise."""
-        certificates, key = self._certificates.get_assigned_certificate(
-            certificate_request=self._certificate_request_attributes
-        )
+        try:
+            certificates, key = self._certificates.get_assigned_certificate(
+                certificate_request=self._certificate_request_attributes
+            )
+        except TLSCertificatesError:
+            logger.warning("Failed to retrieve assigned certificate; TLS may be unavailable.")
+            return None
         if not (key and certificates):
             return None
         return TLSConfig(certificates.certificate.raw, certificates.ca.raw, key.raw)
@@ -970,7 +978,7 @@ class Coordinator(ops.Object):
             # FIXME: We're relying on a private method from the TLS library
             # https://github.com/canonical/cos-coordinated-workers/issues/16
             privkey_secret_id=self.cluster.grant_privkey(
-                self._certificates._get_private_key_secret_label()  # type: ignore
+                self._certificates._get_private_key_secret_label(mode=Mode.UNIT)  # type: ignore
             ),
             charm_tracing_receivers=self._charm_tracing_receivers_urls,
             workload_tracing_receivers=self._workload_tracing_receivers_urls,
