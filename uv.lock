@@ -241,7 +241,7 @@ wheels = [
 
 [[package]]
 name = "coordinated-workers"
-version = "3.1.0"
+version = "3.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "charmed-service-mesh-helpers" },
