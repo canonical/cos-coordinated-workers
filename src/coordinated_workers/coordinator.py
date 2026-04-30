@@ -931,7 +931,12 @@ class Coordinator(ops.Object):
         )
 
     def _reconcile_mesh_policies(self) -> None:
-        """Reconcile all the cluster internal mesh policies."""
+        """Reconcile all mesh policies."""
+        # Re-push the charm's policies to the service-mesh relation databag.
+        # This ensures port changes (e.g. TLS toggle) are reflected.
+        if not self._mesh:
+            return
+        self._mesh.update_service_mesh()
         service_mesh.reconcile_cluster_internal_mesh_policies(
             mesh=self._mesh,
             cluster=self.cluster,
