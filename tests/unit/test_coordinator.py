@@ -1143,6 +1143,46 @@ def test_mesh_policies_deletion_when_mesh_disconnected(
         mock_policy_resource_manager.return_value.reconcile.assert_not_called()
 
 
+def test_reconcile_mesh_policies_calls_update_service_mesh(
+    mock_policy_resource_manager,
+    coordinator_state: testing.State,
+    coordinator_charm: ops.CharmBase,
+):
+    """Test that _reconcile_mesh_policies calls update_service_mesh to re-push policies.
+
+    This ensures that port changes (e.g. from a TLS toggle switching 443→8080) are
+    reflected in the service-mesh relation databag on every reconcile, not only on
+    relation-changed events.
+    """
+    # GIVEN a coordinator_charm
+    ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
+
+    # AND a coordinator_state that includes a populated service mesh relation
+    service_mesh_relation = testing.Relation(
+        endpoint="my-service-mesh",
+        interface="service_mesh",
+        remote_app_data={
+            "labels": json.dumps({"label1": "value1"}),
+            "mesh_type": json.dumps("istio"),
+        },
+    )
+    relations_with_service_mesh = [*coordinator_state.relations, service_mesh_relation]
+    state_with_service_mesh = dataclasses.replace(
+        coordinator_state, relations=relations_with_service_mesh
+    )
+    state_with_service_mesh = dataclasses.replace(state_with_service_mesh, leader=True)
+
+    # WHEN we process any event and reconcile mesh policies
+    with ctx(ctx.on.update_status(), state=state_with_service_mesh) as mgr:
+        coordinator = mgr.charm.coordinator
+
+        with patch.object(coordinator._mesh, "update_service_mesh") as mock_update:
+            coordinator._reconcile_mesh_policies()
+
+            # THEN update_service_mesh is called to re-push policies to the relation databag
+            mock_update.assert_called_once()
+
+
 def test_coordinator_charm_mesh_policies_passed_to_service_mesh_consumer(
     coordinator_state: testing.State,
 ):
