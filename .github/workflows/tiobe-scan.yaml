@@ -1,3 +1,6 @@
+# Copyright 2026 Canonical Ltd.
+# See LICENSE file for licensing details.
+
 name: Tiobe TiCS Analysis
 
 on:
@@ -6,7 +9,62 @@ on:
     - cron: "0 0 * * 1"  # Runs at midnight UTC every Monday
 
 jobs:
-    tics:
-        name: TiCs
-        uses: canonical/observability/.github/workflows/charm-tiobe-scan.yaml@v2
-        secrets: inherit
+  scan:
+    name: Scan and upload
+    runs-on: [self-hosted, linux, amd64, tiobe, jammy]
+    timeout-minutes: 60
+    env:
+      CHARM_PATH: '.'
+      LOCKFILE_PATH: ''
+      TIOBE_PROJECT_NAME: ''
+      COVERAGE_FOLDER: 'cover'
+    steps:
+      - name: Checkout the project
+        uses: actions/checkout@v6
+        with:
+          repository: canonical/${{ github.event.repository.name }}
+
+      - name: Install dependencies
+        run: |
+          sudo snap install charmcraft --classic
+          sudo apt update && sudo apt install -y pipx
+          pipx install "coverage[toml]"
+          pipx install tox
+          sudo snap install astral-uv --classic
+
+      - name: Generate unittest coverage report
+        run: |
+          base_wd="$(pwd)"
+          cd "${CHARM_PATH}"
+          tox -e fetch-libs  # Specific to cos-coordinated-workers, needed to run unit tests
+          tox -e unit && coverage xml -o "${base_wd}/${CHARM_PATH}/${COVERAGE_FOLDER}/cobertura.xml"
+
+      - name: Activate and prepare Python virtual environment
+        run: |
+          # Use LOCKFILE_PATH (if not empty) to create the virtual environment, otherwise use CHARM_PATH
+          VENV_PATH="$LOCKFILE_PATH"
+          if [[ -z "$LOCKFILE_PATH" ]]; then
+            VENV_PATH="$CHARM_PATH"
+          fi
+
+          pushd "${VENV_PATH}"
+          if [[ -f uv.lock ]]; then
+            uv sync --all-extras --all-groups
+            source .venv/bin/activate
+          else
+            python -m venv .venv
+            source .venv/bin/activate
+            uv pip install -r requirements.txt
+          fi
+          uv pip install pylint flake8
+          echo "PATH=$PATH" >> "$GITHUB_ENV"
+          popd
+
+      - name: Run TICS analysis with github-action
+        uses: tiobe/tics-github-action@v3
+        with:
+          mode: qserver
+          project: ${{ env.TIOBE_PROJECT_NAME || github.event.repository.name }}
+          viewerUrl: https://canonical.tiobe.com/tiobeweb/TICS/api/cfg?name=default
+          ticsAuthToken: ${{ secrets.TICSAUTHTOKEN }}
+          installTics: true
