@@ -20,7 +20,7 @@ jobs:
       COVERAGE_FOLDER: 'cover'
     steps:
       - name: Checkout the project
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: canonical/${{ github.event.repository.name }}
 
