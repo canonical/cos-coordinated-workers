@@ -339,7 +339,7 @@ class Coordinator(ops.Object):
             nginx_pexp_container,
             nginx_port=self._nginx_port,
             nginx_prometheus_exporter_port=self._nginx_exporter_port,
-            nginx_insecure=not self.tls_available,
+            
         )
 
         self._upstreams_to_addresses = self.cluster.gather_addresses_by_role()
@@ -489,8 +489,7 @@ class Coordinator(ops.Object):
             if self.tls_config is not None
             else None,
         )
-        self.nginx_exporter.reconcile()
-
+        self.nginx_exporter.reconcile(tls_config=self.tls_config, nginx_serves_tls=self.nginx.are_certificates_on_disk)
         # reconcile relations
         self._reconcile_peer_relation()
         self._reconcile_cluster_relations()
