@@ -1,6 +1,7 @@
 """Helper functions for integration tests."""
 
 import logging
+import re
 import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -155,3 +156,18 @@ def pack(root: Union[Path, str] = "./", platform: str | None = None) -> Path:
 def get_resources(path: Union[Path, str] = Path("charmcraft.yaml")) -> dict[str, str]:
     meta = yaml.safe_load(Path(path).read_text())
     return {resource: data["upstream-source"] for resource, data in meta["resources"].items()}
+
+def get_platforms(path: Union[Path, str] = Path("charmcraft.yaml")) -> list[str]:
+    try:
+        meta = yaml.safe_load(Path(path).read_text())
+    except FileNotFoundError:
+        return []
+
+    platforms_dict = meta.get("platforms")
+    if not platforms_dict:
+        return []
+    # Since `platforms` is a dict of platform name to build instructions, we just want the platform names
+    # So we need a list of the keys
+    platform_names = list(platforms_dict.keys())
+    # Return the last platform in the list, which should be the most recent version.
+    return platform_names[-1]
