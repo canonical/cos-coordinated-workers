@@ -1,7 +1,6 @@
 """Helper functions for integration tests."""
 
 import logging
-import re
 import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -156,6 +155,7 @@ def pack(root: Union[Path, str] = "./", platform: str | None = None) -> Path:
 def get_resources(path: Union[Path, str] = Path("charmcraft.yaml")) -> dict[str, str]:
     meta = yaml.safe_load(Path(path).read_text())
     return {resource: data["upstream-source"] for resource, data in meta["resources"].items()}
+
 
 def get_platforms(path: Union[Path, str] = Path("charmcraft.yaml")) -> list[str]:
     try:
