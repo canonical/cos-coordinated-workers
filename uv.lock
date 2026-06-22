@@ -153,11 +153,15 @@ wheels = [
 
 [[package]]
 name = "charmlibs-nginx-k8s"
-version = "1.0.0"
-source = { git = "https://github.com/sinapah/charmlibs.git?subdirectory=nginx_k8s&rev=feat%2Fnginx-exporter-configure-tls#53aa98e198c94564d1dfc66c81f294745ad04cf1" }
+version = "1.0.1"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "crossplane" },
     { name = "ops" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8b/64/4712bd0fbeda002361ef7b5e74bbf695004a29d6f3957d436ab06648b15f/charmlibs_nginx_k8s-1.0.1.tar.gz", hash = "sha256:9dcfeb52b9dbee77d66ab90ee86117d7494889325a2961fc7c55109b3d8dbbe9", size = 38679, upload-time = "2026-06-22T15:23:12.623Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/bc/1c/ef9ff46a5cb167ec917a86cfbdcb7bc2a98a8a767efa672bc30920b78dc6/charmlibs_nginx_k8s-1.0.1-py3-none-any.whl", hash = "sha256:8e5246e26aaa6ac749f8cd82db5a1dd30535612961afc7597c75933122c02638", size = 18177, upload-time = "2026-06-22T15:23:11.52Z" },
 ]
 
 [[package]]
@@ -288,7 +292,7 @@ wheels = [
 
 [[package]]
 name = "coordinated-workers"
-version = "4.0.1"
+version = "4.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "charmed-service-mesh-helpers" },
@@ -321,7 +325,7 @@ dev = [
 requires-dist = [
     { name = "charmed-service-mesh-helpers", specifier = ">=0.2.0" },
     { name = "charmlibs-interfaces-tls-certificates", specifier = "~=1.0" },
-    { name = "charmlibs-nginx-k8s", git = "https://github.com/sinapah/charmlibs.git?subdirectory=nginx_k8s&rev=feat%2Fnginx-exporter-configure-tls" },
+    { name = "charmlibs-nginx-k8s", specifier = ">=1.0.1" },
     { name = "cosl", specifier = ">=1.3.1" },
     { name = "crossplane" },
     { name = "lightkube", specifier = ">=0.15.4" },

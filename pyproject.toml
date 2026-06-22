@@ -15,7 +15,7 @@ requires-python = ">=3.10"
 # NOTE: always replicate any changes in dependencies to Coordinator and Worker tester charms as they should always match this
 dependencies = [
     "charmlibs-interfaces-tls-certificates~=1.0",
-    "charmlibs-nginx-k8s @ git+https://github.com/sinapah/charmlibs.git@feat/nginx-exporter-configure-tls#subdirectory=nginx_k8s",
+    "charmlibs-nginx-k8s>=1.0.1",
     "crossplane",
     "ops[tracing]",
     "pydantic",
