@@ -1,6 +1,7 @@
 """Helper functions for integration tests."""
 
 import logging
+import platform
 import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -155,3 +156,32 @@ def pack(root: Union[Path, str] = "./", platform: str | None = None) -> Path:
 def get_resources(path: Union[Path, str] = Path("charmcraft.yaml")) -> dict[str, str]:
     meta = yaml.safe_load(Path(path).read_text())
     return {resource: data["upstream-source"] for resource, data in meta["resources"].items()}
+
+
+def get_most_recent_platform(path: Union[Path, str] = Path("charmcraft.yaml")) -> str | None:
+    try:
+        meta = yaml.safe_load(Path(path).read_text())
+    except (FileNotFoundError, yaml.YAMLError):
+        return None
+
+    platforms_dict = meta.get("platforms")
+    if not platforms_dict or not isinstance(platforms_dict, dict):
+        return None
+
+    # It's unlikely that we'll have a tester charm that supports the ARM architecture,
+    # but if we do,
+    # we want to make sure we get the right one for the machine we're running on.
+    # This would be useful for local testing on ARM machines, for example.
+    # Note we only check for ARM vs AMD, since those are the only two archs that
+    # tend to be used locally or on CI.
+    machine_arch = platform.machine().lower()
+
+    if "arm" in machine_arch or "aarch" in machine_arch:
+        target = "arm"
+    else:
+        target = "amd"
+
+    filtered_platforms = [name for name in platforms_dict.keys() if target in name.lower()]
+
+    # We return the last platform in the list, with the assumption that it must be the most recent.
+    return filtered_platforms[-1] if filtered_platforms else None
