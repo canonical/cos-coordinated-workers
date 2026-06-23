@@ -67,7 +67,7 @@ check_libs_installed(
 from charms.catalogue_k8s.v1.catalogue import CatalogueConsumer, CatalogueItem
 from charms.data_platform_libs.v0.s3 import S3Requirer
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
-from charms.istio_beacon_k8s.v0.service_mesh import (
+from charms.istio_beacon_k8s.v0.service_mesh import (  # type: ignore
     AppPolicy,
     UnitPolicy,
     reconcile_charm_labels,
@@ -339,7 +339,6 @@ class Coordinator(ops.Object):
             nginx_pexp_container,
             nginx_port=self._nginx_port,
             nginx_prometheus_exporter_port=self._nginx_exporter_port,
-            nginx_insecure=not self.tls_available,
         )
 
         self._upstreams_to_addresses = self.cluster.gather_addresses_by_role()
@@ -489,8 +488,16 @@ class Coordinator(ops.Object):
             if self.tls_config is not None
             else None,
         )
-        self.nginx_exporter.reconcile()
-
+        self.nginx_exporter.reconcile(
+            tls_config=nginx_charmlib.TLSConfig(
+                ca_cert=self.tls_config.ca_cert,
+                server_cert=self.tls_config.server_cert,
+                private_key=self.tls_config.private_key,
+            )
+            if self.tls_config is not None
+            else None,
+            nginx_serves_tls=self.nginx.are_certificates_on_disk,
+        )
         # reconcile relations
         self._reconcile_peer_relation()
         self._reconcile_cluster_relations()
