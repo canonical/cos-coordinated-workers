@@ -213,17 +213,16 @@ class ClusterProvider(Object):
         """Grant the secret containing the privkey, if it exists, to all relations, and return the secret ID."""
         try:
             secret = self.model.get_secret(label=label)
+            for relation in self._relations:
+                secret.grant(relation)
+                # can't return secret.id because secret was obtained by label, and so
+                # we don't have an ID unless we fetch it
+            return secret.get_info().id
         except SecretNotFoundError:
             # it might be the case that we're trying to access the secret on relation created/joined
             # while it actually gets created on relation changed
             log.debug("secret with label %s not found", label)
-            return None
-
-        for relation in self._relations:
-            secret.grant(relation)
-        # can't return secret.id because secret was obtained by label, and so
-        # we don't have an ID unless we fetch it
-        return secret.get_info().id
+            return None        
 
     def publish_data(
         self,
