@@ -1315,12 +1315,10 @@ def test_coordinator_charm_mesh_policies_passed_to_service_mesh_consumer(
 
 
 @pytest.mark.parametrize("event_name", ["pebble_check_failed"])
-@patch.object(Coordinator, "_reconcile")
 def test_coordinator_no_reconcile_on_pebble_check_events(
-    reconcile_mock,
     event_name,
-    coordinator_charm: ops.CharmBase,
-    coordinator_state: testing.State,
+    coordinator_charm,
+    coordinator_state,
     nginx_container,
     exporter_container,
 ):
@@ -1328,10 +1326,32 @@ def test_coordinator_no_reconcile_on_pebble_check_events(
     # Reconciling on this event offers no benefit and can cause unnecessary churn.
     # See https://github.com/canonical/cos-coordinated-workers/issues/159
 
-    ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
-    check_info = ops.pebble.CheckInfo("ready", level=None, status=ops.pebble.CheckStatus.DOWN)
-    event = getattr(ctx.on, event_name)(nginx_container, check_info)
+    # patch.object with a MagicMock doesn't work here because ops.Framework.observe requires a
+    # types.MethodType. A regular function satisfies the descriptor protocol, so instance._reconcile
+    # becomes a bound method and can be registered with framework.observe.
+    reconcile_calls = []
 
-    ctx.run(event, coordinator_state)
+    def tracking_reconcile(self, event=None):
+        reconcile_calls.append(event)
 
-    reconcile_mock.assert_not_called()
+    with patch.object(Coordinator, "_reconcile", tracking_reconcile):
+        ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
+        check_info = testing.CheckInfo("ready", level=ops.pebble.CheckLevel.UNSET, status=ops.pebble.CheckStatus.DOWN)
+        # Scenario requires the check to exist in both check_infos and the pebble plan,
+        # with matching level, startup and threshold fields.
+        check_layer = ops.pebble.Layer(
+            {"checks": {"ready": {"override": "replace", "startup": "enabled", "threshold": 3, "http": {"url": "http://localhost/ready"}}}}
+        )
+        nginx_with_check = dataclasses.replace(
+            nginx_container,
+            layers={"base": check_layer},
+            check_infos=frozenset({check_info}),
+        )
+        state = dataclasses.replace(
+            coordinator_state,
+            containers={nginx_with_check if c.name == "nginx" else c for c in coordinator_state.containers},
+        )
+        event = getattr(ctx.on, event_name)(nginx_with_check, check_info)
+        ctx.run(event, state)
+
+    assert not reconcile_calls

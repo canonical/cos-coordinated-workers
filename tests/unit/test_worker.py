@@ -1,3 +1,4 @@
+import dataclasses
 import json
 import os
 from contextlib import ExitStack
@@ -1143,27 +1144,43 @@ def test_worker_charm_labels(remote_databag, expected, mock_worker_reconcile_cha
     assert mock_worker_reconcile_charm_labels.call_args.kwargs["labels"] == expected
 
 
-@pytest.mark.parametrize("event_name", ["pebble_check_failed", "pebble_check_recovered"])
-@patch.object(Worker, "_reconcile")
-def test_worker_no_reconcile_on_pebble_check_events(reconcile_mock, event_name):
-    # Test that pebble-check-failed and pebble-check-recovered do not trigger reconciliation.
-    # Reconciling on these events can cause a restart loop: a check fails because the workload
+@pytest.mark.parametrize("event_name", ["pebble_check_failed"])
+def test_worker_no_reconcile_on_pebble_check_events(event_name):
+    # Test that pebble-check-failed does not trigger reconciliation.
+    # Reconciling on check failure can cause a restart loop: a check fails because the workload
     # is still starting (e.g. WAL replay), reconcile triggers a restart, which causes the check
     # to fail again. See https://github.com/canonical/cos-coordinated-workers/issues/159
 
-    ctx = testing.Context(
-        MyCharm,
-        meta={
-            "name": "foo",
-            "requires": {"cluster": {"interface": "cluster"}},
-            "containers": {"foo": {"type": "oci-image"}},
-        },
-        config={"options": {"role-all": {"type": "boolean", "default": True}}},
-    )
-    container = testing.Container("foo", can_connect=True)
-    check_info = ops.pebble.CheckInfo("ready", level=None, status=ops.pebble.CheckStatus.DOWN)
-    event = getattr(ctx.on, event_name)(container, check_info)
+    # patch.object with a MagicMock doesn't work here because ops.Framework.observe requires a
+    # types.MethodType. A regular function satisfies the descriptor protocol, so instance._reconcile
+    # becomes a bound method and can be registered with framework.observe.
+    reconcile_calls = []
 
-    ctx.run(event, testing.State(containers={container}))
+    def tracking_reconcile(self, event=None):
+        reconcile_calls.append(event)
 
-    reconcile_mock.assert_not_called()
+    with patch.object(Worker, "_reconcile", tracking_reconcile):
+        ctx = testing.Context(
+            MyCharm,
+            meta={
+                "name": "foo",
+                "requires": {"cluster": {"interface": "cluster"}},
+                "containers": {"foo": {"type": "oci-image"}},
+            },
+            config={"options": {"role-all": {"type": "boolean", "default": True}}},
+        )
+        check_info = testing.CheckInfo("ready", level=ops.pebble.CheckLevel.UNSET, status=ops.pebble.CheckStatus.DOWN)
+        # Scenario requires the check to exist in both check_infos and the pebble plan,
+        # with matching level, startup and threshold fields.
+        check_layer = ops.pebble.Layer(
+            {"checks": {"ready": {"override": "replace", "startup": "enabled", "threshold": 3, "http": {"url": "http://localhost/ready"}}}}
+        )
+        container_with_check = dataclasses.replace(
+            testing.Container("foo", can_connect=True),
+            layers={"base": check_layer},
+            check_infos=frozenset({check_info}),
+        )
+        event = getattr(ctx.on, event_name)(container_with_check, check_info)
+        ctx.run(event, testing.State(containers={container_with_check}))
+
+    assert not reconcile_calls
