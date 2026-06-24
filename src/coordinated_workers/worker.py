@@ -18,12 +18,13 @@ import ops_tracing
 import tenacity
 import yaml
 from cosl import JujuTopology
+from cosl.reconciler import all_events, observe_events
 from lightkube import Client
 from ops import MaintenanceStatus, StatusBase
 from ops.model import ActiveStatus, BlockedStatus, ModelError, WaitingStatus
 from ops.pebble import Check, CheckStatus, Layer, PathError, Plan, ProtocolError
 
-from coordinated_workers.helpers import check_libs_installed
+from coordinated_workers.helpers import NON_RECONCILABLE_EVENTS, check_libs_installed
 from coordinated_workers.interfaces.cluster import ClusterRequirer, TLSData
 
 check_libs_installed(
@@ -167,6 +168,16 @@ class Worker(ops.Object):
         self._container_name = container_name
         self._resources_limit_options = resources_limit_options or {}
 
+        # Registered BEFORE ClusterRequirer so that _reconcile (which publishes unit data via
+        # _update_cluster_relation) runs before ClusterRequirer._on_cluster_relation_changed.
+        # This preserves the original ordering where reconcile ran unconditionally in __init__
+        # before any event handlers fired.
+        observe_events(
+            self._charm,
+            all_events.difference(NON_RECONCILABLE_EVENTS),
+            self._reconcile,
+        )
+
         self.cluster = ClusterRequirer(
             charm=self._charm,
             endpoint=self._endpoints["cluster"],
@@ -192,9 +203,6 @@ class Worker(ops.Object):
             if self._resources_requests_getter
             else None
         )
-        # holistic update logic, aka common exit hook
-        self._reconcile()
-
         # Event listeners
         self.framework.observe(self._charm.on.collect_unit_status, self._on_collect_status)
         self.framework.observe(self.cluster.on.removed, self._log_forwarder.disable_logging)

@@ -82,6 +82,7 @@ from charms.tempo_coordinator_k8s.v0.tracing import ReceiverProtocol, TracingEnd
 from cosl.reconciler import all_events, observe_events
 from lightkube.models.core_v1 import ResourceRequirements
 
+from coordinated_workers.helpers import NON_RECONCILABLE_EVENTS
 from coordinated_workers.models import TLSConfig
 
 logger = logging.getLogger(__name__)
@@ -444,7 +445,11 @@ class Coordinator(ops.Object):
             )
             return
 
-        observe_events(self._charm, all_events, self._reconcile)
+        observe_events(
+            self._charm,
+            all_events.difference(NON_RECONCILABLE_EVENTS),
+            self._reconcile,
+        )
 
     def _reconcile(self):
         """Run all logic that is independent of what event we're processing."""
@@ -621,8 +626,8 @@ class Coordinator(ops.Object):
         relations: List[ops.Relation] = self.model.relations.get(self._endpoints["logging"], [])
         for relation in relations:
             for unit in relation.units:
-                unit_databag = relation.data.get(unit, {})
-                if "endpoint" not in unit_databag:
+                unit_databag = relation.data.get(unit)
+                if unit_databag is None or "endpoint" not in unit_databag:
                     continue
                 endpoint = unit_databag["endpoint"]
                 deserialized_endpoint = json.loads(endpoint)
@@ -787,7 +792,8 @@ class Coordinator(ops.Object):
 
         peer_data_items: List[Tuple[ops.model.Unit, str]] = []
         for unit in peer_relation.units:  # or self._units; they're equivalent
-            value: Optional[str] = peer_relation.data.get(unit, {}).get(field)
+            unit_data = peer_relation.data.get(unit)
+            value: Optional[str] = unit_data.get(field) if unit_data is not None else None
             if value is not None:
                 peer_data_items.append((unit, value))
 
