@@ -1141,3 +1141,29 @@ def test_worker_charm_labels(remote_databag, expected, mock_worker_reconcile_cha
     )
 
     assert mock_worker_reconcile_charm_labels.call_args.kwargs["labels"] == expected
+
+
+@pytest.mark.parametrize("event_name", ["pebble_check_failed", "pebble_check_recovered"])
+@patch.object(Worker, "_reconcile")
+def test_worker_no_reconcile_on_pebble_check_events(reconcile_mock, event_name):
+    # Test that pebble-check-failed and pebble-check-recovered do not trigger reconciliation.
+    # Reconciling on these events can cause a restart loop: a check fails because the workload
+    # is still starting (e.g. WAL replay), reconcile triggers a restart, which causes the check
+    # to fail again. See https://github.com/canonical/cos-coordinated-workers/issues/159
+
+    ctx = testing.Context(
+        MyCharm,
+        meta={
+            "name": "foo",
+            "requires": {"cluster": {"interface": "cluster"}},
+            "containers": {"foo": {"type": "oci-image"}},
+        },
+        config={"options": {"role-all": {"type": "boolean", "default": True}}},
+    )
+    container = testing.Container("foo", can_connect=True)
+    check_info = ops.pebble.CheckInfo("ready", level=None, status=ops.pebble.CheckStatus.DOWN)
+    event = getattr(ctx.on, event_name)(container, check_info)
+
+    ctx.run(event, testing.State(containers={container}))
+
+    reconcile_mock.assert_not_called()

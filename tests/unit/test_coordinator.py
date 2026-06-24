@@ -1312,3 +1312,26 @@ def test_coordinator_charm_mesh_policies_passed_to_service_mesh_consumer(
         )  # Should have both custom policies and the default metrics policy
         assert charm_app_policy in policies_arg
         assert charm_unit_policy in policies_arg
+
+
+@pytest.mark.parametrize("event_name", ["pebble_check_failed", "pebble_check_recovered"])
+@patch.object(Coordinator, "_reconcile")
+def test_coordinator_no_reconcile_on_pebble_check_events(
+    reconcile_mock,
+    event_name,
+    coordinator_charm: ops.CharmBase,
+    coordinator_state: testing.State,
+    nginx_container,
+    exporter_container,
+):
+    # Test that pebble-check-failed and pebble-check-recovered do not trigger reconciliation.
+    # Reconciling on these events offers no benefit and can cause unnecessary churn.
+    # See https://github.com/canonical/cos-coordinated-workers/issues/159
+
+    ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
+    check_info = ops.pebble.CheckInfo("ready", level=None, status=ops.pebble.CheckStatus.DOWN)
+    event = getattr(ctx.on, event_name)(nginx_container, check_info)
+
+    ctx.run(event, coordinator_state)
+
+    reconcile_mock.assert_not_called()

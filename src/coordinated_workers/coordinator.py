@@ -82,6 +82,7 @@ from charms.tempo_coordinator_k8s.v0.tracing import ReceiverProtocol, TracingEnd
 from cosl.reconciler import all_events, observe_events
 from lightkube.models.core_v1 import ResourceRequirements
 
+from coordinated_workers.helpers import NON_RECONCILABLE_EVENTS
 from coordinated_workers.models import TLSConfig
 
 logger = logging.getLogger(__name__)
@@ -444,7 +445,11 @@ class Coordinator(ops.Object):
             )
             return
 
-        observe_events(self._charm, all_events, self._reconcile)
+        observe_events(
+            self._charm,
+            all_events.difference(NON_RECONCILABLE_EVENTS),
+            self._reconcile,
+        )
 
     def _reconcile(self):
         """Run all logic that is independent of what event we're processing."""
