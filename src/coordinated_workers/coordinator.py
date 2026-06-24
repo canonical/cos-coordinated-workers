@@ -1007,7 +1007,7 @@ class Coordinator(ops.Object):
             # https://github.com/canonical/cos-coordinated-workers/issues/16
             privkey_secret_id=self.cluster.grant_privkey(
                 self._certificates._get_private_key_secret_label(mode=Mode.UNIT)  # type: ignore
-            ),
+            ) if tls_config else None,
             charm_tracing_receivers=self._charm_tracing_receivers_urls,
             workload_tracing_receivers=self._workload_tracing_receivers_urls,
             remote_write_endpoints=self.remote_write_endpoints,
