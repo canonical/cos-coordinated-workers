@@ -765,3 +765,25 @@ def test_nginx_exporter_pebble_layer(
         services_out = state_out.get_container("nginx-prometheus-exporter").plan.services
         sentinel_tls = services_out.get("nginx-prometheus-exporter").environment.get("_reload")
         assert sentinel_no_tls != sentinel_tls
+
+
+def test_upstreams_servers_are_sorted():
+    # GIVEN a NginxConfig with one upstream config
+    with mock_resolv_conf(f"nameserver {sample_dns_ip}"):
+        nginx = NginxConfig(
+            "localhost",
+            upstream_configs=[NginxUpstream("otlp-grpc", 4317, "distributor")],
+            server_ports_to_locations={4317: [NginxLocationConfig(backend="otlp-grpc", path="/")]},
+        )
+
+        # WHEN _upstreams is called with multiple addresses in non-sorted order
+        addresses = {
+            "distributor-2.svc.cluster.local",
+            "distributor-0.svc.cluster.local",
+            "distributor-1.svc.cluster.local",
+        }
+        upstreams = nginx._upstreams({"distributor": addresses})
+
+        # THEN the server entries in the upstream block are in sorted order
+        server_args = [d["args"][0] for d in upstreams[0]["block"] if d["directive"] == "server"]
+        assert server_args == sorted(server_args)
