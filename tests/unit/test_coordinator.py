@@ -589,7 +589,9 @@ def test_catalogue_integration(coordinator_state: testing.State):
                     "catalogue": "my-catalogue",
                 },
                 nginx_config=NginxConfig("localhost", [], {}),
-                workers_config=lambda coordinator: f"workers configuration for {coordinator._charm.meta.name}",
+                workers_config=lambda coordinator: (
+                    f"workers configuration for {coordinator._charm.meta.name}"
+                ),
                 worker_ports=self._worker_ports,
                 catalogue_item=CatalogueItem("foo", "bar", "baz", "qux"),
                 peer_relation="my-peers",
@@ -993,7 +995,9 @@ def test_coordinator_charm_mesh_policies_passed_to_service_mesh_consumer(
                     "service-mesh-require-cmr-mesh": "my-service-mesh-require-cmr-mesh",
                 },
                 nginx_config=NginxConfig("localhost", [], {}),
-                workers_config=lambda coordinator: f"workers configuration for {coordinator._charm.meta.name}",
+                workers_config=lambda coordinator: (
+                    f"workers configuration for {coordinator._charm.meta.name}"
+                ),
                 worker_ports=None,
                 charm_mesh_policies=charm_policies,  # Pass custom policies here
                 peer_relation="my-peers",

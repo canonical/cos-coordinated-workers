@@ -604,10 +604,10 @@ class Coordinator(ops.Object):
         relations: List[ops.Relation] = self.model.relations.get(self._endpoints["logging"], [])
         for relation in relations:
             for unit in relation.units:
-                unit_databag = relation.data.get(unit, {})
+                unit_databag: Dict[str, str] = dict(relation.data.get(unit, {}))
                 if "endpoint" not in unit_databag:
                     continue
-                endpoint = unit_databag["endpoint"]
+                endpoint: str = unit_databag["endpoint"]
                 deserialized_endpoint = json.loads(endpoint)
                 url = deserialized_endpoint["url"]
                 endpoints[unit.name] = url
@@ -787,7 +787,8 @@ class Coordinator(ops.Object):
 
         peer_data_items: List[Tuple[ops.model.Unit, str]] = []
         for unit in peer_relation.units:  # or self._units; they're equivalent
-            value: Optional[str] = peer_relation.data.get(unit, {}).get(field)
+            unit_data: Dict[str, str] = dict(peer_relation.data.get(unit, {}))
+            value: Optional[str] = unit_data.get(field)
             if value is not None:
                 peer_data_items.append((unit, value))
 
