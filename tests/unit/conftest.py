@@ -341,7 +341,9 @@ def coordinator_charm(request):
                     "service-mesh-require-cmr-mesh": "my-service-mesh-require-cmr-mesh",
                 },
                 nginx_config=NginxConfig("localhost", [], {}),
-                workers_config=lambda coordinator: f"workers configuration for {coordinator._charm.meta.name}",
+                workers_config=lambda coordinator: (
+                    f"workers configuration for {coordinator._charm.meta.name}"
+                ),
                 worker_ports=self._worker_ports,
                 # nginx_options: Optional[NginxMappingOverrides] = None,
                 # is_coherent: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,

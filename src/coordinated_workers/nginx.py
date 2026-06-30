@@ -591,7 +591,7 @@ class NginxConfig:
                                     "directive": "server",
                                     "args": [f"{addr}:{upstream_config.port}", "resolve"],
                                 }
-                                for addr in addresses
+                                for addr in sorted(addresses)
                             ],
                         ],
                     }

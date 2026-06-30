@@ -349,7 +349,9 @@ class Worker(ops.Object):
             statuses.append(WaitingStatus("Waiting for coordinator to publish a config"))
         if not self.roles:
             statuses.append(
-                BlockedStatus(f"Node offline: no role assigned. Please configure this worker to enable a role. For example: 'juju config {self._charm.app.name} role-all=true'.")
+                BlockedStatus(
+                    f"Node offline: no role assigned. Please configure this worker to enable a role. For example: 'juju config {self._charm.app.name} role-all=true'."
+                )
             )
 
         # if none of the conditions above applies, the worker should in principle be either up or starting
