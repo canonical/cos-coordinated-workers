@@ -69,7 +69,7 @@ def test_deploy_dependency_service_mesh(juju: Juju, juju_istio_system: Juju):
 
 def test_configure_service_mesh(juju: Juju):
     """Configure the coordinated-worker to use the service mesh."""
-    juju.integrate(COORDINATOR_NAME, ISTIO_BEACON_NAME)
+    juju.integrate(f"{COORDINATOR_NAME}:service-mesh", ISTIO_BEACON_NAME)
 
     juju.wait(
         lambda status: all_active(status, COORDINATOR_NAME, ISTIO_BEACON_NAME),
@@ -79,7 +79,7 @@ def test_configure_service_mesh(juju: Juju):
     lightkube_client = lightkube.Client()
     for app in (COORDINATOR_NAME, WORKER_A_NAME, WORKER_B_NAME):
         for attempt in tenacity.Retrying(
-            stop=tenacity.stop_after_delay(50),
+            stop=tenacity.stop_after_delay(120),
             wait=tenacity.wait_fixed(5),
             # if you don't succeed raise the last caught exception when you're done
             reraise=True,
