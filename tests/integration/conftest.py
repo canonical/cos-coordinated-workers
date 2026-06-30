@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Union
 
 import pytest
-from helpers import PackedCharm
+from helpers import PackedCharm, get_most_recent_platform
 from pytest_jubilant import get_resources, pack
 
 logger = logging.getLogger(__name__)
@@ -83,7 +83,8 @@ def _tester_charm_builder(tester_path: Path) -> PackedCharm:
         _copy_coordinated_worker_source(destination=tester_coordinated_worker_source)
         _copy_coordinated_worker_project_files(destination=tester_path)
         logger.info(f"Packing tester charm {tester_charm_name} from {tester_path}")
-        charm = pack(tester_path)
+        platforms = get_most_recent_platform(tester_path / "charmcraft.yaml")
+        charm = pack(tester_path, platform=platforms) if platforms else pack(tester_path)
 
     resources = get_resources(tester_path)
 
