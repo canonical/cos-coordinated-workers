@@ -426,7 +426,7 @@ def proxy_loki_endpoints_by_unit(
     """
     endpoints: Dict[str, str] = {}
     for relation in logging_relations:
-        for unit in relation.units:
+        for unit in sorted(relation.units, key=lambda unit: unit.name):
             scheme = "https" if tls_available else "http"
             worker_tlm_path = PROXY_WORKER_TELEMETRY_PATHS["logging"]
             sanitized_worker_tlm_path = worker_tlm_path.format(unit=unit.name.replace("/", "-"))

@@ -3,7 +3,7 @@ import json
 import os
 from contextlib import ExitStack
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import ops
 import pytest
@@ -103,6 +103,39 @@ def test_roles_from_config(roles_active, roles_inactive, expected):
     ) as mgr:
         # THEN the Worker.roles method correctly returns the list of only those that are set to true
         assert set(mgr.charm.worker.roles) == set(expected)
+
+
+@patch.object(Worker, "roles", new_callable=PropertyMock, return_value=["write", "read", "all"])
+def test_publish_app_roles_sorted(_roles):
+    # Test that roles are published to the cluster relation databag comma-separated and sorted,
+    # regardless of the order in which they were gathered.
+
+    # WHEN you define a properly configured charm with a cluster relation and role-x config options
+    ctx = testing.Context(
+        MyCharm,
+        meta={
+            "name": "foo",
+            "requires": {"cluster": {"interface": "cluster"}},
+            "containers": {"foo": {"type": "oci-image"}},
+        },
+        config={
+            "options": {
+                f"role-{role}": {"type": "boolean", "default": "false"}
+                for role in ("read", "write", "all")
+            }
+        },
+    )
+
+    # AND the worker is the leader unit in a cluster relation
+    relation = testing.Relation("cluster")
+    state_out = ctx.run(
+        ctx.on.update_status(),
+        testing.State(leader=True, containers={testing.Container("foo")}, relations={relation}),
+    )
+
+    # THEN the roles are published in sorted order
+    cluster_relation = state_out.get_relations("cluster")[0]
+    assert json.loads(cluster_relation.local_app_data["role"]) == "all,read,write"
 
 
 @patch.object(Worker, "is_ready", new=lambda _: True)

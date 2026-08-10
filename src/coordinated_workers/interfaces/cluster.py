@@ -488,7 +488,7 @@ class ClusterRequirer(Object):
 
         relation = self.relation
         if relation:
-            databag_model = ClusterRequirerAppData(role=",".join(roles))
+            databag_model = ClusterRequirerAppData(role=",".join(sorted(roles)))
             databag_model.dump(relation.data[self.model.app])
 
     def _get_data_from_coordinator(self) -> Optional[ClusterProviderAppData]:

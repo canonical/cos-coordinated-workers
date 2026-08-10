@@ -625,7 +625,7 @@ class Coordinator(ops.Object):
         endpoints: Dict[str, str] = {}
         relations: List[ops.Relation] = self.model.relations.get(self._endpoints["logging"], [])
         for relation in relations:
-            for unit in relation.units:
+            for unit in sorted(relation.units, key=lambda unit: unit.name):
                 unit_databag = relation.data.get(unit)
                 if unit_databag is None or "endpoint" not in unit_databag:
                     continue
