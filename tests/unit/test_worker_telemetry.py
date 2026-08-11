@@ -1,3 +1,4 @@
+import dataclasses
 import json
 from unittest.mock import PropertyMock, patch
 from urllib.parse import urlparse
@@ -577,3 +578,68 @@ def test_sanitize_hostname_raises_on_empty_result(hostname):
     """Test that hostnames that sanitize to empty string raise ValueError."""
     with pytest.raises(ValueError, match="Cannot sanitize hostname"):
         _sanitize_hostname(hostname)
+
+
+def _replace_logging_relation_units(state, units_order):
+    """Return a copy of the state with the logging relation units declared in the given order."""
+    return dataclasses.replace(
+        state,
+        relations=[
+            testing.Relation(
+                endpoint="my-logging",
+                interface="loki_push_api",
+                remote_app_name="loki",
+                remote_units_data={
+                    unit_id: {
+                        "endpoint": json.dumps(
+                            {"url": f"http://loki-{unit_id}:3100/loki/api/v1/push"}
+                        )
+                    }
+                    for unit_id in units_order
+                },
+            )
+            if rel.endpoint == "my-logging"
+            else rel
+            for rel in state.relations
+        ],
+    )
+
+
+@pytest.mark.parametrize("units_order", [(0, 1), (1, 0)])
+def test_loki_endpoints_deterministic_order_non_proxy(
+    coordinator_charm_no_proxy, coordinator_state_with_telemetry, units_order
+):
+    """Test that loki endpoints are gathered in deterministic order regardless of unit iteration order."""
+    ctx = testing.Context(coordinator_charm_no_proxy, meta=coordinator_charm_no_proxy.META)
+
+    with ctx(
+        ctx.on.update_status(),
+        state=_replace_logging_relation_units(coordinator_state_with_telemetry, units_order),
+    ) as mgr:
+        coordinator = mgr.charm.coordinator
+
+        # THEN the endpoints are always sorted by unit name
+        assert list(coordinator.loki_endpoints_by_unit) == ["loki/0", "loki/1"]
+
+
+@pytest.mark.parametrize("units_order", [(0, 1), (1, 0)])
+def test_loki_endpoints_deterministic_order_proxy(
+    coordinator_charm_with_proxy, coordinator_state_with_telemetry, units_order
+):
+    """Test that proxied loki endpoints are gathered in deterministic order regardless of unit iteration order."""
+    ctx = testing.Context(coordinator_charm_with_proxy, meta=coordinator_charm_with_proxy.META)
+
+    with patch.object(
+        Coordinator, "hostname", new_callable=PropertyMock, return_value="coordinator.local"
+    ):
+        with patch.object(
+            Coordinator, "tls_available", new_callable=PropertyMock, return_value=False
+        ):
+            with ctx(
+                ctx.on.update_status(),
+                state=_replace_logging_relation_units(coordinator_state_with_telemetry, units_order),
+            ) as mgr:
+                coordinator = mgr.charm.coordinator
+
+                # THEN the proxied endpoints are always sorted by unit name
+                assert list(coordinator.loki_endpoints_by_unit) == ["loki/0", "loki/1"]
