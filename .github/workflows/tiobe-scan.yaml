@@ -17,7 +17,7 @@ jobs:
       CHARM_PATH: '.'
       LOCKFILE_PATH: ''
       TIOBE_PROJECT_NAME: ''
-      COVERAGE_FOLDER: 'cover'
+      COVERAGE_FOLDER: '.cover'
     steps:
       - name: Checkout the project
         uses: actions/checkout@v6
