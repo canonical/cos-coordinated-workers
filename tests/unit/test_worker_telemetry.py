@@ -14,7 +14,10 @@ from coordinated_workers.interfaces.cluster import ClusterRequirerAppData, Clust
 from coordinated_workers.worker_telemetry import (
     PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX,
     WorkerTelemetryProxyConfig,
+    _generate_tracing_urls_nginx_config,
     _sanitize_hostname,
+    _urlparse,
+    get_upstreams_to_addresses,
 )
 
 
@@ -578,6 +581,66 @@ def test_sanitize_hostname_raises_on_empty_result(hostname):
     """Test that hostnames that sanitize to empty string raise ValueError."""
     with pytest.raises(ValueError, match="Cannot sanitize hostname"):
         _sanitize_hostname(hostname)
+
+
+@pytest.mark.parametrize(
+    "url,expected_hostname,expected_port,expected_scheme",
+    [
+        ("host:4317", "host", 4317, ""),
+        ("https://host:4318", "host", 4318, "https"),
+    ],
+)
+def test_urlparse_helper(url, expected_hostname, expected_port, expected_scheme):
+    """Test that _urlparse recovers hostname/port from scheme-less authorities.
+
+    Also confirms scheme-carrying URLs are parsed exactly as before (untouched).
+    """
+    parsed = _urlparse(url)
+    assert parsed.hostname == expected_hostname
+    assert parsed.port == expected_port
+    assert parsed.scheme == expected_scheme
+
+
+def test_get_upstreams_to_addresses_scheme_less_grpc():
+    """Test that scheme-less gRPC tracing receiver URLs do not yield a {None} upstream address set.
+
+    Regression test for issue #185: urlparse('host:port') misreads the host as the
+    scheme, producing hostname=None, which crashes Loki's sorted(addresses) and
+    silently renders Mimir's upstream as "None:80".
+    """
+    upstreams_to_addresses = get_upstreams_to_addresses(
+        unit_addresses={},
+        charm_tracing_receivers_urls={
+            "otlp_grpc": "otelcol-0.otelcol-endpoints.cos.svc.cluster.local:4317",
+            "otlp_http": "https://otelcol-0.otelcol-endpoints.cos.svc.cluster.local:4318",
+        },
+        workload_tracing_receivers_urls={},
+        loki_endpoints_by_unit={},
+        remote_write_endpoints_getter=None,
+    )
+
+    assert upstreams_to_addresses[f"{PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX}-charm-otlp_grpc"] == {
+        "otelcol-0.otelcol-endpoints.cos.svc.cluster.local"
+    }
+
+    for addresses in upstreams_to_addresses.values():
+        assert None not in addresses
+        # mimics nginx_k8s._upstreams(), which crashes with TypeError if a set
+        # contains a None mixed in with strings.
+        assert sorted(addresses) == sorted(addresses)
+
+
+def test_generate_tracing_urls_scheme_less_grpc_port_and_path():
+    """Test that a scheme-less gRPC tracing URL yields the real port, not the http default 80."""
+    upstreams, locations = _generate_tracing_urls_nginx_config({"otlp_grpc": "otelcol-0.foo:4317"}, {})
+
+    upstream_name = f"{PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX}-charm-otlp_grpc"
+    matching_upstreams = [u for u in upstreams if u.name == upstream_name]
+    assert len(matching_upstreams) == 1
+    assert matching_upstreams[0].port == 4317
+
+    for location in locations:
+        assert "4317" not in location.backend_url.split("/")
 
 
 def _replace_logging_relation_units(state, units_order):
