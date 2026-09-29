@@ -71,6 +71,18 @@ def _get_port(parsed_url: ParseResult) -> int:
     return 443 if parsed_url.scheme.endswith("s") else 80
 
 
+def _urlparse(url: str) -> ParseResult:
+    """Parse a URL, tolerating scheme-less authorities like gRPC receiver URLs.
+
+    ``urlparse('host:port')`` misreads the host as the scheme and returns
+    ``hostname=None``. Prefixing ``//`` forces the authority into ``netloc`` so
+    ``hostname`` and ``port`` parse correctly.
+    """
+    if "://" not in url:
+        return urlparse(f"//{url}")
+    return urlparse(url)
+
+
 @dataclasses.dataclass
 class WorkerTelemetryProxyConfig:
     """Worker telemetry proxy configuration object."""
@@ -139,9 +151,11 @@ def get_upstreams_to_addresses(
 
     for tracing_type, receivers_urls in tracing_configs:
         for protocol, address in receivers_urls.items():
-            p = urlparse(address)
+            p = _urlparse(address)
+            if p.hostname is None:
+                continue
             upstream_name = f"{PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX}-{tracing_type}-{protocol}"
-            upstreams_to_addresses[upstream_name] = {p.hostname}  # type: ignore
+            upstreams_to_addresses[upstream_name] = {p.hostname}
 
     return upstreams_to_addresses
 
@@ -383,7 +397,7 @@ def _generate_tracing_urls_nginx_config(
 
     for tracing_type, receivers_urls, path_template in tracing_configs:
         for protocol, address in receivers_urls.items():
-            parsed_address = urlparse(address)
+            parsed_address = _urlparse(address)
             upstream_name = f"{PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX}-{tracing_type}-{protocol}"
             location_path = path_template.format(protocol=protocol)
 
