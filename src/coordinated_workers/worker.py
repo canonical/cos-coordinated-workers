@@ -45,6 +45,7 @@ BASE_DIR = "/worker"
 CONFIG_FILE = "/etc/worker/config.yaml"
 CERT_FILE = "/etc/worker/server.cert"
 S3_TLS_CA_CHAIN_FILE = "/etc/worker/s3_ca.crt"
+RECEIVED_CA_CERT_FILE = "/etc/worker/received_ca.crt"
 KEY_FILE = "/etc/worker/private.key"
 CLIENT_CA_FILE = "/etc/worker/ca.cert"
 ROOT_CA_CERT = "/usr/local/share/ca-certificates/ca.crt"
@@ -429,6 +430,7 @@ class Worker(ops.Object):
             CLIENT_CA_FILE,
             CERT_FILE,
             S3_TLS_CA_CHAIN_FILE,
+            RECEIVED_CA_CERT_FILE,
             ROOT_CA_CERT,
             CONFIG_FILE,
         ):
@@ -552,6 +554,7 @@ class Worker(ops.Object):
             (tls_data.server_cert, CERT_FILE),
             (private_key, KEY_FILE),
             (tls_data.s3_tls_ca_chain, S3_TLS_CA_CHAIN_FILE),
+            (tls_data.received_ca_cert, RECEIVED_CA_CERT_FILE),
             (tls_data.ca_cert, ROOT_CA_CERT),
         ):
             if not new_contents:

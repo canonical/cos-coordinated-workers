@@ -131,6 +131,7 @@ class ClusterProviderAppData(cosl.interfaces.utils.DatabagModel):
     server_cert: Optional[str] = None
     privkey_secret_id: Optional[str] = None
     s3_tls_ca_chain: Optional[str] = None
+    received_ca_cert: Optional[str] = None
 
     ### mesh
     worker_labels: Optional[Dict[str, str]] = None
@@ -143,6 +144,7 @@ class TLSData(NamedTuple):
     server_cert: Optional[str]
     privkey_secret_id: Optional[str]
     s3_tls_ca_chain: Optional[str]
+    received_ca_cert: Optional[str]
 
 
 class ClusterChangedEvent(ops.EventBase):
@@ -231,6 +233,7 @@ class ClusterProvider(Object):
         ca_cert: Optional[str] = None,
         server_cert: Optional[str] = None,
         s3_tls_ca_chain: Optional[str] = None,
+        received_ca_cert: Optional[str] = None,
         privkey_secret_id: Optional[str] = None,
         loki_endpoints: Optional[Dict[str, str]] = None,
         charm_tracing_receivers: Optional[Dict[str, str]] = None,
@@ -259,6 +262,7 @@ class ClusterProvider(Object):
                     workload_tracing_receivers=workload_tracing_receivers,
                     remote_write_endpoints=remote_write_endpoints,
                     s3_tls_ca_chain=s3_tls_ca_chain,
+                    received_ca_cert=received_ca_cert,
                     worker_ports=_worker_ports,
                     worker_labels=worker_labels,
                 )
@@ -544,6 +548,7 @@ class ClusterRequirer(Object):
             server_cert=data.server_cert,
             privkey_secret_id=data.privkey_secret_id,
             s3_tls_ca_chain=data.s3_tls_ca_chain,
+            received_ca_cert=data.received_ca_cert,
         )
 
     def get_charm_tracing_receivers(self) -> Dict[str, str]:

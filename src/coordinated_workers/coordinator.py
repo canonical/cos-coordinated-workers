@@ -242,6 +242,7 @@ class Coordinator(ops.Object):
         resources_requests: Optional[Callable[["Coordinator"], Dict[str, str]]] = None,
         container_name: Optional[str] = None,
         remote_write_endpoints: Optional[Callable[[], List[RemoteWriteEndpoint]]] = None,
+        received_ca_cert: Optional[Callable[[], Optional[str]]] = None,
         workload_tracing_protocols: Optional[List[ReceiverProtocol]] = None,
         catalogue_item: Optional[CatalogueItem] = None,
         worker_telemetry_proxy_config: Optional[
@@ -273,6 +274,8 @@ class Coordinator(ops.Object):
                 Required if `resources_requests` is provided.
             remote_write_endpoints: A function generating endpoints to which the workload
                 and the worker charm can push metrics to.
+            received_ca_cert: A function returning a CA certificate (PEM string)
+                for TLS validation of a remote-write endpoint, or None if unavailable.
             workload_tracing_protocols: A list of protocols that the worker intends to send
                 workload traces with.
             catalogue_item: A catalogue application entry to be sent to catalogue.
@@ -315,6 +318,7 @@ class Coordinator(ops.Object):
             partial(resources_requests, self) if resources_requests is not None else None
         )
         self._remote_write_endpoints_getter = remote_write_endpoints
+        self._received_ca_cert_getter = received_ca_cert
         self._workers_config_getter = partial(workers_config, self)
 
         ## Integrations
@@ -1012,6 +1016,9 @@ class Coordinator(ops.Object):
             workload_tracing_receivers=self._workload_tracing_receivers_urls,
             remote_write_endpoints=self.remote_write_endpoints,
             s3_tls_ca_chain=self.s3_connection_info.ca_cert,
+            received_ca_cert=self._received_ca_cert_getter()
+            if self._received_ca_cert_getter
+            else None,
             worker_labels=self._worker_labels,
         )
 
