@@ -163,6 +163,22 @@ def test_status_check_no_config(ctx, base_state, caplog):
     )
 
 
+@k8s_patch(is_ready=False)
+def test_status_check_readiness_check_not_registered(ctx, base_state):
+    # GIVEN the resources patch is not ready, so reconcile is skipped and
+    # no pebble layer (hence no readiness check) is ever added
+    # AND GIVEN there is no config file on disk
+    # WHEN we run any event
+    state_out = ctx.run(ctx.on.update_status(), base_state)
+
+    # THEN the charm doesn't raise on the missing check and sets waiting
+    container_out = state_out.get_container("workload")
+    assert Worker.readiness_check_name not in container_out.plan.checks
+    assert state_out.unit_status == ops.WaitingStatus(
+        "Waiting for coordinator to publish a config"
+    )
+
+
 @k8s_patch()
 def test_status_check_ready(ctx, base_state, tls):
     # GIVEN getting the status returns "ready"
