@@ -32,7 +32,7 @@ check_libs_installed(
     "charms.observability_libs.v0.kubernetes_compute_resources_patch",
 )
 
-from canonical_service_mesh import reconcile_charm_labels  # type: ignore
+from canonical_service_mesh.utils.istio import reconcile_charm_labels
 from charms.loki_k8s.v1.loki_push_api import _PebbleLogClient  # type: ignore
 from charms.observability_libs.v0.kubernetes_compute_resources_patch import (
     KubernetesComputeResourcesPatch,

@@ -16,6 +16,7 @@ from charmlibs.interfaces.service_mesh import (
     MeshPolicy,
     Method,
     PolicyTargetType,
+    ServiceMeshConsumer,
     UnitPolicy,
 )
 from lightkube import Client

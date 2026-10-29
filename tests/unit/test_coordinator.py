@@ -1187,7 +1187,7 @@ def test_coordinator_charm_mesh_policies_passed_to_service_mesh_consumer(
     coordinator_state: testing.State,
 ):
     """Test that charm_mesh_policies are properly passed to ServiceMeshConsumer."""
-    from charms.istio_beacon_k8s.v0.service_mesh import AppPolicy, Endpoint, UnitPolicy
+    from charmlibs.interfaces.service_mesh import AppPolicy, Endpoint, UnitPolicy
 
     # Create custom charm mesh policies
     charm_app_policy = AppPolicy(
