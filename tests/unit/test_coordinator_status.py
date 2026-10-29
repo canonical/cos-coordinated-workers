@@ -201,7 +201,8 @@ def test_status_check_k8s_patch_success_after_retries(
 
     # Retry on that error
     response = httpx.Response(
-        status_code=404, content='{"status": {"code": 404, "message": "Not Found"},"code":"404"}'
+        status_code=404,
+        content='{"status":"Failure","message":"Not Found","reason":"NotFound","code":404}',
     )
     # Success on 2nd try
     resource_patcher_mock.return_value.apply.side_effect = [ApiError(response=response), None]
