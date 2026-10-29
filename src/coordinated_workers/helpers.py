@@ -17,6 +17,9 @@ import ops
 NON_RECONCILABLE_EVENTS: FrozenSet[Type[ops.EventBase]] = frozenset(
     {
         ops.PebbleCheckFailedEvent,
+        # Pod rollouts emit stop while workloads are shutting down. Reconciliation can
+        # try to restart them and fail the stop hook, preventing the pod from being replaced.
+        ops.StopEvent,
     }
 )
 
