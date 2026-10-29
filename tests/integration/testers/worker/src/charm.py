@@ -27,9 +27,6 @@ class WorkerCharm(CharmBase):
             pebble_layer=self.pebble_layer,
             endpoints={"cluster": "cluster"},
             readiness_check_endpoint=None,
-            resources_requests=None,
-            # container we want to resource-patch
-            container_name=container_name,
         )
 
     def pebble_layer(self, worker: Worker) -> Layer:

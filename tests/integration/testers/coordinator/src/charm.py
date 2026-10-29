@@ -71,9 +71,6 @@ class CoordinatorTester(CharmBase):
             ),
             # Fake data cannot be an empty string as that is interpreted as no data
             workers_config=lambda _: "fake: data",
-            # set the resource request for the nginx container
-            resources_requests=None,
-            container_name="nginx",
             remote_write_endpoints=None,  # type: ignore
             worker_ports=None,
             workload_tracing_protocols=["otlp_http"],

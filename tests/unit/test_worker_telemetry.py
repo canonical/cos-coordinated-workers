@@ -632,7 +632,9 @@ def test_get_upstreams_to_addresses_scheme_less_grpc():
 
 def test_generate_tracing_urls_scheme_less_grpc_port_and_path():
     """Test that a scheme-less gRPC tracing URL yields the real port, not the http default 80."""
-    upstreams, locations = _generate_tracing_urls_nginx_config({"otlp_grpc": "otelcol-0.foo:4317"}, {})
+    upstreams, locations = _generate_tracing_urls_nginx_config(
+        {"otlp_grpc": "otelcol-0.foo:4317"}, {}
+    )
 
     upstream_name = f"{PROXY_WORKER_TELEMETRY_UPSTREAM_PREFIX}-charm-otlp_grpc"
     matching_upstreams = [u for u in upstreams if u.name == upstream_name]
@@ -700,7 +702,9 @@ def test_loki_endpoints_deterministic_order_proxy(
         ):
             with ctx(
                 ctx.on.update_status(),
-                state=_replace_logging_relation_units(coordinator_state_with_telemetry, units_order),
+                state=_replace_logging_relation_units(
+                    coordinator_state_with_telemetry, units_order
+                ),
             ) as mgr:
                 coordinator = mgr.charm.coordinator
 

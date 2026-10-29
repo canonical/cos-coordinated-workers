@@ -29,17 +29,10 @@ from coordinated_workers.interfaces.cluster import ClusterRequirer, TLSData
 
 check_libs_installed(
     "charms.loki_k8s.v1.loki_push_api",
-    "charms.observability_libs.v0.kubernetes_compute_resources_patch",
-    "charms.istio_beacon_k8s.v0.service_mesh",
 )
 
-from charms.istio_beacon_k8s.v0.service_mesh import reconcile_charm_labels  # type: ignore
+from canonical_service_mesh.utils.istio import reconcile_charm_labels
 from charms.loki_k8s.v1.loki_push_api import _PebbleLogClient  # type: ignore
-from charms.observability_libs.v0.kubernetes_compute_resources_patch import (
-    KubernetesComputeResourcesPatch,
-    adjust_resource_requirements,
-)
-from lightkube.models.core_v1 import ResourceRequirements
 
 BASE_DIR = "/worker"
 CONFIG_FILE = "/etc/worker/config.yaml"
@@ -53,28 +46,8 @@ ROOT_CA_CERT_PATH = Path(ROOT_CA_CERT)
 logger = logging.getLogger(__name__)
 
 
-def _validate_container_name(
-    container_name: Optional[str],
-    resources_requests: Optional[Callable[["Worker"], Dict[str, str]]],
-):
-    """Raise `ValueError` if `resources_requests` is not None and `container_name` is None."""
-    if resources_requests is not None and container_name is None:
-        raise ValueError(
-            "Cannot have a None value for container_name while resources_requests is provided."
-        )
-
-
 _EndpointMapping = TypedDict("_EndpointMapping", {"cluster": str}, total=True)
 """Mapping of the relation endpoint names that the charms uses, as defined in metadata.yaml."""
-
-_ResourceLimitOptionsMapping = TypedDict(
-    "_ResourceLimitOptionsMapping",
-    {
-        "cpu_limit": str,
-        "memory_limit": str,
-    },
-)
-"""Mapping of the resources limit option names that the charms use, as defined in config.yaml."""
 
 
 class WorkerError(Exception):
@@ -118,9 +91,6 @@ class Worker(ops.Object):
         endpoints: _EndpointMapping,
         # TODO: make it required in the next major version
         readiness_check_endpoint: Optional[Union[str, Callable[["Worker"], str]]] = None,
-        resources_limit_options: Optional[_ResourceLimitOptionsMapping] = None,
-        resources_requests: Optional[Callable[["Worker"], Dict[str, str]]] = None,
-        container_name: Optional[str] = None,
     ):
         """Constructor for a Worker object.
 
@@ -131,18 +101,6 @@ class Worker(ops.Object):
             endpoints: Endpoint names for coordinator relations, as defined in metadata.yaml.
             readiness_check_endpoint: URL to probe with a pebble check to determine
                 whether the worker node is ready. Passing None will effectively disable it.
-            resources_limit_options: A dictionary containing resources limit option names. The dictionary should include
-                "cpu_limit" and "memory_limit" keys with values as option names, as defined in the config.yaml.
-                If no dictionary is provided, the default option names "cpu_limit" and "memory_limit" would be used.
-            resources_requests: A function generating the resources "requests" portion to apply when patching a container using
-                KubernetesComputeResourcesPatch. The "limits" portion of the patch gets populated by setting
-                their respective config options in config.yaml.
-            container_name: The container for which to apply the resources requests & limits.
-                Required if `resources_requests` is provided.
-
-        Raises:
-        ValueError:
-            If `resources_requests` is not None and `container_name` is None, a ValueError is raised.
         """
         super().__init__(charm, key="worker")
         self._charm = charm
@@ -154,7 +112,6 @@ class Worker(ops.Object):
         self._container = self._charm.unit.get_container(name)
 
         self._endpoints = endpoints
-        _validate_container_name(container_name, resources_requests)
 
         # turn str to Callable[[Worker], str]
         self._readiness_check_endpoint: Optional[Callable[[Worker], str]]
@@ -162,11 +119,6 @@ class Worker(ops.Object):
             self._readiness_check_endpoint = lambda _: readiness_check_endpoint
         else:
             self._readiness_check_endpoint = readiness_check_endpoint
-        self._resources_requests_getter = (
-            partial(resources_requests, self) if resources_requests is not None else None
-        )
-        self._container_name = container_name
-        self._resources_limit_options = resources_limit_options or {}
 
         # Registered BEFORE ClusterRequirer so that _reconcile (which publishes unit data via
         # _update_cluster_relation) runs before ClusterRequirer._on_cluster_relation_changed.
@@ -193,16 +145,6 @@ class Worker(ops.Object):
             ],
         )
 
-        # Resources patch
-        self.resources_patch = (
-            KubernetesComputeResourcesPatch(
-                self._charm,
-                self._container_name,  # type: ignore
-                resource_reqs_func=self._adjust_resource_requirements,
-            )
-            if self._resources_requests_getter
-            else None
-        )
         # Event listeners
         self.framework.observe(self._charm.on.collect_unit_status, self._on_collect_status)
         self.framework.observe(self.cluster.on.removed, self._log_forwarder.disable_logging)
@@ -246,7 +188,7 @@ class Worker(ops.Object):
         check_info = checks.get(self.readiness_check_name)
         if check_info is None:
             # The layer holding the check hasn't been applied yet,
-            # e.g. because reconcile was skipped while the resources patch is not ready.
+            # e.g. because reconcile was skipped.
             logger.debug("Readiness check not registered yet.")
             return False
         return check_info.status == CheckStatus.DOWN
@@ -255,8 +197,6 @@ class Worker(ops.Object):
         # these are the basic failure modes. if any of these conditions are not met, the worker
         # is still starting or not yet configured. The user needs to wait or take some action.
         statuses: List[StatusBase] = []
-        if self.resources_patch and self.resources_patch.get_status().name != "active":
-            statuses.append(self.resources_patch.get_status())
         if not self._container.can_connect():
             statuses.append(WaitingStatus(f"Waiting for `{self._name}` container"))
         if not self.model.get_relation(self._endpoints["cluster"]):
@@ -390,14 +330,6 @@ class Worker(ops.Object):
 
     def _reconcile(self):
         """Run all logic that is independent of what event we're processing."""
-        # There could be a race between the resource patch and pebble operations
-        # i.e., charm code proceeds beyond a can_connect guard, and then lightkube patches the statefulset
-        # and the workload is no longer available
-        # `resources_patch` might be `None` when no resources requests or limits are requested by the charm.
-        if self.resources_patch and not self.resources_patch.is_ready():
-            logger.debug("Resource patch not ready yet. Skipping reconciliation step.")
-            return
-
         self._reconcile_charm_labels()
 
         self._update_cluster_relation()
@@ -719,21 +651,6 @@ class Worker(ops.Object):
             return endpoint, ROOT_CA_CERT
         else:
             return endpoint, None
-
-    def _adjust_resource_requirements(self) -> ResourceRequirements:
-        """A method that gets called by `KubernetesComputeResourcesPatch` to adjust the resources requests and limits to patch."""
-        cpu_limit_key = self._resources_limit_options.get("cpu_limit", "cpu_limit")
-        memory_limit_key = self._resources_limit_options.get("memory_limit", "memory_limit")
-
-        limits = {
-            "cpu": self._charm.model.config.get(cpu_limit_key),
-            "memory": self._charm.model.config.get(memory_limit_key),
-        }
-        return adjust_resource_requirements(
-            limits,
-            self._resources_requests_getter(),  # type: ignore
-            adhere_to_requests=True,
-        )
 
     def _setup_charm_tracing(self):
         """Configure charm tracing using ops_tracing."""
