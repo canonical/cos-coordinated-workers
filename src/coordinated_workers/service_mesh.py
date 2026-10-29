@@ -7,14 +7,15 @@ import logging
 from typing import TYPE_CHECKING, Dict, List, Optional, Set, Union, cast
 
 import ops
-from charms.istio_beacon_k8s.v0.service_mesh import (  # type: ignore
+from canonical_service_mesh.k8s.resource_manager import (
+    PolicyResourceManager,
+)
+from charmlibs.interfaces.service_mesh import (
     AppPolicy,
     Endpoint,
     MeshPolicy,
     Method,
-    PolicyResourceManager,
     PolicyTargetType,
-    ServiceMeshConsumer,
     UnitPolicy,
 )
 from lightkube import Client

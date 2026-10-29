@@ -23,6 +23,8 @@ dependencies = [
     "charmed-service-mesh-helpers>=0.2.0",
     "lightkube-extensions",
     "cosl>=1.3.1",
+    "charmlibs-interfaces-service-mesh>=1.0.2",
+    "canonical-service-mesh>=0.3.1",
 ]
 classifiers = [
     "Programming Language :: Python :: 3.10",

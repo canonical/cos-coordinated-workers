@@ -1202,11 +1202,22 @@ def test_worker_no_reconcile_on_pebble_check_events(event_name):
             },
             config={"options": {"role-all": {"type": "boolean", "default": True}}},
         )
-        check_info = testing.CheckInfo("ready", level=ops.pebble.CheckLevel.UNSET, status=ops.pebble.CheckStatus.DOWN)
+        check_info = testing.CheckInfo(
+            "ready", level=ops.pebble.CheckLevel.UNSET, status=ops.pebble.CheckStatus.DOWN
+        )
         # Scenario requires the check to exist in both check_infos and the pebble plan,
         # with matching level, startup and threshold fields.
         check_layer = ops.pebble.Layer(
-            {"checks": {"ready": {"override": "replace", "startup": "enabled", "threshold": 3, "http": {"url": "http://localhost/ready"}}}}
+            {
+                "checks": {
+                    "ready": {
+                        "override": "replace",
+                        "startup": "enabled",
+                        "threshold": 3,
+                        "http": {"url": "http://localhost/ready"},
+                    }
+                }
+            }
         )
         container_with_check = dataclasses.replace(
             testing.Container("foo", can_connect=True),

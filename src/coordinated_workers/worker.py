@@ -30,10 +30,9 @@ from coordinated_workers.interfaces.cluster import ClusterRequirer, TLSData
 check_libs_installed(
     "charms.loki_k8s.v1.loki_push_api",
     "charms.observability_libs.v0.kubernetes_compute_resources_patch",
-    "charms.istio_beacon_k8s.v0.service_mesh",
 )
 
-from charms.istio_beacon_k8s.v0.service_mesh import reconcile_charm_labels  # type: ignore
+from canonical_service_mesh import reconcile_charm_labels  # type: ignore
 from charms.loki_k8s.v1.loki_push_api import _PebbleLogClient  # type: ignore
 from charms.observability_libs.v0.kubernetes_compute_resources_patch import (
     KubernetesComputeResourcesPatch,
