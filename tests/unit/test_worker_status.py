@@ -27,19 +27,6 @@ def _urlopen_patch(url: str, resp: str, tls: bool):
         raise RuntimeError("unknown path")
 
 
-@contextmanager
-def k8s_patch(status=ops.ActiveStatus(), is_ready=True):
-    with patch("lightkube.core.client.GenericSyncClient"):
-        with patch.multiple(
-            "coordinated_workers.worker.KubernetesComputeResourcesPatch",
-            _namespace="test-namespace",
-            _patch=MagicMock(return_value=None),
-            get_status=MagicMock(return_value=status),
-            is_ready=MagicMock(return_value=is_ready),
-        ) as patcher:
-            yield patcher
-
-
 @pytest.fixture(autouse=True)
 def patch_status_wait():
     with ExitStack() as stack:
@@ -74,8 +61,6 @@ def ctx(tls):
                 ),
                 {"cluster": "cluster"},
                 readiness_check_endpoint=self._readiness_check_endpoint,
-                resources_requests=lambda _: {"cpu": "50m", "memory": "100Mi"},
-                container_name="workload",
             )
 
         def _readiness_check_endpoint(self, _):
@@ -136,7 +121,6 @@ def config_on_disk():
         yield
 
 
-@k8s_patch()
 def test_status_check_no_pebble(ctx, base_state, caplog):
     # GIVEN the container cannot connect
     state = dataclasses.replace(
@@ -150,7 +134,6 @@ def test_status_check_no_pebble(ctx, base_state, caplog):
     assert state_out.unit_status == ops.WaitingStatus("Waiting for `workload` container")
 
 
-@k8s_patch()
 def test_status_check_no_config(ctx, base_state, caplog):
     # GIVEN there is no config file on disk
     # WHEN we run any event
@@ -163,7 +146,6 @@ def test_status_check_no_config(ctx, base_state, caplog):
     )
 
 
-@k8s_patch()
 def test_status_check_ready(ctx, base_state, tls):
     # GIVEN getting the status returns "ready"
     with endpoint_ready(tls):
@@ -210,14 +192,3 @@ def test_status_no_endpoint(ctx, base_state, caplog):
     state_out = ctx.run(ctx.on.update_status(), state)
     # THEN the charm sets Active: ready, even though we have no idea whether the endpoint is ready.
     assert state_out.unit_status == ops.ActiveStatus("read,write ready.")
-
-
-def test_status_check_ready_with_patch(ctx, base_state, tls):
-    with endpoint_ready(tls):
-        with config_on_disk():
-            with k8s_patch(status=ops.WaitingStatus("waiting")):
-                state_out = ctx.run(ctx.on.config_changed(), base_state)
-                assert state_out.unit_status == ops.WaitingStatus("waiting")
-                with k8s_patch(status=ops.ActiveStatus("")):
-                    state_out_out = ctx.run(ctx.on.update_status(), state_out)
-                    assert state_out_out.unit_status == ops.ActiveStatus("read,write ready.")
