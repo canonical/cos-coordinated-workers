@@ -33,7 +33,6 @@ check_libs_installed(
 
 from canonical_service_mesh.utils.istio import reconcile_charm_labels
 from charms.loki_k8s.v1.loki_push_api import _PebbleLogClient  # type: ignore
-from lightkube.models.core_v1 import ResourceRequirements
 
 BASE_DIR = "/worker"
 CONFIG_FILE = "/etc/worker/config.yaml"
@@ -47,28 +46,8 @@ ROOT_CA_CERT_PATH = Path(ROOT_CA_CERT)
 logger = logging.getLogger(__name__)
 
 
-def _validate_container_name(
-    container_name: Optional[str],
-    resources_requests: Optional[Callable[["Worker"], Dict[str, str]]],
-):
-    """Raise `ValueError` if `resources_requests` is not None and `container_name` is None."""
-    if resources_requests is not None and container_name is None:
-        raise ValueError(
-            "Cannot have a None value for container_name while resources_requests is provided."
-        )
-
-
 _EndpointMapping = TypedDict("_EndpointMapping", {"cluster": str}, total=True)
 """Mapping of the relation endpoint names that the charms uses, as defined in metadata.yaml."""
-
-_ResourceLimitOptionsMapping = TypedDict(
-    "_ResourceLimitOptionsMapping",
-    {
-        "cpu_limit": str,
-        "memory_limit": str,
-    },
-)
-"""Mapping of the resources limit option names that the charms use, as defined in config.yaml."""
 
 
 class WorkerError(Exception):
@@ -112,9 +91,6 @@ class Worker(ops.Object):
         endpoints: _EndpointMapping,
         # TODO: make it required in the next major version
         readiness_check_endpoint: Optional[Union[str, Callable[["Worker"], str]]] = None,
-        resources_limit_options: Optional[_ResourceLimitOptionsMapping] = None,
-        resources_requests: Optional[Callable[["Worker"], Dict[str, str]]] = None,
-        container_name: Optional[str] = None,
     ):
         """Constructor for a Worker object.
 
@@ -125,15 +101,6 @@ class Worker(ops.Object):
             endpoints: Endpoint names for coordinator relations, as defined in metadata.yaml.
             readiness_check_endpoint: URL to probe with a pebble check to determine
                 whether the worker node is ready. Passing None will effectively disable it.
-            resources_limit_options: A dictionary containing resources limit option names. The dictionary should include
-                "cpu_limit" and "memory_limit" keys with values as option names, as defined in the config.yaml.
-                If no dictionary is provided, the default option names "cpu_limit" and "memory_limit" would be used.
-            container_name: The container for which to apply the resources requests & limits.
-                Required if `resources_requests` is provided.
-
-        Raises:
-        ValueError:
-            If `resources_requests` is not None and `container_name` is None, a ValueError is raised.
         """
         super().__init__(charm, key="worker")
         self._charm = charm
@@ -145,7 +112,6 @@ class Worker(ops.Object):
         self._container = self._charm.unit.get_container(name)
 
         self._endpoints = endpoints
-        _validate_container_name(container_name, resources_requests)
 
         # turn str to Callable[[Worker], str]
         self._readiness_check_endpoint: Optional[Callable[[Worker], str]]
@@ -153,11 +119,6 @@ class Worker(ops.Object):
             self._readiness_check_endpoint = lambda _: readiness_check_endpoint
         else:
             self._readiness_check_endpoint = readiness_check_endpoint
-        self._resources_requests_getter = (
-            partial(resources_requests, self) if resources_requests is not None else None
-        )
-        self._container_name = container_name
-        self._resources_limit_options = resources_limit_options or {}
 
         # Registered BEFORE ClusterRequirer so that _reconcile (which publishes unit data via
         # _update_cluster_relation) runs before ClusterRequirer._on_cluster_relation_changed.
@@ -231,8 +192,6 @@ class Worker(ops.Object):
         # these are the basic failure modes. if any of these conditions are not met, the worker
         # is still starting or not yet configured. The user needs to wait or take some action.
         statuses: List[StatusBase] = []
-        if self.resources_patch and self.resources_patch.get_status().name != "active":
-            statuses.append(self.resources_patch.get_status())
         if not self._container.can_connect():
             statuses.append(WaitingStatus(f"Waiting for `{self._name}` container"))
         if not self.model.get_relation(self._endpoints["cluster"]):
@@ -366,14 +325,6 @@ class Worker(ops.Object):
 
     def _reconcile(self):
         """Run all logic that is independent of what event we're processing."""
-        # There could be a race between the resource patch and pebble operations
-        # i.e., charm code proceeds beyond a can_connect guard, and then lightkube patches the statefulset
-        # and the workload is no longer available
-        # `resources_patch` might be `None` when no resources requests or limits are requested by the charm.
-        if self.resources_patch and not self.resources_patch.is_ready():
-            logger.debug("Resource patch not ready yet. Skipping reconciliation step.")
-            return
-
         self._reconcile_charm_labels()
 
         self._update_cluster_relation()

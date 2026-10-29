@@ -74,7 +74,6 @@ from charms.loki_k8s.v1.loki_push_api import LogForwarder, LokiPushApiConsumer
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from charms.tempo_coordinator_k8s.v0.tracing import ReceiverProtocol, TracingEndpointRequirer
 from cosl.reconciler import all_events, observe_events
-from lightkube.models.core_v1 import ResourceRequirements
 
 from coordinated_workers.helpers import NON_RECONCILABLE_EVENTS
 from coordinated_workers.models import TLSConfig
@@ -162,17 +161,6 @@ class ClusterRolesConfig:
         return set(self.minimal_deployment).issubset(set(cluster_roles))
 
 
-def _validate_container_name(
-    container_name: Optional[str],
-    resources_requests: Optional[Callable[["Coordinator"], Dict[str, str]]],
-):
-    """Raise `ValueError` if `resources_requests` is not None and `container_name` is None."""
-    if resources_requests is not None and container_name is None:
-        raise ValueError(
-            "Cannot have a None value for container_name while resources_requests is provided."
-        )
-
-
 _EndpointMapping = TypedDict(
     "_EndpointMapping",
     {
@@ -195,15 +183,6 @@ _EndpointMapping = TypedDict(
     total=True,
 )
 """Mapping of the relation endpoint names that the charms uses, as defined in metadata.yaml."""
-
-_ResourceLimitOptionsMapping = TypedDict(
-    "_ResourceLimitOptionsMapping",
-    {
-        "cpu_limit": str,
-        "memory_limit": str,
-    },
-)
-"""Mapping of the resources limit option names that the charms use, as defined in config.yaml."""
 
 
 class Coordinator(ops.Object):
@@ -232,9 +211,6 @@ class Coordinator(ops.Object):
         workers_config: Callable[["Coordinator"], str],
         worker_ports: Optional[Callable[[str], Sequence[int]]] = None,
         is_coherent: Optional[Callable[[ClusterProvider, ClusterRolesConfig], bool]] = None,
-        resources_limit_options: Optional[_ResourceLimitOptionsMapping] = None,
-        resources_requests: Optional[Callable[["Coordinator"], Dict[str, str]]] = None,
-        container_name: Optional[str] = None,
         remote_write_endpoints: Optional[Callable[[], List[RemoteWriteEndpoint]]] = None,
         workload_tracing_protocols: Optional[List[ReceiverProtocol]] = None,
         catalogue_item: Optional[CatalogueItem] = None,
@@ -257,11 +233,6 @@ class Coordinator(ops.Object):
             worker_ports: A function returning the ports that a worker with a given role should open.
             endpoints: Endpoint names for coordinator relations, as defined in metadata.yaml.
             is_coherent: Custom coherency checker for a minimal deployment.
-            resources_limit_options: A dictionary containing resources limit option names. The dictionary should include
-                "cpu_limit" and "memory_limit" keys with values as option names, as defined in the config.yaml.
-                If no dictionary is provided, the default option names "cpu_limit" and "memory_limit" would be used.
-            container_name: The container for which to apply the resources requests & limits.
-                Required if `resources_requests` is provided.
             remote_write_endpoints: A function generating endpoints to which the workload
                 and the worker charm can push metrics to.
             workload_tracing_protocols: A list of protocols that the worker intends to send
@@ -273,13 +244,8 @@ class Coordinator(ops.Object):
                 These policies will only govern the traffic incoming to the coordinator.
                 These policies will be added to the Coordinator defined policies that are common for all coordinated-workers charms.
             peer_relation: The name of a peer relation that the coordinator will use to exchange addresses with its peer units.
-
-        Raises:
-        ValueError:
-            If `resources_requests` is not None and `container_name` is None, a ValueError is raised.
         """
         super().__init__(charm, key="coordinator")
-        _validate_container_name(container_name, resources_requests)
 
         # static attributes
         self._charm = charm
@@ -290,8 +256,6 @@ class Coordinator(ops.Object):
         self._charm_nginx_config = nginx_config
         self._roles_config = roles_config
         self._workload_tracing_protocols = workload_tracing_protocols
-        self._container_name = container_name
-        self._resources_limit_options = resources_limit_options or {}
         self._catalogue_item = catalogue_item
         self._peer_relation = peer_relation
         self._catalogue = (
@@ -302,9 +266,6 @@ class Coordinator(ops.Object):
 
         # dynamic attributes (callbacks)
         self._override_coherency_checker = is_coherent
-        self._resources_requests_getter = (
-            partial(resources_requests, self) if resources_requests is not None else None
-        )
         self._remote_write_endpoints_getter = remote_write_endpoints
         self._workers_config_getter = partial(workers_config, self)
 
@@ -433,18 +394,6 @@ class Coordinator(ops.Object):
 
     def _reconcile(self):
         """Run all logic that is independent of what event we're processing."""
-        # There could be a race between the resource patch and pebble operations
-        # i.e., charm code proceeds beyond a can_connect guard, and then lightkube patches the statefulset
-        # and the workload is no longer available.
-        # `resources_patch` might be `None` when no resources requests or limits are requested by the charm.
-        if self.resources_patch:
-            status = self.resources_patch.get_status()
-            if not isinstance(status, ops.ActiveStatus):
-                logger.debug(
-                    f"Resource patch not ready yet: {status.message}. Skipping cluster update step."
-                )
-                return
-
         # reconcile the custom labels added to the application pods.
         self._reconcile_charm_labels()
 
@@ -898,9 +847,6 @@ class Coordinator(ops.Object):
     def _on_collect_unit_status(self, e: ops.CollectStatusEvent):
         # todo add [nginx.workload] statuses
         statuses: List[StatusBase] = []
-
-        if self.resources_patch and self.resources_patch.get_status().name != "active":
-            statuses.append(self.resources_patch.get_status())
 
         if not self.cluster.has_workers:
             statuses.append(ops.BlockedStatus("[consistency] Missing any worker relation."))

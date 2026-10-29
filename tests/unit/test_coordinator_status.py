@@ -1,12 +1,8 @@
 import dataclasses
-from unittest.mock import MagicMock, PropertyMock, patch
 
-import httpx
 import ops
 import pytest
-import tenacity
 from charmlibs.nginx_k8s import NginxConfig
-from lightkube import ApiError
 from ops import testing
 from ops.testing import Exec
 
@@ -46,8 +42,6 @@ class MyCoordCharm(ops.CharmBase):
             },
             nginx_config=NginxConfig("localhost", [], {}),
             workers_config=lambda _: "worker config",
-            resources_requests=lambda _: {"cpu": "50m", "memory": "100Mi"},
-            container_name="nginx",
             peer_relation="my-peers",
         )
 

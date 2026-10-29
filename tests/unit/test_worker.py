@@ -647,41 +647,6 @@ def test_worker_does_not_restart_on_no_cert_changed(restart_mock, tmp_path):
     assert restart_mock.call_count == 0
 
 
-@patch.object(Worker, "_update_config")
-def test_worker_no_reconcile_when_patch_not_ready(_update_config_mock):
-    class MyCharmWithResources(ops.CharmBase):
-        layer = ops.pebble.Layer("")
-
-        def __init__(self, framework: ops.Framework):
-            super().__init__(framework)
-            self.worker = Worker(
-                self,
-                "foo",
-                lambda _: self.layer,
-                {"cluster": "cluster"},
-                readiness_check_endpoint="http://localhost:3200/ready",
-                resources_requests=lambda _: {"cpu": "50m", "memory": "50Mi"},
-                container_name="nginx",
-            )
-
-    ctx = testing.Context(
-        MyCharmWithResources,
-        meta={
-            "name": "foo",
-            "requires": {"cluster": {"interface": "cluster"}},
-            "containers": {"foo": {"type": "oci-image"}},
-        },
-        config={"options": {"role-all": {"type": "boolean", "default": True}}},
-    )
-
-    ctx.run(
-        ctx.on.update_status(),
-        testing.State(leader=True, containers={testing.Container("foo")}),
-    )
-
-    assert not _update_config_mock.called
-
-
 @patch.object(Worker, "_update_worker_config", MagicMock(return_value=False))
 @patch.object(Worker, "_set_pebble_layer", MagicMock(return_value=False))
 @patch.object(Worker, "restart")
