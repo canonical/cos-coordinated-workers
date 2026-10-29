@@ -44,14 +44,14 @@ dev = [
     "coverage[toml]",
     "ops[testing]",
     # LINTING
-    "pyright",
+    "pyright[nodejs]",
     "ruff",
     # INTEGRATION TESTS
     "jubilant",
     "pytest-jubilant>=2,<3",
     "sh",
     "tenacity",
-    "juju-doctor"
+    "juju-doctor",
 ]
 [project.urls]
 "Homepage" = "https://github.com/canonical/cos-coordinated-workers"
