@@ -59,7 +59,6 @@ check_libs_installed(
     "charms.prometheus_k8s.v0.prometheus_scrape",
     "charms.loki_k8s.v1.loki_push_api",
     "charms.tempo_coordinator_k8s.v0.tracing",
-    "charms.observability_libs.v0.kubernetes_compute_resources_patch",
     "charms.catalogue_k8s.v1.catalogue",
 )
 
@@ -72,10 +71,6 @@ from charms.catalogue_k8s.v1.catalogue import CatalogueConsumer, CatalogueItem
 from charms.data_platform_libs.v0.s3 import S3Requirer
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.loki_k8s.v1.loki_push_api import LogForwarder, LokiPushApiConsumer
-from charms.observability_libs.v0.kubernetes_compute_resources_patch import (
-    KubernetesComputeResourcesPatch,
-    adjust_resource_requirements,
-)
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from charms.tempo_coordinator_k8s.v0.tracing import ReceiverProtocol, TracingEndpointRequirer
 from cosl.reconciler import all_events, observe_events
@@ -265,9 +260,6 @@ class Coordinator(ops.Object):
             resources_limit_options: A dictionary containing resources limit option names. The dictionary should include
                 "cpu_limit" and "memory_limit" keys with values as option names, as defined in the config.yaml.
                 If no dictionary is provided, the default option names "cpu_limit" and "memory_limit" would be used.
-            resources_requests: A function generating the resources "requests" portion to apply when patching a container using
-                KubernetesComputeResourcesPatch. The "limits" portion of the patch gets populated by setting
-                their respective config options in config.yaml.
             container_name: The container for which to apply the resources requests & limits.
                 Required if `resources_requests` is provided.
             remote_write_endpoints: A function generating endpoints to which the workload
@@ -392,17 +384,6 @@ class Coordinator(ops.Object):
             self._charm,
             relation_name=self._endpoints["workload-tracing"],
             protocols=workload_tracing_protocols,
-        )
-
-        # Resources patch
-        self.resources_patch = (
-            KubernetesComputeResourcesPatch(
-                self._charm,
-                self._container_name,  # type: ignore
-                resource_reqs_func=self._adjust_resource_requirements,
-            )
-            if self._resources_requests_getter
-            else None
         )
 
         # service mesh
@@ -1077,21 +1058,6 @@ class Coordinator(ops.Object):
                 self._remove_consolidated_alert_rules(path)
             self._consolidate_workers_alert_rules()
             self._consolidate_nginx_alert_rules()
-
-    def _adjust_resource_requirements(self) -> ResourceRequirements:
-        """A method that gets called by `KubernetesComputeResourcesPatch` to adjust the resources requests and limits to patch."""
-        cpu_limit_key = self._resources_limit_options.get("cpu_limit", "cpu_limit")
-        memory_limit_key = self._resources_limit_options.get("memory_limit", "memory_limit")
-
-        limits = {
-            "cpu": self._charm.model.config.get(cpu_limit_key),
-            "memory": self._charm.model.config.get(memory_limit_key),
-        }
-        return adjust_resource_requirements(
-            limits,
-            self._resources_requests_getter() if self._resources_requests_getter else None,
-            adhere_to_requests=True,  # type: ignore
-        )
 
     def _setup_charm_tracing(self):
         """Configure ops.tracing to send traces to a tracing backend."""

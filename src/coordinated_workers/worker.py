@@ -29,15 +29,10 @@ from coordinated_workers.interfaces.cluster import ClusterRequirer, TLSData
 
 check_libs_installed(
     "charms.loki_k8s.v1.loki_push_api",
-    "charms.observability_libs.v0.kubernetes_compute_resources_patch",
 )
 
 from canonical_service_mesh.utils.istio import reconcile_charm_labels
 from charms.loki_k8s.v1.loki_push_api import _PebbleLogClient  # type: ignore
-from charms.observability_libs.v0.kubernetes_compute_resources_patch import (
-    KubernetesComputeResourcesPatch,
-    adjust_resource_requirements,
-)
 from lightkube.models.core_v1 import ResourceRequirements
 
 BASE_DIR = "/worker"
@@ -133,9 +128,6 @@ class Worker(ops.Object):
             resources_limit_options: A dictionary containing resources limit option names. The dictionary should include
                 "cpu_limit" and "memory_limit" keys with values as option names, as defined in the config.yaml.
                 If no dictionary is provided, the default option names "cpu_limit" and "memory_limit" would be used.
-            resources_requests: A function generating the resources "requests" portion to apply when patching a container using
-                KubernetesComputeResourcesPatch. The "limits" portion of the patch gets populated by setting
-                their respective config options in config.yaml.
             container_name: The container for which to apply the resources requests & limits.
                 Required if `resources_requests` is provided.
 
@@ -192,16 +184,6 @@ class Worker(ops.Object):
             ],
         )
 
-        # Resources patch
-        self.resources_patch = (
-            KubernetesComputeResourcesPatch(
-                self._charm,
-                self._container_name,  # type: ignore
-                resource_reqs_func=self._adjust_resource_requirements,
-            )
-            if self._resources_requests_getter
-            else None
-        )
         # Event listeners
         self.framework.observe(self._charm.on.collect_unit_status, self._on_collect_status)
         self.framework.observe(self.cluster.on.removed, self._log_forwarder.disable_logging)
@@ -713,21 +695,6 @@ class Worker(ops.Object):
             return endpoint, ROOT_CA_CERT
         else:
             return endpoint, None
-
-    def _adjust_resource_requirements(self) -> ResourceRequirements:
-        """A method that gets called by `KubernetesComputeResourcesPatch` to adjust the resources requests and limits to patch."""
-        cpu_limit_key = self._resources_limit_options.get("cpu_limit", "cpu_limit")
-        memory_limit_key = self._resources_limit_options.get("memory_limit", "memory_limit")
-
-        limits = {
-            "cpu": self._charm.model.config.get(cpu_limit_key),
-            "memory": self._charm.model.config.get(memory_limit_key),
-        }
-        return adjust_resource_requirements(
-            limits,
-            self._resources_requests_getter(),  # type: ignore
-            adhere_to_requests=True,
-        )
 
     def _setup_charm_tracing(self):
         """Configure charm tracing using ops_tracing."""

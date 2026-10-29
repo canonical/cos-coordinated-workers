@@ -12,7 +12,6 @@ from ops.testing import Exec
 
 from coordinated_workers.coordinator import ClusterRolesConfig, Coordinator
 from coordinated_workers.interfaces.cluster import ClusterProviderAppData, ClusterRequirerAppData
-from tests.unit.test_worker_status import k8s_patch
 
 my_roles = ClusterRolesConfig(
     roles={"role"},
@@ -55,8 +54,7 @@ class MyCoordCharm(ops.CharmBase):
 
 @pytest.fixture
 def coord_charm():
-    with k8s_patch():
-        yield MyCoordCharm
+    yield MyCoordCharm
 
 
 @pytest.fixture
@@ -142,10 +140,6 @@ def set_containers(state, nginx_can_connect=False, exporter_can_connect=False):
     return dataclasses.replace(state, containers=containers)
 
 
-@patch(
-    "charms.observability_libs.v0.kubernetes_compute_resources_patch.ResourcePatcher.apply",
-    MagicMock(return_value=None),
-)
 def test_status_check_no_workers(ctx, base_state, s3, caplog):
     # GIVEN the container cannot connect
     state = set_containers(base_state, True, False)
@@ -158,10 +152,6 @@ def test_status_check_no_workers(ctx, base_state, s3, caplog):
     assert state_out.unit_status == ops.BlockedStatus("[consistency] Missing any worker relation.")
 
 
-@patch(
-    "charms.observability_libs.v0.kubernetes_compute_resources_patch.ResourcePatcher.apply",
-    MagicMock(return_value=None),
-)
 def test_status_check_no_s3(ctx, base_state, worker, caplog):
     # GIVEN the container cannot connect
     state = set_containers(base_state, True, False)
@@ -172,52 +162,3 @@ def test_status_check_no_s3(ctx, base_state, worker, caplog):
 
     # THEN the charm sets blocked
     assert state_out.unit_status == ops.BlockedStatus("[s3] Missing S3 integration.")
-
-
-@patch(
-    "charms.observability_libs.v0.kubernetes_compute_resources_patch.KubernetesComputeResourcesPatch.get_status",
-    MagicMock(return_value=(ops.BlockedStatus(""))),
-)
-def test_status_check_k8s_patch_failed(ctx, base_state, caplog):
-    # GIVEN the container can connect
-    state = set_containers(base_state, True, True)
-
-    # WHEN we run any event
-    state_out = ctx.run(ctx.on.update_status(), state)
-
-    assert state_out.unit_status == ops.BlockedStatus("")
-
-
-@patch("charms.observability_libs.v0.kubernetes_compute_resources_patch.ResourcePatcher")
-@patch(
-    "coordinated_workers.coordinator.KubernetesComputeResourcesPatch.PATCH_RETRY_STOP",
-    PropertyMock(return_value=tenacity.wait_fixed(1)),
-)
-def test_status_check_k8s_patch_success_after_retries(
-    resource_patcher_mock, ctx, base_state, caplog
-):
-    # GIVEN the container can connect
-    state = set_containers(base_state, True, True)
-
-    # Retry on that error
-    response = httpx.Response(
-        status_code=404,
-        content='{"status":"Failure","message":"Not Found","reason":"NotFound","code":404}',
-    )
-    # Success on 2nd try
-    resource_patcher_mock.return_value.apply.side_effect = [ApiError(response=response), None]
-
-    # on collect-unit-status, the request patches are not yet reflected
-    with patch(
-        "coordinated_workers.coordinator.KubernetesComputeResourcesPatch.get_status",
-        MagicMock(return_value=ops.WaitingStatus("waiting")),
-    ):
-        state_intermediate = ctx.run(ctx.on.config_changed(), state)
-    assert state_intermediate.unit_status == ops.WaitingStatus("waiting")
-
-    with patch(
-        "coordinated_workers.coordinator.KubernetesComputeResourcesPatch.get_status",
-        MagicMock(return_value=ops.ActiveStatus("")),
-    ):
-        state_out = ctx.run(ctx.on.update_status(), state_intermediate)
-    assert state_out.unit_status == ops.ActiveStatus("")

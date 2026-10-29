@@ -20,7 +20,6 @@ from coordinated_workers.worker import (
     Worker,
     WorkerError,
 )
-from tests.unit.test_worker_status import k8s_patch
 
 
 class MyCharm(ops.CharmBase):
@@ -648,7 +647,6 @@ def test_worker_does_not_restart_on_no_cert_changed(restart_mock, tmp_path):
     assert restart_mock.call_count == 0
 
 
-@k8s_patch(is_ready=False)
 @patch.object(Worker, "_update_config")
 def test_worker_no_reconcile_when_patch_not_ready(_update_config_mock):
     class MyCharmWithResources(ops.CharmBase):
