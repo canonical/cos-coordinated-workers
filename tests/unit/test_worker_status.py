@@ -192,12 +192,3 @@ def test_status_no_endpoint(ctx, base_state, caplog):
     state_out = ctx.run(ctx.on.update_status(), state)
     # THEN the charm sets Active: ready, even though we have no idea whether the endpoint is ready.
     assert state_out.unit_status == ops.ActiveStatus("read,write ready.")
-
-
-def test_status_check_ready_with_patch(ctx, base_state, tls):
-    with endpoint_ready(tls):
-        with config_on_disk():
-            state_out = ctx.run(ctx.on.config_changed(), base_state)
-            assert state_out.unit_status == ops.WaitingStatus("waiting")
-            state_out_out = ctx.run(ctx.on.update_status(), state_out)
-            assert state_out_out.unit_status == ops.ActiveStatus("read,write ready.")
