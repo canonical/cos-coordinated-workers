@@ -129,10 +129,11 @@ def assert_request_returns_http_code(
 
 def pack(root: Union[Path, str] = "./", platform: str | None = None) -> Path:
     """Pack a local charm and return it."""
-    cmd = ["charmcraft", "pack", "--project-dir", root]
+    root = Path(root).resolve()
+    cmd = ["charmcraft", "pack"]
     if platform:
         cmd.extend(["--platform", platform])
-    proc = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    proc = subprocess.run(cmd, cwd=root, check=True, capture_output=True, text=True)
     # stderr looks like:
     # > charmcraft pack
     # Packed tempo-coordinator-k8s_ubuntu@24.04-amd64.charm
@@ -150,7 +151,7 @@ def pack(root: Union[Path, str] = "./", platform: str | None = None) -> Path:
             "This charm supports multiple platforms. "
             "Pass a `platform` argument to control which charm you're getting instead."
         )
-    return Path(packed_charms[0]).resolve()
+    return (root / packed_charms[0]).resolve()
 
 
 def get_resources(path: Union[Path, str] = Path("charmcraft.yaml")) -> dict[str, str]:
