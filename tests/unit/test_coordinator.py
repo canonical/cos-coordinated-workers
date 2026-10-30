@@ -1314,25 +1314,28 @@ def test_coordinator_charm_mesh_policies_passed_to_service_mesh_consumer(
         assert charm_unit_policy in policies_arg
 
 
-@pytest.mark.parametrize("event_name", ["pebble_check_failed"])
-def test_coordinator_no_reconcile_on_pebble_check_events(
+@pytest.mark.parametrize(
+    ("event_name", "expected_calls"),
+    [("pebble_check_failed", 0), ("stop", 0), ("update_status", 1)],
+)
+def test_coordinator_reconcile_event_filter(
     event_name,
+    expected_calls,
     coordinator_charm,
     coordinator_state,
     nginx_container,
     exporter_container,
 ):
-    # Test that pebble-check-failed does not trigger reconciliation.
-    # Reconciling on this event offers no benefit and can cause unnecessary churn.
+    # Test that check failures and shutdown do not trigger reconciliation.
+    # Normal lifecycle events must still reconcile.
     # See https://github.com/canonical/cos-coordinated-workers/issues/159
 
-    # patch.object with a MagicMock doesn't work here because ops.Framework.observe requires a
-    # types.MethodType. A regular function satisfies the descriptor protocol, so instance._reconcile
-    # becomes a bound method and can be registered with framework.observe.
+    # Match the no-argument reconcile signature so observe_events wraps the handler.
+    # Otherwise ops looks up the spy by its own name rather than "_reconcile".
     reconcile_calls = []
 
-    def tracking_reconcile(self, event=None):
-        reconcile_calls.append(event)
+    def tracking_reconcile(self):
+        reconcile_calls.append(self)
 
     with patch.object(Coordinator, "_reconcile", tracking_reconcile):
         ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
@@ -1364,7 +1367,11 @@ def test_coordinator_no_reconcile_on_pebble_check_events(
                 nginx_with_check if c.name == "nginx" else c for c in coordinator_state.containers
             },
         )
-        event = getattr(ctx.on, event_name)(nginx_with_check, check_info)
+        event = (
+            ctx.on.pebble_check_failed(nginx_with_check, check_info)
+            if event_name == "pebble_check_failed"
+            else getattr(ctx.on, event_name)()
+        )
         ctx.run(event, state)
 
-    assert not reconcile_calls
+    assert len(reconcile_calls) == expected_calls
