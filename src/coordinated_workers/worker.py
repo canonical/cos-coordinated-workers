@@ -177,16 +177,21 @@ class Worker(ops.Object):
             logger.exception("exception while attempting to get pebble layer from charm")
             return None
 
-    def _is_readiness_check_failing(self):
-        if self.is_ready():
-            try:
-                check_info = self._container.get_check(self.readiness_check_name)
-            except (ops.pebble.APIError, ops.pebble.ConnectionError, ops.model.ModelError):
-                logger.debug("Could not get readiness check status; check may not exist yet.")
-                return False
-            if check_info.status == CheckStatus.DOWN:
-                return True
-        return False
+    def _is_readiness_check_failing(self) -> bool:
+        if not self.is_ready():
+            return False
+        try:
+            checks = self._container.get_checks(self.readiness_check_name)
+        except (ops.pebble.APIError, ops.pebble.ConnectionError, ops.model.ModelError):
+            logger.debug("Could not get readiness check status.")
+            return False
+        check_info = checks.get(self.readiness_check_name)
+        if check_info is None:
+            # The layer holding the check hasn't been applied yet,
+            # e.g. because reconcile was skipped.
+            logger.debug("Readiness check not registered yet.")
+            return False
+        return check_info.status == CheckStatus.DOWN
 
     def _on_collect_status(self, e: ops.CollectStatusEvent):
         # these are the basic failure modes. if any of these conditions are not met, the worker
