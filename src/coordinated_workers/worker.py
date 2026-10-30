@@ -182,7 +182,7 @@ class Worker(ops.Object):
             return False
         try:
             checks = self._container.get_checks(self.readiness_check_name)
-        except (ops.pebble.APIError, ops.pebble.ConnectionError, ops.model.ModelError):
+        except (ops.pebble.APIError, ops.pebble.ConnectionError):
             logger.debug("Could not get readiness check status.")
             return False
         check_info = checks.get(self.readiness_check_name)
