@@ -1375,3 +1375,31 @@ def test_coordinator_reconcile_event_filter(
         ctx.run(event, state)
 
     assert len(reconcile_calls) == expected_calls
+
+
+def test_nginx_config_preserves_client_max_body_size(
+    coordinator_state: testing.State,
+    coordinator_charm: ops.CharmBase,
+):
+    # Test that a custom client_max_body_size set by the charm survives the nginx config
+    # rebuild that _reconcile performs to inject the worker telemetry configuration.
+
+    # GIVEN a coordinator charm
+    ctx = testing.Context(coordinator_charm, meta=coordinator_charm.META)
+
+    # WHEN the coordinator rebuilds the nginx config with a custom client_max_body_size
+    with ctx(ctx.on.update_status(), state=coordinator_state) as mgr:
+        charm: coordinator_charm = mgr.charm
+        charm.coordinator._charm_nginx_config = NginxConfig(
+            "localhost", [], {}, client_max_body_size="10m"
+        )
+        nginx_config_obj = charm.coordinator._build_nginx_config()
+
+        # THEN the rebuilt config preserves the custom value
+        assert nginx_config_obj._client_max_body_size == "10m"
+
+        # AND the rendered nginx config contains the directive
+        rendered_config = nginx_config_obj.get_config(
+            charm.coordinator._upstreams_to_addresses, listen_tls=False
+        )
+        assert "client_max_body_size 10m;" in rendered_config
