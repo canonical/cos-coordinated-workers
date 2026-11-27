@@ -57,11 +57,6 @@ dev = [
 "Homepage" = "https://github.com/canonical/cos-coordinated-workers"
 "Bug Tracker" = "https://github.com/canonical/cos-coordinated-workers/issues"
 
-[tool.uv.sources]
-# TEMPORARY: charmlibs-nginx-k8s 1.1.0 is not published on PyPI yet (PR canonical/charmlibs#831).
-# Point it at the PR branch until the release, then remove this block and re-lock with PyPI.
-charmlibs-nginx-k8s = { git = "https://github.com/Abuelodelanada/charmlibs.git", branch = "feat/nginx_client_max_body_size", subdirectory = "nginx_k8s" }
-
 [package]
 include = ["py.typed"]
 
