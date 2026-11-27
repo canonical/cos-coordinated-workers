@@ -1035,6 +1035,7 @@ class Coordinator(ops.Object):
             map_configs=config._map_configs,  # type: ignore[reportPrivateUsage]
             enable_health_check=config._enable_health_check,  # type: ignore[reportPrivateUsage]
             enable_status_page=config._enable_status_page,  # type: ignore[reportPrivateUsage]
+            client_max_body_size=config._client_max_body_size,  # type: ignore[reportPrivateUsage]
         )
 
     def _inject_worker_telemetry_config(
